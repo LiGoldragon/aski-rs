@@ -105,7 +105,7 @@ pub fn generate_rust_from_db_with_config(db: &DbInstance, config: &CodegenConfig
     // Generate in dependency order: types first, then impls, then main
     let kind_order = |kind: &str| -> u8 {
         match kind {
-            "domain" | "struct" | "const" => 0,  // type definitions first
+            "domain" | "struct" | "const" | "type_alias" => 0,  // type definitions first
             "trait" => 1,                         // trait declarations
             "impl" | "inherent_impl" => 2,        // implementations
             "main" => 3,                          // entry point last
@@ -120,6 +120,7 @@ pub fn generate_rust_from_db_with_config(db: &DbInstance, config: &CodegenConfig
             "domain" => gen_domain_from_db(&mut out, db, name, config, &needs_box)?,
             "struct" => gen_struct_from_db(&mut out, db, name, config, &needs_box)?,
             "const" => gen_const_from_db(&mut out, db, *node_id)?,
+            "type_alias" => gen_type_alias_from_db(&mut out, db, *node_id, name)?,
             "trait" => gen_trait_from_db(&mut out, db, *node_id, name)?,
             "impl" => gen_trait_impl_from_db(&mut out, db, *node_id, name, &variant_map, &struct_fields)?,
             "inherent_impl" => gen_inherent_impl_from_db(&mut out, db, *node_id, name, &variant_map, &struct_fields)?,
@@ -305,6 +306,14 @@ fn gen_struct_from_db(
         }
     }
     out.push_str("}\n\n");
+    Ok(())
+}
+
+fn gen_type_alias_from_db(out: &mut String, db: &DbInstance, node_id: i64, name: &str) -> Result<(), String> {
+    let type_ref = db::query_return_type(db, node_id)?
+        .ok_or_else(|| format!("type alias {} has no aliased type", name))?;
+    let rust_type = aski_type_to_rust(&type_ref);
+    out.push_str(&format!("type {name} = {rust_type};\n\n"));
     Ok(())
 }
 
@@ -746,19 +755,19 @@ fn gen_matching_body_from_db(
     db: &DbInstance,
     _method_id: i64,
     ctx: &ExprCtx,
-    arms: &[(i64, Vec<String>, Option<i64>)],
+    arms: &[(i64, Vec<String>, Option<i64>, String)],
 ) -> Result<(), String> {
     let indent = "    ".repeat(ctx.indent);
     let arm_indent = "    ".repeat(ctx.indent + 1);
 
     // Determine if multi-value matching by checking pattern count on first arm
-    let is_multi = arms.first().map(|(_, pats, _)| pats.len() > 1).unwrap_or(false);
+    let is_multi = arms.first().map(|(_, pats, _, _)| pats.len() > 1).unwrap_or(false);
 
     if is_multi {
         // Multi-value matching: build param names from the method's non-self params
         // The param names are snake_cased in gen_method_impl_params, we need them here
         // For now, collect from the arm pattern count and use positional references
-        let param_count = arms.first().map(|(_, pats, _)| pats.len()).unwrap_or(1);
+        let param_count = arms.first().map(|(_, pats, _, _)| pats.len()).unwrap_or(1);
 
         // First param is always self. Additional params come from the method signature.
         // We need to build a tuple match target.
@@ -774,7 +783,7 @@ fn gen_matching_body_from_db(
 
         out.push_str(&format!("{indent}match ({}) {{\n", match_targets.join(", ")));
 
-        for (_ordinal, patterns, body_expr_id) in arms {
+        for (_ordinal, patterns, body_expr_id, _arm_kind) in arms {
             let tuple_pats: Vec<String> = patterns.iter()
                 .map(|p| emit_pattern_from_db(p, ctx, db))
                 .collect();
@@ -789,7 +798,7 @@ fn gen_matching_body_from_db(
         // Single-value matching: match on self
         out.push_str(&format!("{indent}match self {{\n"));
 
-        for (_ordinal, patterns, body_expr_id) in arms {
+        for (_ordinal, patterns, body_expr_id, _arm_kind) in arms {
             if let Some(pat_str) = patterns.first() {
                 let pat = emit_pattern_from_db(pat_str, ctx, db);
 
@@ -1305,6 +1314,26 @@ fn emit_expr_from_db(
                 }
             }
         }
+        "range_exclusive" => {
+            let children = db::query_child_exprs(db, expr_id)?;
+            if children.len() >= 2 {
+                let start = emit_expr_from_db(db, children[0].0, ctx)?;
+                let end = emit_expr_from_db(db, children[1].0, ctx)?;
+                Ok(format!("{start}..{end}"))
+            } else {
+                Ok("todo!()".to_string())
+            }
+        }
+        "range_inclusive" => {
+            let children = db::query_child_exprs(db, expr_id)?;
+            if children.len() >= 2 {
+                let start = emit_expr_from_db(db, children[0].0, ctx)?;
+                let end = emit_expr_from_db(db, children[1].0, ctx)?;
+                Ok(format!("{start}..={end}"))
+            } else {
+                Ok("todo!()".to_string())
+            }
+        }
         "stub" => Ok("todo!()".to_string()),
         _ => Ok("todo!()".to_string()),
     }
@@ -1327,7 +1356,7 @@ fn emit_match_from_db(
     let mut result = format!("match {target} {{\n");
     let arm_indent = "    ".repeat(ctx.indent + 1);
 
-    for (_ordinal, patterns, body_expr_id) in &arms {
+    for (_ordinal, patterns, body_expr_id, _arm_kind) in &arms {
         if let Some(pat_str) = patterns.first() {
             let pat = emit_pattern_from_db(pat_str, ctx, db);
             let body = if let Some(bid) = body_expr_id {

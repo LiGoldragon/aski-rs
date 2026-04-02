@@ -82,7 +82,8 @@ pub fn init_schema(db: &DbInstance) -> Result<(), String> {
         r#":create match_arm {
             match_id: Int, ordinal: Int =>
             patterns: [String],
-            body_expr_id: Int?
+            body_expr_id: Int?,
+            arm_kind: String
         }"#,
     ];
 
@@ -169,9 +170,18 @@ fn insert_item(
         Item::InherentImpl(ii) => insert_inherent_impl(db, ids, ii, parent),
         Item::Const(c) => insert_const(db, ids, c, parent),
         Item::Main(m) => insert_main(db, ids, m, parent),
-        Item::TypeAlias(_) => {
-            // Type aliases are resolved at compile time, no DB storage needed yet
-            Ok(ids.next())
+        Item::TypeAlias(ta) => {
+            let id = ids.next();
+            let span = &ta.span;
+            insert_node(db, id, "type_alias", &ta.name, parent, span)?;
+            // Store the aliased type in the returns relation
+            let aliased = crate::db::type_ref_to_string(&ta.target);
+            let script = format!(
+                "?[node_id, type_ref] <- [[{}, '{}']]\n:put returns {{node_id => type_ref}}",
+                id, aliased
+            );
+            run_mut(db, &script).map_err(|e| format!("insert type alias returns: {e}"))?;
+            Ok(id)
         }
     }
 }
@@ -516,11 +526,10 @@ fn insert_body(
                     ArmKind::Destructure => "destructure",
                 };
                 let script = format!(
-                    "?[match_id, ordinal, patterns, body_expr_id] <- [[{}, {}, {}, {}]]\n:put match_arm {{match_id, ordinal => patterns, body_expr_id}}",
-                    owner_id, arm_ord, patterns_json, body_val
+                    "?[match_id, ordinal, patterns, body_expr_id, arm_kind] <- [[{}, {}, {}, {}, '{}']]\n:put match_arm {{match_id, ordinal => patterns, body_expr_id, arm_kind}}",
+                    owner_id, arm_ord, patterns_json, body_val, kind_str
                 );
                 run_mut(db, &script).map_err(|e| format!("insert match method arm: {e}"))?;
-                let _ = kind_str; // TODO: store arm_kind in DB schema
             }
         }
     }
@@ -639,9 +648,10 @@ fn insert_expr(
                 };
 
                 let body_val = body_expr_id.map(|b| b.to_string()).unwrap_or_else(|| "null".to_string());
+                let kind_str = "commit"; // inline match expressions always commit
                 let script = format!(
-                    "?[match_id, ordinal, patterns, body_expr_id] <- [[{}, {}, {}, {}]]\n:put match_arm {{match_id, ordinal => patterns, body_expr_id}}",
-                    id, arm_ord, patterns_json, body_val
+                    "?[match_id, ordinal, patterns, body_expr_id, arm_kind] <- [[{}, {}, {}, {}, '{}']]\n:put match_arm {{match_id, ordinal => patterns, body_expr_id, arm_kind}}",
+                    id, arm_ord, patterns_json, body_val, kind_str
                 );
                 run_mut(db, &script).map_err(|e| format!("insert match_arm: {e}"))?;
             }
@@ -817,9 +827,9 @@ pub fn query_child_exprs(db: &DbInstance, parent_id: i64) -> Result<Vec<(i64, St
 }
 
 /// Query match arms for a match expression, ordered by ordinal.
-pub fn query_match_arms(db: &DbInstance, match_id: i64) -> Result<Vec<(i64, Vec<String>, Option<i64>)>, String> {
+pub fn query_match_arms(db: &DbInstance, match_id: i64) -> Result<Vec<(i64, Vec<String>, Option<i64>, String)>, String> {
     let script = format!(
-        "?[ordinal, patterns, body_expr_id] := *match_arm{{match_id: {}, ordinal, patterns, body_expr_id}} :order ordinal",
+        "?[ordinal, patterns, body_expr_id, arm_kind] := *match_arm{{match_id: {}, ordinal, patterns, body_expr_id, arm_kind}} :order ordinal",
         match_id
     );
     let result = run_query(db, &script).map_err(|e| format!("query match_arms: {e}"))?;
@@ -832,7 +842,8 @@ pub fn query_match_arms(db: &DbInstance, match_id: i64) -> Result<Vec<(i64, Vec<
             .map(|arr| arr.iter().filter_map(|v| v.get_str().map(|s| s.to_string())).collect())
             .unwrap_or_default();
         let body_expr_id = row[2].get_int();
-        arms.push((ordinal, patterns, body_expr_id));
+        let arm_kind = row[3].get_str().unwrap_or("commit").to_string();
+        arms.push((ordinal, patterns, body_expr_id, arm_kind));
     }
     Ok(arms)
 }
