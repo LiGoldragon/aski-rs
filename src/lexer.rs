@@ -18,6 +18,12 @@ pub enum Token {
     #[token("|)")]
     CompositionClose,
 
+    #[token("[|")]
+    IterOpen,
+
+    #[token("|]")]
+    IterClose,
+
     #[token("..=")]
     RangeInclusive,
 
@@ -167,6 +173,8 @@ impl std::fmt::Display for Token {
             Token::Newline => write!(f, "\\n"),
             Token::CompositionOpen => write!(f, "(|"),
             Token::CompositionClose => write!(f, "|)"),
+            Token::IterOpen => write!(f, "[|"),
+            Token::IterClose => write!(f, "|]"),
             Token::RangeInclusive => write!(f, "..="),
             Token::RangeExclusive => write!(f, ".."),
             Token::Stub => write!(f, "___"),

@@ -4,7 +4,7 @@ use crate::ast::*;
 use crate::lexer::Token;
 use super::tokens::*;
 use super::patterns::matching_body;
-use super::statements::{body, const_body};
+use super::statements::{body, const_body, tail_body};
 
 /// Method signature for trait declarations: `name(params) ReturnType`
 pub(crate) fn method_sig() -> impl Parser<Token, MethodSig, Error = Simple<Token>> + Clone {
@@ -26,9 +26,9 @@ pub(crate) fn method_sig() -> impl Parser<Token, MethodSig, Error = Simple<Token
         })
 }
 
-/// Method body: either computed `[...]` or matching `(| ... |)`
+/// Method body: computed `[...]`, matching `(| ... |)`, or tail-recursive `[| ... |]`
 pub(crate) fn method_body() -> impl Parser<Token, Body, Error = Simple<Token>> + Clone {
-    choice((matching_body(), body()))
+    choice((matching_body(), tail_body(), body()))
 }
 
 /// Method definition for impl blocks:

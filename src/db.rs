@@ -426,7 +426,8 @@ fn insert_method_def(
     parent_id: i64,
 ) -> Result<i64, String> {
     let id = ids.next();
-    insert_node(db, id, "method", &method.name, Some(parent_id), &method.span)?;
+    let kind = if matches!(method.body, Body::TailBlock(_)) { "tail_method" } else { "method" };
+    insert_node(db, id, kind, &method.name, Some(parent_id), &method.span)?;
 
     for (ordinal, param) in method.params.iter().enumerate() {
         insert_param(db, id, ordinal, param)?;
@@ -515,7 +516,7 @@ fn insert_body(
             );
             run_mut(db, &script).map_err(|e| format!("insert stub expr: {e}"))?;
         }
-        Body::Block(stmts) => {
+        Body::Block(stmts) | Body::TailBlock(stmts) => {
             for (ordinal, stmt) in stmts.iter().enumerate() {
                 insert_expr(db, ids, &stmt.node, owner_id, ordinal as i64)?;
             }
@@ -1017,6 +1018,16 @@ pub fn query_struct_fields(db: &DbInstance, struct_name: &str) -> Result<Vec<(i3
         fields.push((ordinal, name, type_ref));
     }
     Ok(fields)
+}
+
+/// Query the kind of a node by its ID.
+pub fn query_node_kind(db: &DbInstance, node_id: i64) -> Result<Option<String>, String> {
+    let script = format!(
+        "?[kind] := *node{{id: {}, kind}}",
+        node_id
+    );
+    let result = run_query(db, &script).map_err(|e| format!("query node kind: {e}"))?;
+    Ok(result.rows.first().and_then(|row| row[0].get_str().map(|s| s.to_string())))
 }
 
 /// Query all nodes of a given kind.

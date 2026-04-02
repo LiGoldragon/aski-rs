@@ -119,6 +119,19 @@ pub(crate) fn body() -> impl Parser<Token, Body, Error = Simple<Token>> + Clone 
         .delimited_by(tok(Token::LBracket), tok(Token::RBracket))
 }
 
+/// Tail-recursive body: `[| stmts |]` — codegen generates loop {}
+pub(crate) fn tail_body() -> impl Parser<Token, Body, Error = Simple<Token>> + Clone {
+    skip_newlines()
+        .ignore_then(
+            statement()
+                .separated_by(skip_newlines())
+                .allow_trailing(),
+        )
+        .then_ignore(skip_newlines())
+        .map(Body::TailBlock)
+        .delimited_by(tok(Token::IterOpen), tok(Token::IterClose))
+}
+
 /// Const value body: `{value}` — uses braces
 pub(crate) fn const_body() -> impl Parser<Token, Body, Error = Simple<Token>> + Clone {
     let block_body = skip_newlines()

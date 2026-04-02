@@ -441,7 +441,7 @@ fn gen_trait_impl_from_db(
 
         // For operator traits with Output: infer from method return type (if not explicit)
         if !has_explicit_output && operator_traits_with_output.contains(&trait_name) {
-            let methods: Vec<_> = all_children.iter().filter(|(_, k, _)| k == "method").collect();
+            let methods: Vec<_> = all_children.iter().filter(|(_, k, _)| k == "method" || k == "tail_method").collect();
             if let Some((method_id, _, _)) = methods.first() {
                 if let Some(ret) = db::query_return_type(db, *method_id)? {
                     out.push_str(&format!("    type Output = {};\n", aski_type_to_rust(&ret)));
@@ -450,7 +450,7 @@ fn gen_trait_impl_from_db(
         }
 
         let is_operator = operator_traits_move_self.contains(&trait_name);
-        let methods: Vec<_> = all_children.iter().filter(|(_, k, _)| k == "method").cloned().collect();
+        let methods: Vec<_> = all_children.iter().filter(|(_, k, _)| k == "method" || k == "tail_method").cloned().collect();
         for (method_id, _kind, method_name) in &methods {
             if is_operator {
                 gen_operator_method_from_db(out, db, *method_id, method_name, type_name, 1, variant_map, struct_fields)?;
@@ -799,10 +799,14 @@ fn gen_body_from_db(
         return Ok(());
     }
 
-    // Tail-call optimization: detect the two-statement pattern
-    // let result = self.method_a(); return result.method_b(args)
-    // where method_b is a matching method with a recursive arm back to current_method
-    if children.len() == 2 && ctx.current_method.is_some() {
+    // Tail-call optimization: triggered by [| ... |] body (tail_method node kind).
+    // Pattern: binding + return of method_call on the binding, where that method
+    // is a matching method with a recursive arm back to current_method.
+    let is_tail_method = db::query_node_kind(db, owner_id)?
+        .map(|k| k == "tail_method")
+        .unwrap_or(false);
+
+    if is_tail_method && children.len() == 2 && ctx.current_method.is_some() {
         let current = ctx.current_method.as_ref().unwrap().clone();
         let (bind_id, bind_kind, _, bind_val) = &children[0];
         let (ret_id, ret_kind, _, _) = &children[1];
@@ -827,9 +831,6 @@ fn gen_body_from_db(
                 if let Ok(Some((ref rk, ref rv))) = db::query_expr_by_id(db, ret_inner_id) {
                     if rk == "method_call" {
                         if let Some(continuation_method) = rv.as_ref() {
-                            // Look up the continuation method in the DB to see if it's a matching method
-                            // with an arm that calls back to current_method
-                            let _cont_snake = to_snake_case(continuation_method);
                             let script = format!(
                                 "?[id] := *node{{id, kind: 'method', name: '{}'}}",
                                 continuation_method.replace('\'', "\\'")
@@ -839,7 +840,6 @@ fn gen_body_from_db(
                                     let cont_method_id = row[0].get_int().unwrap_or(0);
                                     let cont_arms = db::query_match_arms(db, cont_method_id).unwrap_or_default();
                                     if !cont_arms.is_empty() {
-                                        // Check if any arm body calls current_method
                                         let has_recursive_arm = cont_arms.iter().any(|(_, _, body_id, _)| {
                                             if let Some(bid) = body_id {
                                                 contains_method_call_to(db, *bid, &current)
@@ -2006,9 +2006,9 @@ fn is_known_method(name: &str, db: &DbInstance) -> bool {
     ) {
         return true;
     }
-    // Check if the name is a method defined in the DB (trait or inherent)
+    // Check if the name is a method defined in the DB (trait, inherent, or tail)
     let script = format!(
-        "?[id] := *node{{id, kind: 'method', name: '{}'}}", name.replace('\'', "\\'")
+        "?[id] := *node{{id, kind, name: '{}'}}, kind in ['method', 'tail_method']", name.replace('\'', "\\'")
     );
     if let Ok(result) = db.run_script(&script, Default::default(), cozo::ScriptMutability::Immutable) {
         if !result.rows.is_empty() {

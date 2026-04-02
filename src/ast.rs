@@ -213,6 +213,8 @@ pub enum Body {
     Block(Vec<Spanned<Expr>>),
     /// Matching body: `(| arms |)` — pattern dispatch, each arm returns
     MatchBody(Vec<MatchMethodArm>),
+    /// Tail-recursive computed body: `[| stmts |]` — codegen generates loop {}
+    TailBlock(Vec<Spanned<Expr>>),
 }
 
 /// Expression.
