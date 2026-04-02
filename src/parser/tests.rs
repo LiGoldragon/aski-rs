@@ -631,8 +631,8 @@ fn parse_headerless_file() {
 #[test]
 fn parse_destructure_arm() {
     use crate::ast::*;
-    // Destructure arm uses PascalCase token variant names
-    let src = "Tokens [\n  parse(:@Self) Option{Pair{Token Tokens}} (|\n    {PascalIdent LParen @Variants RParen | @Rest}  @Rest\n  |)\n]";
+    // Destructure arm uses PascalCase token variant names — [] delimiters (not {})
+    let src = "Tokens [\n  parse(:@Self) Option{Pair{Token Tokens}} (|\n    [PascalIdent LParen @Variants RParen | @Rest]  @Rest\n  |)\n]";
     let items = parse_source(src).unwrap();
     match &items[0].node {
         Item::InherentImpl(ii) => {

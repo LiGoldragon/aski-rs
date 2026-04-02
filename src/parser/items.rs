@@ -342,6 +342,8 @@ pub(crate) fn impl_block() -> impl Parser<Token, Item, Error = Simple<Token>> + 
             })
         });
 
+    // DEPRECATED: inherent impls (`PascalName [methods]`) — use trait impl form instead.
+    // Kept for backward compatibility during transition.
     let inherent_impl = pascal()
         .then(
             skip_newlines()

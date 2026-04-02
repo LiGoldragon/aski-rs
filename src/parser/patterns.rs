@@ -66,7 +66,7 @@ pub(crate) fn match_pattern() -> impl Parser<Token, Pattern, Error = Simple<Toke
 }
 
 /// A single match method arm: commit `(patterns) result`,
-/// backtrack `[patterns] result`, or destructure `{pattern | @Rest} result`.
+/// backtrack `[patterns] result`, or destructure `[pattern | @Rest] result`.
 pub(crate) fn match_method_arm() -> impl Parser<Token, MatchMethodArm, Error = Simple<Token>> + Clone {
     let patterns = match_pattern()
         .separated_by(skip_newlines())
@@ -100,9 +100,9 @@ pub(crate) fn match_method_arm() -> impl Parser<Token, MatchMethodArm, Error = S
             }
         });
 
-    // Destructure arm: {elements | @Rest} result
+    // Destructure arm: [elements | @Rest] result
     // Elements are PascalCase tokens or @Name bindings, separated by spaces
-    // | @Rest is mandatory
+    // | @Rest is mandatory — the `|` distinguishes destructure from backtrack
     let destr_element = choice((
         tok(Token::At).ignore_then(pascal()).map(DestructureElement::Binding),
         tok(Token::Underscore).map(|_| DestructureElement::Wildcard),
@@ -116,7 +116,7 @@ pub(crate) fn match_method_arm() -> impl Parser<Token, MatchMethodArm, Error = S
         .then_ignore(tok(Token::Pipe))
         .then_ignore(skip_newlines())
         .then(tok(Token::At).ignore_then(pascal()))
-        .delimited_by(tok(Token::LBrace), tok(Token::RBrace))
+        .delimited_by(tok(Token::LBracket), tok(Token::RBracket))
         .then(skip_newlines().ignore_then(expr_parser()))
         .map_with_span(|((elements, rest_name), body_expr), span| {
             MatchMethodArm {
@@ -128,7 +128,8 @@ pub(crate) fn match_method_arm() -> impl Parser<Token, MatchMethodArm, Error = S
             }
         });
 
-    skip_newlines().ignore_then(choice((commit_arm, backtrack_arm, destructure_arm)))
+    // Destructure before backtrack — destructure is more specific (has `|`)
+    skip_newlines().ignore_then(choice((commit_arm, destructure_arm, backtrack_arm)))
 }
 
 /// Matching body: `(| arm1 arm2 ... |)` — pattern dispatch

@@ -349,7 +349,7 @@ pub enum ArmKind {
     Commit,
     /// `[pattern] result` — try, if result fails, next arm
     Backtrack,
-    /// `{pattern | @Rest} result` — split sequence, bind tail
+    /// `[pattern | @Rest] result` — split sequence, bind tail
     Destructure,
 }
 
@@ -423,7 +423,7 @@ pub struct SourceFile {
     pub items: Vec<Spanned<Item>>,
 }
 
-/// A destructure arm pattern element in `{pattern | @Rest}`.
+/// A destructure arm pattern element in `[pattern | @Rest]`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DestructureElement {
     /// Match exact variant: `LParen`, `Colon`
