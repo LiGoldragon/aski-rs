@@ -100,11 +100,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aski-core"
+version = "0.1.0"
+dependencies = [
+ "ascent",
+ "serde_json",
+]
+
+[[package]]
 name = "aski-rs"
 version = "0.1.0"
 dependencies = [
  "ariadne",
  "ascent",
+ "aski-core",
  "chumsky",
  "logos",
  "miette",

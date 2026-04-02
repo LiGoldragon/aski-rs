@@ -2,104 +2,18 @@
 
 use std::collections::HashSet;
 
-use ascent::ascent;
-
 use crate::ast::*;
 
 // ═══════════════════════════════════════════════════════════════
-// Ascent World — all AST relations + derived rules
+// Re-exports from aski-core — the shared Kernel schema
 // ═══════════════════════════════════════════════════════════════
 
-ascent! {
-    pub struct World;
-
-    // Every AST node
-    relation Node(i64, String, String, Option<i64>, usize, usize);
-    // (id, kind, name, parent, span_start, span_end)
-
-    // Domain variants
-    relation Variant(i64, i64, String, Option<String>);
-    // (domain_id, ordinal, name, wraps)
-
-    // Struct fields
-    relation Field(i64, i64, String, String);
-    // (struct_id, ordinal, name, type_ref)
-
-    // Method/function parameters
-    relation Param(i64, i64, String, Option<String>, Option<String>);
-    // (node_id, ordinal, kind, name, type_ref)
-
-    // Return types
-    relation Returns(i64, String);
-    // (node_id, type_ref)
-
-    // Trait implementations
-    relation TraitImpl(String, String, i64);
-    // (trait_name, type_name, impl_node_id)
-
-    // Constants
-    relation Constant(i64, String, String, bool);
-    // (node_id, name, type_ref, has_value)
-
-    // Expression tree
-    relation Expr(i64, Option<i64>, String, i64, Option<String>);
-    // (id, parent_id, kind, ordinal, value)
-
-    // Match arms — patterns serialized as pipe-separated string
-    relation MatchArm(i64, i64, String, Option<i64>, String);
-    // (match_id, ordinal, patterns_json, body_expr_id, arm_kind)
-
-    // Derived: field containment for recursive type detection
-    relation ContainedType(String, String);
-    // (parent_type, child_type) — immediate containment
-
-    ContainedType(parent_type, field_type) <--
-        Node(parent_id, kind, parent_type, _, _, _),
-        if kind == "struct",
-        Field(*parent_id, _, _, field_type);
-
-    ContainedType(parent_type, field_type.clone()) <--
-        Node(parent_id, kind, parent_type, _, _, _),
-        if kind == "domain",
-        Variant(*parent_id, _, _, wraps),
-        if wraps.is_some(),
-        let field_type = wraps.as_ref().unwrap();
-
-    relation TransitiveContains(String, String);
-    // Transitive closure — recursive types need auto-boxing
-    TransitiveContains(x, y) <-- ContainedType(x, y);
-    TransitiveContains(x, z) <-- ContainedType(x, y), TransitiveContains(y, z);
-}
+pub use aski_core::{
+    World, IdGen, ParsedPattern, parse_pattern_string, run_rules,
+};
 
 // ═══════════════════════════════════════════════════════════════
-// ID Generator
-// ═══════════════════════════════════════════════════════════════
-
-/// Counter for generating unique node IDs.
-pub struct IdGen {
-    pub next: i64,
-}
-
-impl IdGen {
-    pub fn new() -> Self {
-        Self { next: 1 }
-    }
-
-    pub fn next(&mut self) -> i64 {
-        let id = self.next;
-        self.next += 1;
-        id
-    }
-}
-
-impl Default for IdGen {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// Type ref formatting (copied from db.rs, no CozoDB dependency)
+// Type ref formatting (depends on aski-rs AST types)
 // ═══════════════════════════════════════════════════════════════
 
 /// Format a TypeRef as a string for storage.
@@ -117,7 +31,7 @@ pub fn type_ref_to_string(tr: &TypeRef) -> String {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Pattern utilities (copied from db.rs, no CozoDB dependency)
+// Pattern utilities (depends on aski-rs AST types)
 // ═══════════════════════════════════════════════════════════════
 
 /// Serialize a pattern to a string for storage.
@@ -140,37 +54,8 @@ fn pattern_to_string(pat: &Pattern) -> String {
     }
 }
 
-/// Parse a pattern string back from storage.
-pub fn parse_pattern_string(s: &str) -> ParsedPattern {
-    match s {
-        "_" => ParsedPattern::Wildcard,
-        "True" => ParsedPattern::BoolLit(true),
-        "False" => ParsedPattern::BoolLit(false),
-        other => {
-            // Check for data-carrying pattern: "Name(@Bind)" or "Name(inner)"
-            if let Some(paren_pos) = other.find('(') {
-                if other.ends_with(')') {
-                    let name = other[..paren_pos].to_string();
-                    let inner = other[paren_pos + 1..other.len() - 1].to_string();
-                    return ParsedPattern::DataCarrying(name, inner);
-                }
-            }
-            ParsedPattern::Variant(other.to_string())
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ParsedPattern {
-    Variant(String),
-    Wildcard,
-    BoolLit(bool),
-    /// Data-carrying variant: Name(binding) — e.g., Parsed(@Toks)
-    DataCarrying(String, String),
-}
-
 // ═══════════════════════════════════════════════════════════════
-// Insert functions
+// Insert functions (depend on aski-rs AST types)
 // ═══════════════════════════════════════════════════════════════
 
 /// Insert a parsed AST into the World.
@@ -753,149 +638,63 @@ pub fn create_world() -> World {
     World::default()
 }
 
-/// Run derived rules (must be called after all inserts, before queries).
-pub fn run_rules(world: &mut World) {
-    world.run();
-}
-
 // ═══════════════════════════════════════════════════════════════
-// Query functions — same shape as db.rs for codegen compatibility
+// Query functions — Result-wrapping shims over aski-core
+//
+// Codegen uses `?` on these, so we keep the Result<T, String>
+// signatures. The underlying aski-core functions never fail.
 // ═══════════════════════════════════════════════════════════════
 
-/// Query all top-level nodes ordered by id (preserving source order).
 pub fn query_all_top_level_nodes(world: &World) -> Result<Vec<(i64, String, String)>, String> {
-    let mut nodes: Vec<(i64, String, String)> = world.Node.iter()
-        .filter(|(_, _, _, parent, _, _)| parent.is_none())
-        .map(|(id, kind, name, _, _, _)| (*id, kind.clone(), name.clone()))
-        .collect();
-    nodes.sort_by_key(|(id, _, _)| *id);
-    Ok(nodes)
+    Ok(aski_core::query_all_top_level_nodes(world))
 }
 
-/// Query child nodes of a parent, ordered by id.
 pub fn query_child_nodes(world: &World, parent_id: i64) -> Result<Vec<(i64, String, String)>, String> {
-    let mut nodes: Vec<(i64, String, String)> = world.Node.iter()
-        .filter(|(_, _, _, parent, _, _)| *parent == Some(parent_id))
-        .map(|(id, kind, name, _, _, _)| (*id, kind.clone(), name.clone()))
-        .collect();
-    nodes.sort_by_key(|(id, _, _)| *id);
-    Ok(nodes)
+    Ok(aski_core::query_child_nodes(world, parent_id))
 }
 
-/// Query domain variants.
 pub fn query_domain_variants(world: &World, domain_name: &str) -> Result<Vec<(i32, String, Option<String>)>, String> {
-    // First find the domain node id
-    let domain_ids: Vec<i64> = world.Node.iter()
-        .filter(|(_, kind, name, _, _, _)| kind == "domain" && name == domain_name)
-        .map(|(id, _, _, _, _, _)| *id)
-        .collect();
-
-    let mut variants: Vec<(i32, String, Option<String>)> = Vec::new();
-    for domain_id in &domain_ids {
-        for (did, ordinal, name, wraps) in &world.Variant {
-            if did == domain_id {
-                variants.push((*ordinal as i32, name.clone(), wraps.clone()));
-            }
-        }
-    }
-    variants.sort_by_key(|(ord, _, _)| *ord);
-    Ok(variants)
+    Ok(aski_core::query_domain_variants(world, domain_name))
 }
 
-/// Query struct fields.
 pub fn query_struct_fields(world: &World, struct_name: &str) -> Result<Vec<(i32, String, String)>, String> {
-    let struct_ids: Vec<i64> = world.Node.iter()
-        .filter(|(_, kind, name, _, _, _)| kind == "struct" && name == struct_name)
-        .map(|(id, _, _, _, _, _)| *id)
-        .collect();
-
-    let mut fields: Vec<(i32, String, String)> = Vec::new();
-    for struct_id in &struct_ids {
-        for (sid, ordinal, name, type_ref) in &world.Field {
-            if sid == struct_id {
-                fields.push((*ordinal as i32, name.clone(), type_ref.clone()));
-            }
-        }
-    }
-    fields.sort_by_key(|(ord, _, _)| *ord);
-    Ok(fields)
+    Ok(aski_core::query_struct_fields(world, struct_name))
 }
 
-/// Query parameters for a function/method node, ordered by ordinal.
 pub fn query_params(world: &World, node_id: i64) -> Result<Vec<(String, Option<String>, Option<String>)>, String> {
-    let mut params: Vec<(i64, String, Option<String>, Option<String>)> = world.Param.iter()
-        .filter(|(nid, _, _, _, _)| *nid == node_id)
-        .map(|(_, ordinal, kind, name, type_ref)| (*ordinal, kind.clone(), name.clone(), type_ref.clone()))
-        .collect();
-    params.sort_by_key(|(ord, _, _, _)| *ord);
-    Ok(params.into_iter().map(|(_, kind, name, type_ref)| (kind, name, type_ref)).collect())
+    Ok(aski_core::query_params(world, node_id))
 }
 
-/// Query return type for a function/method node.
 pub fn query_return_type(world: &World, node_id: i64) -> Result<Option<String>, String> {
-    Ok(world.Returns.iter()
-        .find(|(nid, _)| *nid == node_id)
-        .map(|(_, type_ref)| type_ref.clone()))
+    Ok(aski_core::query_return_type(world, node_id))
 }
 
-/// Query constant by node_id.
 pub fn query_constant(world: &World, node_id: i64) -> Result<Option<(String, String, bool)>, String> {
-    Ok(world.Constant.iter()
-        .find(|(nid, _, _, _)| *nid == node_id)
-        .map(|(_, name, type_ref, has_value)| (name.clone(), type_ref.clone(), *has_value)))
+    Ok(aski_core::query_constant(world, node_id))
 }
 
-/// Query all child expressions of a parent, ordered by ordinal.
 pub fn query_child_exprs(world: &World, parent_id: i64) -> Result<Vec<(i64, String, i64, Option<String>)>, String> {
-    let mut children: Vec<(i64, String, i64, Option<String>)> = world.Expr.iter()
-        .filter(|(_, pid, _, _, _)| *pid == Some(parent_id))
-        .map(|(id, _, kind, ordinal, value)| (*id, kind.clone(), *ordinal, value.clone()))
-        .collect();
-    children.sort_by_key(|(_, _, ordinal, _)| *ordinal);
-    Ok(children)
+    Ok(aski_core::query_child_exprs(world, parent_id))
 }
 
-/// Query match arms for a match expression, ordered by ordinal.
 pub fn query_match_arms(world: &World, match_id: i64) -> Result<Vec<(i64, Vec<String>, Option<i64>, String)>, String> {
-    let mut arms: Vec<(i64, String, Option<i64>, String)> = world.MatchArm.iter()
-        .filter(|(mid, _, _, _, _)| *mid == match_id)
-        .map(|(_, ordinal, patterns_json, body_expr_id, arm_kind)| {
-            (*ordinal, patterns_json.clone(), *body_expr_id, arm_kind.clone())
-        })
-        .collect();
-    arms.sort_by_key(|(ord, _, _, _)| *ord);
-
-    Ok(arms.into_iter().map(|(ordinal, patterns_json, body_expr_id, arm_kind)| {
-        let patterns: Vec<String> = serde_json::from_str(&patterns_json).unwrap_or_default();
-        (ordinal, patterns, body_expr_id, arm_kind)
-    }).collect())
+    Ok(aski_core::query_match_arms(world, match_id))
 }
 
-/// Query a single expression by id.
 pub fn query_expr_by_id(world: &World, expr_id: i64) -> Result<Option<(String, Option<String>)>, String> {
-    Ok(world.Expr.iter()
-        .find(|(id, _, _, _, _)| *id == expr_id)
-        .map(|(_, _, kind, _, value)| (kind.clone(), value.clone())))
+    Ok(aski_core::query_expr_by_id(world, expr_id))
 }
 
-/// Query all nodes of a given kind.
 pub fn query_nodes_by_kind(world: &World, kind: &str) -> Result<Vec<(i64, String)>, String> {
-    let mut nodes: Vec<(i64, String)> = world.Node.iter()
-        .filter(|(_, k, _, _, _, _)| k == kind)
-        .map(|(id, _, name, _, _, _)| (*id, name.clone()))
-        .collect();
-    nodes.sort_by_key(|(id, _)| *id);
-    Ok(nodes)
+    Ok(aski_core::query_nodes_by_kind(world, kind))
 }
 
-/// Query the kind of a node by its ID.
 pub fn query_node_kind(world: &World, node_id: i64) -> Result<Option<String>, String> {
-    Ok(world.Node.iter()
-        .find(|(id, _, _, _, _, _)| *id == node_id)
-        .map(|(_, kind, _, _, _, _)| kind.clone()))
+    Ok(aski_core::query_node_kind(world, node_id))
 }
 
 /// Check if a name is a known method in the World.
+/// Extends aski-core's version with hardcoded stdlib methods.
 pub fn is_known_method(name: &str, world: &World) -> bool {
     if matches!(
         name,
@@ -903,19 +702,15 @@ pub fn is_known_method(name: &str, world: &World) -> bool {
     ) {
         return true;
     }
-    // Check if the name is a method defined in the world
-    world.Node.iter().any(|(_, kind, n, _, _, _)| {
-        (kind == "method" || kind == "tail_method" || kind == "method_sig") && n == name
-    })
+    aski_core::is_known_method(name, world)
 }
 
 /// Query fields that need auto-boxing — where a type contains itself (directly or transitively).
 /// Returns (containing_type, field_name, recursive_type) triples.
+/// This version returns 3-tuples (aski-core returns 2-tuples) for codegen compatibility.
 pub fn query_recursive_fields(world: &World) -> Result<Vec<(String, String, String)>, String> {
-    // After run(), TransitiveContains is computed.
     let mut fields = Vec::new();
 
-    // Find struct fields where the field type transitively contains the owner, or IS the owner
     for (owner_id, kind, owner_name, _, _, _) in &world.Node {
         if kind != "struct" {
             continue;
@@ -924,22 +719,6 @@ pub fn query_recursive_fields(world: &World) -> Result<Vec<(String, String, Stri
             if sid != owner_id {
                 continue;
             }
-            // Check: field_type == owner_name (direct self-reference)
-            // OR: field_type transitively contains owner_name
-            // OR: owner_name transitively contains field_type (mutual recursion via field_type)
-            let _is_recursive = field_type == owner_name
-                || world.TransitiveContains.iter().any(|(a, b)| a == field_type && b == owner_name)
-                || world.TransitiveContains.iter().any(|(a, b)| a == owner_name && b == field_type && field_type == owner_name);
-
-            // Match the CozoDB version more precisely:
-            // recursive_field[owner, field_name, field_type] :=
-            //   *node{id: owner_id, kind: 'struct', name: owner},
-            //   *field{struct_id: owner_id, name: field_name, type_ref: field_type},
-            //   transitive[owner, field_type], field_type == owner
-            // recursive_field[owner, field_name, field_type] :=
-            //   *node{id: owner_id, kind: 'struct', name: owner},
-            //   *field{struct_id: owner_id, name: field_name, type_ref: field_type},
-            //   transitive[field_type, owner]
             let matches_rule1 = field_type == owner_name
                 && world.TransitiveContains.iter().any(|(a, b)| a == owner_name && b == field_type);
             let matches_rule2 = world.TransitiveContains.iter().any(|(a, b)| a == field_type && b == owner_name);
@@ -955,7 +734,6 @@ pub fn query_recursive_fields(world: &World) -> Result<Vec<(String, String, Stri
 
 /// Validate that no method return type references a body-scoped type.
 pub fn validate_return_type_scope(world: &World) -> Result<Vec<(String, String)>, String> {
-    // Body-scoped types have non-null parent and kind in ['struct', 'domain']
     let body_scoped: HashSet<String> = world.Node.iter()
         .filter(|(_, kind, _, parent, _, _)| {
             parent.is_some() && (kind == "struct" || kind == "domain")
