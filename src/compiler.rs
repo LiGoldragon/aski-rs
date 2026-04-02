@@ -5,7 +5,7 @@
 
 use crate::ast::SourceFile;
 use crate::codegen::{CodegenConfig, generate_rust_from_db_with_config};
-use crate::db::{create_db, insert_ast_with_offset};
+use crate::ir;
 use crate::parser::parse_source_file;
 
 /// Compile multiple .aski source files into a single Rust output.
@@ -26,17 +26,20 @@ pub fn compile_files(
         all_files.push(sf);
     }
 
-    // Phase 2: Insert all items into a single CozoDB
+    // Phase 2: Insert all items into a single World
     // Use increasing ID offsets to avoid collisions between files
-    let db = create_db()?;
+    let mut world = ir::create_world();
     let mut id_offset: i64 = 0;
     for sf in &all_files {
-        let count = insert_ast_with_offset(&db, &sf.items, id_offset)?;
+        let count = ir::insert_ast_with_offset(&mut world, &sf.items, id_offset)?;
         id_offset += count;
     }
 
-    // Phase 3: Generate Rust from the combined DB
-    generate_rust_from_db_with_config(&db, config)
+    // Phase 3: Run derived rules before codegen
+    ir::run_rules(&mut world);
+
+    // Phase 4: Generate Rust from the combined World
+    generate_rust_from_db_with_config(&world, config)
 }
 
 /// Compile multiple .aski source files, reading from the filesystem.

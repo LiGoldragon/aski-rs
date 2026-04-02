@@ -22,9 +22,7 @@
 
 use std::collections::HashMap;
 
-use cozo::DbInstance;
-
-use crate::db;
+use crate::ir::{self, World};
 
 /// Convert a camelCase aski trait name to PascalCase Rust trait name.
 fn aski_trait_to_rust(name: &str) -> String {
@@ -67,21 +65,21 @@ impl CodegenConfig {
 }
 
 /// Generate complete, compilable Rust source by querying CozoDB.
-pub fn generate_rust_from_db(db: &DbInstance) -> Result<String, String> {
+pub fn generate_rust_from_db(db: &World) -> Result<String, String> {
     generate_rust_from_db_with_config(db, &CodegenConfig::default())
 }
 
-pub fn generate_rust_from_db_with_config(db: &DbInstance, config: &CodegenConfig) -> Result<String, String> {
+pub fn generate_rust_from_db_with_config(db: &World, config: &CodegenConfig) -> Result<String, String> {
     let variant_map = build_variant_map_from_db(db)?;
     let struct_fields = build_struct_field_map(db)?;
     // Auto-boxing: find fields that need Box due to recursive types
-    let recursive_fields = db::query_recursive_fields(db).unwrap_or_default();
+    let recursive_fields = ir::query_recursive_fields(db).unwrap_or_default();
     let needs_box: std::collections::HashSet<(String, String)> = recursive_fields.iter()
         .map(|(owner, field, _)| (owner.clone(), field.clone()))
         .collect();
     let mut out = String::new();
 
-    let nodes = db::query_all_top_level_nodes(db)?;
+    let nodes = ir::query_all_top_level_nodes(db)?;
 
     // Check for operator trait impls and add imports
     // Trait names are camelCase in aski — map to PascalCase for Rust std::ops
@@ -133,11 +131,11 @@ pub fn generate_rust_from_db_with_config(db: &DbInstance, config: &CodegenConfig
 }
 
 /// Build a variant_name -> domain_name map from the DB.
-fn build_variant_map_from_db(db: &DbInstance) -> Result<HashMap<String, String>, String> {
+fn build_variant_map_from_db(db: &World) -> Result<HashMap<String, String>, String> {
     let mut map = HashMap::new();
-    let domains = db::query_nodes_by_kind(db, "domain")?;
+    let domains = ir::query_nodes_by_kind(db, "domain")?;
     for (_id, domain_name) in &domains {
-        let variants = db::query_domain_variants(db, domain_name)?;
+        let variants = ir::query_domain_variants(db, domain_name)?;
         for (_ord, vname, _wraps) in variants {
             map.insert(vname, domain_name.clone());
         }
@@ -148,11 +146,11 @@ fn build_variant_map_from_db(db: &DbInstance) -> Result<HashMap<String, String>,
 }
 
 /// Build struct_name -> Vec<(field_name, field_type)> map.
-fn build_struct_field_map(db: &DbInstance) -> Result<HashMap<String, Vec<(String, String)>>, String> {
+fn build_struct_field_map(db: &World) -> Result<HashMap<String, Vec<(String, String)>>, String> {
     let mut map = HashMap::new();
-    let structs = db::query_nodes_by_kind(db, "struct")?;
+    let structs = ir::query_nodes_by_kind(db, "struct")?;
     for (_id, name) in &structs {
-        let fields = db::query_struct_fields(db, name)?;
+        let fields = ir::query_struct_fields(db, name)?;
         let field_list: Vec<(String, String)> = fields.into_iter()
             .map(|(_ord, fname, ftype)| (fname, ftype))
             .collect();
@@ -163,15 +161,15 @@ fn build_struct_field_map(db: &DbInstance) -> Result<HashMap<String, Vec<(String
 
 fn gen_domain_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     name: &str,
     config: &CodegenConfig,
     needs_box: &std::collections::HashSet<(String, String)>,
 ) -> Result<(), String> {
-    let variants = db::query_domain_variants(db, name)?;
+    let variants = ir::query_domain_variants(db, name)?;
 
     // Check which variants have inline sub-domains (stored as child domain nodes)
-    let all_domains = db::query_nodes_by_kind(db, "domain").unwrap_or_default();
+    let all_domains = ir::query_nodes_by_kind(db, "domain").unwrap_or_default();
     let sub_domain_names: std::collections::HashSet<String> = all_domains.iter()
         .map(|(_, n)| n.clone())
         .collect();
@@ -181,7 +179,7 @@ fn gen_domain_from_db(
     let mut struct_variant_fields: HashMap<String, Vec<(i32, String, String)>> = HashMap::new();
     for (_ord, vname, _wraps) in &variants {
         // Try to get struct fields for this variant name
-        if let Ok(fields) = db::query_struct_fields(db, vname) {
+        if let Ok(fields) = ir::query_struct_fields(db, vname) {
             if !fields.is_empty() && !sub_domain_names.contains(vname) {
                 struct_variant_fields.insert(vname.clone(), fields);
             }
@@ -249,14 +247,14 @@ fn gen_domain_from_db(
 
 /// Check if an aski type name is Copy-eligible.
 /// Copy-eligible: primitive numeric/bool types and domain enums with no data-carrying variants.
-fn is_copy_eligible(type_name: &str, db: &DbInstance) -> bool {
+fn is_copy_eligible(type_name: &str, db: &World) -> bool {
     match type_name {
         "U8" | "U16" | "U32" | "U64" | "U128"
         | "I8" | "I16" | "I32" | "I64" | "I128"
         | "F32" | "F64" | "Bool" => true,
         _ => {
             // Check if it's a domain (enum) with no data-carrying variants
-            if let Ok(variants) = db::query_domain_variants(db, type_name) {
+            if let Ok(variants) = ir::query_domain_variants(db, type_name) {
                 if !variants.is_empty() {
                     // It is a domain — check that no variant carries data
                     return variants.iter().all(|(_, _, wraps)| wraps.is_none());
@@ -269,12 +267,12 @@ fn is_copy_eligible(type_name: &str, db: &DbInstance) -> bool {
 
 fn gen_struct_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     name: &str,
     config: &CodegenConfig,
     needs_box: &std::collections::HashSet<(String, String)>,
 ) -> Result<(), String> {
-    let fields = db::query_struct_fields(db, name)?;
+    let fields = ir::query_struct_fields(db, name)?;
 
     // Check if all fields are Copy-eligible — if so, derive Copy
     let all_copy = !fields.is_empty() && fields.iter().all(|(_, _, ftype)| {
@@ -309,22 +307,22 @@ fn gen_struct_from_db(
     Ok(())
 }
 
-fn gen_type_alias_from_db(out: &mut String, db: &DbInstance, node_id: i64, name: &str) -> Result<(), String> {
-    let type_ref = db::query_return_type(db, node_id)?
+fn gen_type_alias_from_db(out: &mut String, db: &World, node_id: i64, name: &str) -> Result<(), String> {
+    let type_ref = ir::query_return_type(db, node_id)?
         .ok_or_else(|| format!("type alias {} has no aliased type", name))?;
     let rust_type = aski_type_to_rust(&type_ref);
     out.push_str(&format!("type {name} = {rust_type};\n\n"));
     Ok(())
 }
 
-fn gen_const_from_db(out: &mut String, db: &DbInstance, node_id: i64) -> Result<(), String> {
-    let (name, type_ref, has_value) = db::query_constant(db, node_id)?
+fn gen_const_from_db(out: &mut String, db: &World, node_id: i64) -> Result<(), String> {
+    let (name, type_ref, has_value) = ir::query_constant(db, node_id)?
         .ok_or_else(|| format!("constant node {} not found", node_id))?;
     let rust_type = aski_type_to_rust(&type_ref);
     let screaming = to_screaming_snake(&name);
 
     if has_value {
-        let children = db::query_child_exprs(db, node_id)?;
+        let children = ir::query_child_exprs(db, node_id)?;
         if let Some((child_id, _kind, _ord, _val)) = children.first() {
             let empty_variants = HashMap::new();
             let empty_fields = HashMap::new();
@@ -343,18 +341,18 @@ fn gen_const_from_db(out: &mut String, db: &DbInstance, node_id: i64) -> Result<
 
 fn gen_trait_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     node_id: i64,
     name: &str,
 ) -> Result<(), String> {
     let rust_name = aski_trait_to_rust(name);
     out.push_str(&format!("pub trait {rust_name} {{\n"));
 
-    let children = db::query_child_nodes(db, node_id)?;
+    let children = ir::query_child_nodes(db, node_id)?;
     for (child_id, kind, child_name) in &children {
         if kind == "method_sig" {
-            let params = db::query_params(db, *child_id)?;
-            let return_type = db::query_return_type(db, *child_id)?;
+            let params = ir::query_params(db, *child_id)?;
+            let return_type = ir::query_return_type(db, *child_id)?;
 
             let rust_params = gen_trait_method_params(&params);
             let ret = return_type.as_ref()
@@ -363,11 +361,11 @@ fn gen_trait_from_db(
             let snake = to_snake_case(child_name);
             out.push_str(&format!("    fn {snake}({rust_params}){ret};\n"));
         } else if kind == "const" {
-            if let Some((cname, type_ref, has_value)) = db::query_constant(db, *child_id)? {
+            if let Some((cname, type_ref, has_value)) = ir::query_constant(db, *child_id)? {
                 let rust_type = aski_type_to_rust(&type_ref);
                 let screaming = to_screaming_snake(&cname);
                 if has_value {
-                    let expr_children = db::query_child_exprs(db, *child_id)?;
+                    let expr_children = ir::query_child_exprs(db, *child_id)?;
                     if let Some((expr_id, _, _, _)) = expr_children.first() {
                         let empty_variants = HashMap::new();
                         let empty_fields = HashMap::new();
@@ -390,13 +388,13 @@ fn gen_trait_from_db(
 
 fn gen_trait_impl_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     node_id: i64,
     trait_name: &str,
     variant_map: &HashMap<String, String>,
     struct_fields: &HashMap<String, Vec<(String, String)>>,
 ) -> Result<(), String> {
-    let impl_bodies = db::query_child_nodes(db, node_id)?;
+    let impl_bodies = ir::query_child_nodes(db, node_id)?;
 
     // Trait names are camelCase in aski — convert to PascalCase for Rust
     let operator_traits_with_output = ["add", "sub", "mul", "div", "rem"];
@@ -407,22 +405,22 @@ fn gen_trait_impl_from_db(
         out.push_str(&format!("impl {rust_trait_name} for {type_name} {{\n"));
 
         // Emit associated types and constants from DB (assoc_type / const child nodes)
-        let all_children = db::query_child_nodes(db, *impl_body_id)?;
+        let all_children = ir::query_child_nodes(db, *impl_body_id)?;
         let mut has_explicit_output = false;
         for (assoc_id, kind, assoc_name) in &all_children {
             if kind == "assoc_type" {
-                if let Some(type_ref) = db::query_return_type(db, *assoc_id)? {
+                if let Some(type_ref) = ir::query_return_type(db, *assoc_id)? {
                     out.push_str(&format!("    type {} = {};\n", assoc_name, aski_type_to_rust(&type_ref)));
                     if assoc_name == "Output" {
                         has_explicit_output = true;
                     }
                 }
             } else if kind == "const" {
-                if let Some((cname, type_ref, has_value)) = db::query_constant(db, *assoc_id)? {
+                if let Some((cname, type_ref, has_value)) = ir::query_constant(db, *assoc_id)? {
                     let rust_type = aski_type_to_rust(&type_ref);
                     let screaming = to_screaming_snake(&cname);
                     if has_value {
-                        let expr_children = db::query_child_exprs(db, *assoc_id)?;
+                        let expr_children = ir::query_child_exprs(db, *assoc_id)?;
                         if let Some((expr_id, _, _, _)) = expr_children.first() {
                             let empty_variants = HashMap::new();
                             let empty_fields = HashMap::new();
@@ -443,7 +441,7 @@ fn gen_trait_impl_from_db(
         if !has_explicit_output && operator_traits_with_output.contains(&trait_name) {
             let methods: Vec<_> = all_children.iter().filter(|(_, k, _)| k == "method" || k == "tail_method").collect();
             if let Some((method_id, _, _)) = methods.first() {
-                if let Some(ret) = db::query_return_type(db, *method_id)? {
+                if let Some(ret) = ir::query_return_type(db, *method_id)? {
                     out.push_str(&format!("    type Output = {};\n", aski_type_to_rust(&ret)));
                 }
             }
@@ -466,7 +464,7 @@ fn gen_trait_impl_from_db(
 
 fn gen_inherent_impl_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     node_id: i64,
     type_name: &str,
     variant_map: &HashMap<String, String>,
@@ -474,7 +472,7 @@ fn gen_inherent_impl_from_db(
 ) -> Result<(), String> {
     out.push_str(&format!("impl {type_name} {{\n"));
 
-    let methods = db::query_child_nodes(db, node_id)?;
+    let methods = ir::query_child_nodes(db, node_id)?;
     for (method_id, _kind, method_name) in &methods {
         gen_method_impl_from_db(out, db, *method_id, method_name, type_name, 1, true, variant_map, struct_fields)?;
     }
@@ -486,7 +484,7 @@ fn gen_inherent_impl_from_db(
 /// Generate an operator trait method (uses `self` not `&self`, owned params).
 fn gen_operator_method_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     method_id: i64,
     method_name: &str,
     self_type: &str,
@@ -495,8 +493,8 @@ fn gen_operator_method_from_db(
     struct_fields: &HashMap<String, Vec<(String, String)>>,
 ) -> Result<(), String> {
     let indent = "    ".repeat(base_indent);
-    let params = db::query_params(db, method_id)?;
-    let return_type = db::query_return_type(db, method_id)?;
+    let params = ir::query_params(db, method_id)?;
+    let return_type = ir::query_return_type(db, method_id)?;
 
     // Generate params with self (not &self) and owned types (not borrowed)
     let mut parts = Vec::new();
@@ -543,7 +541,7 @@ fn gen_operator_method_from_db(
 
 fn gen_method_impl_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     method_id: i64,
     method_name: &str,
     self_type: &str,
@@ -553,8 +551,8 @@ fn gen_method_impl_from_db(
     struct_fields: &HashMap<String, Vec<(String, String)>>,
 ) -> Result<(), String> {
     let indent = "    ".repeat(base_indent);
-    let params = db::query_params(db, method_id)?;
-    let return_type = db::query_return_type(db, method_id)?;
+    let params = ir::query_params(db, method_id)?;
+    let return_type = ir::query_return_type(db, method_id)?;
 
     let rust_params = gen_method_impl_params(&params);
     let ret = return_type.as_ref()
@@ -582,7 +580,7 @@ fn gen_method_impl_from_db(
 
 fn gen_main_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     node_id: i64,
     variant_map: &HashMap<String, String>,
     struct_fields: &HashMap<String, Vec<(String, String)>>,
@@ -775,17 +773,17 @@ impl<'a> ExprCtx<'a> {
 /// Generate function/method body from DB.
 fn gen_body_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     owner_id: i64,
     ctx: &ExprCtx,
 ) -> Result<(), String> {
     // Check if this is a matching method body (has match_arm rows)
-    let arms = db::query_match_arms(db, owner_id)?;
+    let arms = ir::query_match_arms(db, owner_id)?;
     if !arms.is_empty() {
         return gen_matching_body_from_db(out, db, owner_id, ctx, &arms);
     }
 
-    let children = db::query_child_exprs(db, owner_id)?;
+    let children = ir::query_child_exprs(db, owner_id)?;
 
     if children.is_empty() {
         let indent = "    ".repeat(ctx.indent);
@@ -802,7 +800,7 @@ fn gen_body_from_db(
     // Tail-call optimization: triggered by [| ... |] body (tail_method node kind).
     // Pattern: binding + return of method_call on the binding, where that method
     // is a matching method with a recursive arm back to current_method.
-    let is_tail_method = db::query_node_kind(db, owner_id)?
+    let is_tail_method = ir::query_node_kind(db, owner_id)?
         .map(|k| k == "tail_method")
         .unwrap_or(false);
 
@@ -816,10 +814,10 @@ fn gen_body_from_db(
 
         if is_binding && is_return {
             // Check if the return's inner expression is a method_call on the binding
-            let ret_children = db::query_child_exprs(db, *ret_id)?;
+            let ret_children = ir::query_child_exprs(db, *ret_id)?;
             let ret_inner_id = if let Some((rid, rkind, _, _)) = ret_children.first() {
                 if rkind == "group" {
-                    db::query_child_exprs(db, *rid)?.first().map(|(id, _, _, _)| *id).unwrap_or(*rid)
+                    ir::query_child_exprs(db, *rid)?.first().map(|(id, _, _, _)| *id).unwrap_or(*rid)
                 } else {
                     *rid
                 }
@@ -828,17 +826,17 @@ fn gen_body_from_db(
             };
 
             if ret_inner_id != 0 {
-                if let Ok(Some((ref rk, ref rv))) = db::query_expr_by_id(db, ret_inner_id) {
+                if let Ok(Some((ref rk, ref rv))) = ir::query_expr_by_id(db, ret_inner_id) {
                     if rk == "method_call" {
                         if let Some(continuation_method) = rv.as_ref() {
-                            let script = format!(
-                                "?[id] := *node{{id, kind: 'method', name: '{}'}}",
-                                continuation_method.replace('\'', "\\'")
-                            );
-                            if let Ok(result) = db.run_script(&script, Default::default(), cozo::ScriptMutability::Immutable) {
-                                for row in &result.rows {
-                                    let cont_method_id = row[0].get_int().unwrap_or(0);
-                                    let cont_arms = db::query_match_arms(db, cont_method_id).unwrap_or_default();
+                            // Find method nodes with this name
+                            let method_nodes: Vec<(i64, String)> = db.Node.iter()
+                                .filter(|(_, kind, name, _, _, _)| kind == "method" && name == continuation_method)
+                                .map(|(id, _, _, _, _, _)| (*id, continuation_method.clone()))
+                                .collect();
+                            {
+                                for (cont_method_id, _) in &method_nodes {
+                                    let cont_arms = ir::query_match_arms(db, *cont_method_id).unwrap_or_default();
                                     if !cont_arms.is_empty() {
                                         let has_recursive_arm = cont_arms.iter().any(|(_, _, body_id, _)| {
                                             if let Some(bid) = body_id {
@@ -853,7 +851,7 @@ fn gen_body_from_db(
                                                 out, db, ctx,
                                                 *bind_id, bind_kind, bind_val.as_deref(),
                                                 ret_inner_id, continuation_method,
-                                                cont_method_id, &cont_arms,
+                                                *cont_method_id, &cont_arms,
                                             );
                                         }
                                     }
@@ -896,7 +894,7 @@ fn gen_body_from_db(
 #[allow(clippy::too_many_arguments)]
 fn gen_fused_tail_call_loop(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     ctx: &ExprCtx,
     bind_id: i64,
     bind_kind: &str,
@@ -976,8 +974,8 @@ fn gen_fused_tail_call_loop(
             // Add pattern bindings to context
             let mut arm_ctx = loop_ctx.clone();
             arm_ctx.indent = ctx.indent + 2;
-            let parsed_pat = db::parse_pattern_string(pat_str);
-            if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+            let parsed_pat = ir::parse_pattern_string(pat_str);
+            if let ir::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
                 if inner.starts_with('@') {
                     let bind_name = &inner[1..];
                     arm_ctx.bindings.insert(
@@ -1033,7 +1031,7 @@ fn gen_fused_tail_call_loop(
 /// The method params are the match targets, the match_arm rows are the arms.
 fn gen_matching_body_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     _method_id: i64,
     ctx: &ExprCtx,
     arms: &[(i64, Vec<String>, Option<i64>, String)],
@@ -1091,8 +1089,8 @@ fn gen_matching_body_from_db(
                         let mut arm_ctx = ctx.clone();
                         // Add pattern bindings
                         if let Some(pat_str) = patterns.first() {
-                            let parsed_pat = db::parse_pattern_string(pat_str);
-                            if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+                            let parsed_pat = ir::parse_pattern_string(pat_str);
+                            if let ir::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
                                 if inner.starts_with('@') {
                                     let bind_name = &inner[1..];
                                     arm_ctx.bindings.insert(bind_name.to_string(), to_snake_case(bind_name));
@@ -1184,8 +1182,8 @@ fn gen_matching_body_from_db(
                     if let Some(bid) = body_expr_id {
                         let mut arm_ctx = ctx.clone();
                         if let Some(pat_str) = patterns.first() {
-                            let parsed_pat = db::parse_pattern_string(pat_str);
-                            if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+                            let parsed_pat = ir::parse_pattern_string(pat_str);
+                            if let ir::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
                                 if inner.starts_with('@') {
                                     let bind_name = &inner[1..];
                                     arm_ctx.bindings.insert(bind_name.to_string(), to_snake_case(bind_name));
@@ -1222,8 +1220,8 @@ fn gen_matching_body_from_db(
 
                     // Add pattern bindings to context for the arm body
                     let mut arm_ctx = ctx.clone();
-                    let parsed_pat = db::parse_pattern_string(pat_str);
-                    if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+                    let parsed_pat = ir::parse_pattern_string(pat_str);
+                    if let ir::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
                         if inner.starts_with('@') {
                             let bind_name = &inner[1..];
                             arm_ctx.bindings.insert(
@@ -1251,7 +1249,7 @@ fn gen_matching_body_from_db(
 
 fn gen_statement_from_db(
     out: &mut String,
-    db: &DbInstance,
+    db: &World,
     expr_id: i64,
     kind: &str,
     value: Option<&str>,
@@ -1275,7 +1273,7 @@ fn gen_statement_from_db(
         "same_type_new" | "deferred_new" => {
             let name = value.unwrap_or("");
             let var_name = to_snake_case(name);
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if children.is_empty() {
                 out.push_str(&format!("{indent}let {var_name} = {name} {{}};\n"));
             } else if children.len() == 1 {
@@ -1284,9 +1282,9 @@ fn gen_statement_from_db(
                     // Single field pair: Value(5.0) → Radius { value: 5.0 }
                     // The struct_construct's name is the field name, wrap in binding type
                     let field_name = to_snake_case(child_val.as_deref().unwrap_or(""));
-                    let grandchildren = db::query_child_exprs(db, *child_id)?;
+                    let grandchildren = ir::query_child_exprs(db, *child_id)?;
                     if let Some((gc_id, _gk, _go, _gv)) = grandchildren.first() {
-                        let gc_inner = db::query_child_exprs(db, *gc_id)?;
+                        let gc_inner = ir::query_child_exprs(db, *gc_id)?;
                         if let Some((val_id, _vk, _vo, _vv)) = gc_inner.first() {
                             let v = emit_expr_from_db(db, *val_id, ctx)?;
                             out.push_str(&format!("{indent}let {var_name} = {name} {{ {field_name}: {v} }};\n"));
@@ -1309,7 +1307,7 @@ fn gen_statement_from_db(
                 for (child_id, child_kind, _ord, child_val) in &children {
                     if child_kind == "struct_field" {
                         let fname = to_snake_case(child_val.as_deref().unwrap_or(""));
-                        let inner = db::query_child_exprs(db, *child_id)?;
+                        let inner = ir::query_child_exprs(db, *child_id)?;
                         if let Some((val_id, _k, _o, _v)) = inner.first() {
                             let v = emit_expr_from_db(db, *val_id, ctx)?;
                             field_inits.push(format!("{fname}: {v}"));
@@ -1318,9 +1316,9 @@ fn gen_statement_from_db(
                         // A field initializer like Value(5.0) parsed as struct_construct
                         let inner_name = child_val.as_deref().unwrap_or("");
                         let fname = to_snake_case(inner_name);
-                        let grandchildren = db::query_child_exprs(db, *child_id)?;
+                        let grandchildren = ir::query_child_exprs(db, *child_id)?;
                         if let Some((gc_id, _gk, _go, _gv)) = grandchildren.first() {
-                            let gc_children = db::query_child_exprs(db, *gc_id)?;
+                            let gc_children = ir::query_child_exprs(db, *gc_id)?;
                             if let Some((val_id, _vk, _vo, _vv)) = gc_children.first() {
                                 let v = emit_expr_from_db(db, *val_id, ctx)?;
                                 field_inits.push(format!("{fname}: {v}"));
@@ -1343,7 +1341,7 @@ fn gen_statement_from_db(
                     let type_name = &val[colon_idx + 1..];
                     let var_name = to_snake_case(name);
                     let rust_type = aski_type_to_rust(type_name);
-                    let children = db::query_child_exprs(db, expr_id)?;
+                    let children = ir::query_child_exprs(db, expr_id)?;
                     let is_primitive = matches!(type_name, "U8"|"U16"|"U32"|"U64"|"U128"|"I8"|"I16"|"I32"|"I64"|"I128"|"F32"|"F64"|"Bool"|"String");
                     if is_primitive || children.len() == 1 {
                         // Primitive or single expression — just emit with type annotation
@@ -1359,9 +1357,9 @@ fn gen_statement_from_db(
                         for (child_id, child_kind, _ord, child_val) in &children {
                             if child_kind == "struct_construct" {
                                 let field_name = to_snake_case(child_val.as_deref().unwrap_or(""));
-                                let grandchildren = db::query_child_exprs(db, *child_id)?;
+                                let grandchildren = ir::query_child_exprs(db, *child_id)?;
                                 if let Some((gc_id, _gk, _go, _gv)) = grandchildren.first() {
-                                    let gc_inner = db::query_child_exprs(db, *gc_id)?;
+                                    let gc_inner = ir::query_child_exprs(db, *gc_id)?;
                                     if let Some((val_id, _vk, _vo, _vv)) = gc_inner.first() {
                                         let v = emit_expr_from_db(db, *val_id, ctx)?;
                                         field_inits.push(format!("{field_name}: {v}"));
@@ -1389,7 +1387,7 @@ fn gen_statement_from_db(
                     let type_name = &val[colon_idx + 1..];
                     let var_name = to_snake_case(name);
                     let rust_type = aski_type_to_rust(type_name);
-                    let children = db::query_child_exprs(db, expr_id)?;
+                    let children = ir::query_child_exprs(db, expr_id)?;
                     if let Some((child_id, _kind, _ord, _val)) = children.first() {
                         let child_val = emit_expr_from_db(db, *child_id, ctx)?;
                         out.push_str(&format!("{indent}let mut {var_name}: {rust_type} = {child_val};\n"));
@@ -1401,24 +1399,24 @@ fn gen_statement_from_db(
         "mutable_set" => {
             let name = value.unwrap_or("");
             let var_name = ctx.bindings.get(name).cloned().unwrap_or_else(|| to_snake_case(name));
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, _kind, _ord, _val)) = children.first() {
                 let val = emit_expr_from_db(db, *child_id, ctx)?;
                 out.push_str(&format!("{indent}{var_name} = {val};\n"));
             }
         }
         "error_prop" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, _kind, _ord, _val)) = children.first() {
                 let val = emit_expr_from_db(db, *child_id, ctx)?;
                 out.push_str(&format!("{indent}{val}?;\n"));
             }
         }
         "return" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, child_kind, _ord, _val)) = children.first() {
                 let actual_id = if child_kind == "group" {
-                    let inner = db::query_child_exprs(db, *child_id)?;
+                    let inner = ir::query_child_exprs(db, *child_id)?;
                     inner.first().map(|(id, _, _, _)| *id).unwrap_or(*child_id)
                 } else {
                     *child_id
@@ -1432,7 +1430,7 @@ fn gen_statement_from_db(
             }
         }
         "stdout" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, child_kind, _ord, child_val)) = children.first() {
                 if child_kind == "string_lit" {
                     let s = child_val.as_deref().unwrap_or("");
@@ -1467,11 +1465,11 @@ fn gen_statement_from_db(
 
 /// Emit a Rust expression string from a DB expr node.
 fn emit_expr_from_db(
-    db: &DbInstance,
+    db: &World,
     expr_id: i64,
     ctx: &ExprCtx,
 ) -> Result<String, String> {
-    let (kind, value) = db::query_expr_by_id(db, expr_id)?
+    let (kind, value) = ir::query_expr_by_id(db, expr_id)?
         .ok_or_else(|| format!("expr {} not found", expr_id))?;
 
     match kind.as_str() {
@@ -1490,7 +1488,7 @@ fn emit_expr_from_db(
             Ok(ctx.resolve_instance(&name))
         }
         "return" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, _, _, _)) = children.first() {
                 emit_expr_from_db(db, *child_id, ctx)
             } else {
@@ -1499,7 +1497,7 @@ fn emit_expr_from_db(
         }
         "binop" => {
             let op = value.unwrap_or_default();
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if children.len() >= 2 {
                 let left = emit_expr_from_db(db, children[0].0, ctx)?;
                 let right = emit_expr_from_db(db, children[1].0, ctx)?;
@@ -1509,7 +1507,7 @@ fn emit_expr_from_db(
             }
         }
         "group" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, _, _, _)) = children.first() {
                 let inner = emit_expr_from_db(db, *child_id, ctx)?;
                 Ok(format!("({inner})"))
@@ -1518,7 +1516,7 @@ fn emit_expr_from_db(
             }
         }
         "inline_eval" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if children.len() == 1 {
                 emit_expr_from_db(db, children[0].0, ctx)
             } else if let Some(last) = children.last() {
@@ -1529,7 +1527,7 @@ fn emit_expr_from_db(
         }
         "access" => {
             let field = value.unwrap_or_default();
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, child_kind, _, _)) = children.first() {
                 let base = emit_expr_from_db(db, *child_id, ctx)?;
                 // Wrap inline_eval and binop bases in parens for method calls
@@ -1541,8 +1539,8 @@ fn emit_expr_from_db(
                 let f = to_snake_case(&field);
                 // camelCase = verb = method call, PascalCase = noun = field access
                 let is_method = field.starts_with(|c: char| c.is_lowercase())
-                    || is_known_method(&f, db)
-                    || is_known_method(&field, db);
+                    || is_known_method_codegen(&f, db)
+                    || is_known_method_codegen(&field, db);
                 if is_method {
                     // Vec .len() returns usize — cast to u32 for aski's fixed-size types.
                     // Ephemeral usize — see module doc for rationale.
@@ -1570,7 +1568,7 @@ fn emit_expr_from_db(
         "fn_call" => {
             let name = value.unwrap_or_default();
             let snake = to_snake_case(&name);
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             let mut args = Vec::new();
             for (child_id, _kind, _ord, _val) in &children {
                 let arg = emit_expr_from_db(db, *child_id, ctx)?;
@@ -1580,7 +1578,7 @@ fn emit_expr_from_db(
         }
         // v0.8 binding forms used as expressions
         "same_type_new" | "deferred_new" | "sub_type_new" | "mutable_new" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, _kind, _ord, _val)) = children.first() {
                 emit_expr_from_db(db, *child_id, ctx)
             } else {
@@ -1588,7 +1586,7 @@ fn emit_expr_from_db(
             }
         }
         "error_prop" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, _kind, _ord, _val)) = children.first() {
                 let val = emit_expr_from_db(db, *child_id, ctx)?;
                 Ok(format!("{val}?"))
@@ -1598,7 +1596,7 @@ fn emit_expr_from_db(
         }
         "struct_construct" => {
             let name = value.unwrap_or_default();
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
 
             // Check if this is a variant construction (name is in variant_map)
             // If so, generate Domain::Variant(value) instead of Struct { field: value }
@@ -1607,7 +1605,7 @@ fn emit_expr_from_db(
                 if children.len() == 1 {
                     let fname = children[0].3.as_deref().unwrap_or("");
                     if fname == "_0" {
-                        let inner = db::query_child_exprs(db, children[0].0)?;
+                        let inner = ir::query_child_exprs(db, children[0].0)?;
                         if let Some((val_id, _k, _o, _v)) = inner.first() {
                             let val = emit_expr_from_db(db, *val_id, ctx)?;
                             let qualified = ctx.qualify_variant(&name);
@@ -1620,7 +1618,7 @@ fn emit_expr_from_db(
             let mut field_inits = Vec::new();
             for (child_id, _kind, _ord, field_name) in &children {
                 let fname = to_snake_case(field_name.as_deref().unwrap_or(""));
-                let inner = db::query_child_exprs(db, *child_id)?;
+                let inner = ir::query_child_exprs(db, *child_id)?;
                 if let Some((val_id, _k, _o, _v)) = inner.first() {
                     let val = emit_expr_from_db(db, *val_id, ctx)?;
                     field_inits.push(format!("{fname}: {val}"));
@@ -1630,7 +1628,7 @@ fn emit_expr_from_db(
         }
         "method_call" => {
             let method = value.unwrap_or_default();
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if children.is_empty() {
                 return Ok("todo!()".to_string());
             }
@@ -1649,9 +1647,9 @@ fn emit_expr_from_db(
                     // Args may be struct_construct (FieldName(value)) or bare expressions
                     if child_kind == "struct_construct" {
                         let field_name = to_snake_case(child_val.as_deref().unwrap_or(""));
-                        let grandchildren = db::query_child_exprs(db, *child_id)?;
+                        let grandchildren = ir::query_child_exprs(db, *child_id)?;
                         if let Some((gc_id, _gk, _go, _gv)) = grandchildren.first() {
-                            let gc_inner = db::query_child_exprs(db, *gc_id)?;
+                            let gc_inner = ir::query_child_exprs(db, *gc_id)?;
                             if let Some((val_id, _vk, _vo, _vv)) = gc_inner.first() {
                                 let v = emit_expr_from_db(db, *val_id, ctx)?;
                                 field_inits.push(format!("{field_name}: {v}"));
@@ -1734,7 +1732,7 @@ fn emit_expr_from_db(
         }
         // ;; STATUS: removed from spec, kept for backward compat (DB may still contain comprehension nodes)
         "comprehension" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             // child 0 = source, child 1 = output (optional), child 2 = guard (optional)
             let source = if let Some((child_id, _, _, _)) = children.first() {
                 emit_expr_from_db(db, *child_id, ctx)?
@@ -1767,7 +1765,7 @@ fn emit_expr_from_db(
             }
         }
         "range_exclusive" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if children.len() >= 2 {
                 let start = emit_expr_from_db(db, children[0].0, ctx)?;
                 let end = emit_expr_from_db(db, children[1].0, ctx)?;
@@ -1777,7 +1775,7 @@ fn emit_expr_from_db(
             }
         }
         "range_inclusive" => {
-            let children = db::query_child_exprs(db, expr_id)?;
+            let children = ir::query_child_exprs(db, expr_id)?;
             if children.len() >= 2 {
                 let start = emit_expr_from_db(db, children[0].0, ctx)?;
                 let end = emit_expr_from_db(db, children[1].0, ctx)?;
@@ -1792,12 +1790,12 @@ fn emit_expr_from_db(
 }
 
 fn emit_match_from_db(
-    db: &DbInstance,
+    db: &World,
     match_id: i64,
     ctx: &ExprCtx,
 ) -> Result<String, String> {
-    let children = db::query_child_exprs(db, match_id)?;
-    let arms = db::query_match_arms(db, match_id)?;
+    let children = ir::query_child_exprs(db, match_id)?;
+    let arms = ir::query_match_arms(db, match_id)?;
 
     if children.is_empty() {
         return Ok("todo!()".to_string());
@@ -1825,15 +1823,15 @@ fn emit_match_from_db(
     Ok(result)
 }
 
-fn emit_pattern_from_db(pat_str: &str, ctx: &ExprCtx, db: &DbInstance) -> String {
-    let parsed = db::parse_pattern_string(pat_str);
+fn emit_pattern_from_db(pat_str: &str, ctx: &ExprCtx, db: &World) -> String {
+    let parsed = ir::parse_pattern_string(pat_str);
     match parsed {
-        db::ParsedPattern::Variant(name) => {
+        ir::ParsedPattern::Variant(name) => {
             let qualified = ctx.qualify_variant(&name);
             // Check if this variant carries data — if so, add (..) wildcard
             if let Some(domain_name) = ctx.variant_map.get(&name) {
                 if domain_name != "bool" {
-                    if let Ok(variants) = db::query_domain_variants(db, domain_name) {
+                    if let Ok(variants) = ir::query_domain_variants(db, domain_name) {
                         for (_ord, vname, wraps) in &variants {
                             if vname == &name && wraps.is_some() {
                                 return format!("{qualified}(..)");
@@ -1844,7 +1842,7 @@ fn emit_pattern_from_db(pat_str: &str, ctx: &ExprCtx, db: &DbInstance) -> String
             }
             qualified
         }
-        db::ParsedPattern::DataCarrying(name, inner) => {
+        ir::ParsedPattern::DataCarrying(name, inner) => {
             let qualified = ctx.qualify_variant(&name);
             // Inner binding: @Name → ref variable, _ → wildcard
             if inner.starts_with('@') {
@@ -1856,8 +1854,8 @@ fn emit_pattern_from_db(pat_str: &str, ctx: &ExprCtx, db: &DbInstance) -> String
                 format!("{qualified}(..)")
             }
         }
-        db::ParsedPattern::Wildcard => "_".to_string(),
-        db::ParsedPattern::BoolLit(b) => b.to_string(),
+        ir::ParsedPattern::Wildcard => "_".to_string(),
+        ir::ParsedPattern::BoolLit(b) => b.to_string(),
     }
 }
 
@@ -1935,13 +1933,13 @@ fn emit_interpolation_expr(s: &str, ctx: &ExprCtx) -> String {
 /// Check if an expression node is a method_call to a specific method name.
 /// Returns Some((receiver_expr_id, vec_of_arg_ids)) if it matches, None otherwise.
 fn is_method_call_to(
-    db: &DbInstance,
+    db: &World,
     expr_id: i64,
     method_name: &str,
 ) -> Option<(i64, Vec<i64>)> {
-    if let Ok(Some((kind, value))) = db::query_expr_by_id(db, expr_id) {
+    if let Ok(Some((kind, value))) = ir::query_expr_by_id(db, expr_id) {
         if kind == "method_call" && value.as_deref() == Some(method_name) {
-            if let Ok(children) = db::query_child_exprs(db, expr_id) {
+            if let Ok(children) = ir::query_child_exprs(db, expr_id) {
                 if !children.is_empty() {
                     let receiver = children[0].0;
                     let args: Vec<i64> = children.iter().skip(1).map(|(id, _, _, _)| *id).collect();
@@ -1955,14 +1953,14 @@ fn is_method_call_to(
 
 /// Check if any expression in a subtree contains a method_call to a specific method name.
 fn contains_method_call_to(
-    db: &DbInstance,
+    db: &World,
     expr_id: i64,
     method_name: &str,
 ) -> bool {
     if is_method_call_to(db, expr_id, method_name).is_some() {
         return true;
     }
-    if let Ok(children) = db::query_child_exprs(db, expr_id) {
+    if let Ok(children) = ir::query_child_exprs(db, expr_id) {
         for (child_id, _, _, _) in &children {
             if contains_method_call_to(db, *child_id, method_name) {
                 return true;
@@ -1975,12 +1973,12 @@ fn contains_method_call_to(
 /// Recursively collect instance_ref names from an expression tree that are NOT in ctx.bindings.
 /// These are inferred element bindings for collection trait methods.
 fn collect_unknown_instance_refs(
-    db: &DbInstance,
+    db: &World,
     expr_id: i64,
     ctx: &ExprCtx,
     out: &mut Vec<String>,
 ) {
-    if let Ok(Some((kind, value))) = db::query_expr_by_id(db, expr_id) {
+    if let Ok(Some((kind, value))) = ir::query_expr_by_id(db, expr_id) {
         if kind == "instance_ref" {
             if let Some(name) = value {
                 if name != "Self" && !ctx.bindings.contains_key(&name) {
@@ -1991,7 +1989,7 @@ fn collect_unknown_instance_refs(
             }
         }
         // Recurse into children
-        if let Ok(children) = db::query_child_exprs(db, expr_id) {
+        if let Ok(children) = ir::query_child_exprs(db, expr_id) {
             for (child_id, _, _, _) in &children {
                 collect_unknown_instance_refs(db, *child_id, ctx, out);
             }
@@ -1999,32 +1997,8 @@ fn collect_unknown_instance_refs(
     }
 }
 
-fn is_known_method(name: &str, db: &DbInstance) -> bool {
-    if matches!(
-        name,
-        "sqrt" | "abs" | "len" | "clone" | "to_string" | "is_empty" | "unwrap"
-    ) {
-        return true;
-    }
-    // Check if the name is a method defined in the DB (trait, inherent, or tail)
-    let script = format!(
-        "?[id] := *node{{id, kind, name: '{}'}}, kind in ['method', 'tail_method']", name.replace('\'', "\\'")
-    );
-    if let Ok(result) = db.run_script(&script, Default::default(), cozo::ScriptMutability::Immutable) {
-        if !result.rows.is_empty() {
-            return true;
-        }
-    }
-    // Also check method_sig (trait declarations)
-    let script2 = format!(
-        "?[id] := *node{{id, kind: 'method_sig', name: '{}'}}", name.replace('\'', "\\'")
-    );
-    if let Ok(result) = db.run_script(&script2, Default::default(), cozo::ScriptMutability::Immutable) {
-        if !result.rows.is_empty() {
-            return true;
-        }
-    }
-    false
+fn is_known_method_codegen(name: &str, world: &World) -> bool {
+    ir::is_known_method(name, world)
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2101,15 +2075,20 @@ fn to_screaming_snake(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{create_db, insert_ast};
+    use crate::ir;
     use crate::parser::parse_source;
+
+    fn setup(src: &str) -> World {
+        let mut world = ir::create_world();
+        let items = parse_source(src).unwrap();
+        ir::insert_ast(&mut world, &items).unwrap();
+        ir::run_rules(&mut world);
+        world
+    }
 
     #[test]
     fn codegen_domain() {
-        let db = create_db().unwrap();
-        let items = parse_source("Element (Fire Earth Air Water)").unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Element (Fire Earth Air Water)");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.contains("pub enum Element"));
@@ -2119,10 +2098,7 @@ mod tests {
 
     #[test]
     fn codegen_struct() {
-        let db = create_db().unwrap();
-        let items = parse_source("Point { X F64 Y F64 }").unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Point { X F64 Y F64 }");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.contains("pub struct Point"));
@@ -2140,11 +2116,7 @@ mod tests {
 
     #[test]
     fn codegen_inherent_method() {
-        let db = create_db().unwrap();
-        let src = "Addition { Left U32 Right U32 }\nAddition [ add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ] ]";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Addition { Left U32 Right U32 }\nAddition [ add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ] ]");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.contains("pub struct Addition"));
@@ -2154,11 +2126,7 @@ mod tests {
 
     #[test]
     fn codegen_same_type_binding() {
-        let db = create_db().unwrap();
-        let src = "Main [ @Radius.new(5.0) ]";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Main [ @Radius.new(5.0) ]");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.contains("fn main()"));
@@ -2167,11 +2135,7 @@ mod tests {
 
     #[test]
     fn codegen_subtype_binding() {
-        let db = create_db().unwrap();
-        let src = "Main [ @Area F64.new(42.0) ]";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Main [ @Area F64.new(42.0) ]");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.contains("fn main()"));
@@ -2180,12 +2144,7 @@ mod tests {
 
     #[test]
     fn codegen_auto_box_recursive_struct() {
-        let db = create_db().unwrap();
-        // LinkedList contains itself — Left field is LinkedList
-        let src = "LinkedList { Value U32 Next LinkedList }";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("LinkedList { Value U32 Next LinkedList }");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         eprintln!("=== Generated ===\n{code}");
@@ -2195,31 +2154,21 @@ mod tests {
 
     #[test]
     fn codegen_inline_domain_variant() {
-        let db = create_db().unwrap();
-        let src = "Domain (One (A B C) Two)";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Domain (One (A B C) Two)");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         eprintln!("=== Generated ===\n{code}");
-        // Sub-domain One should be its own enum
         assert!(code.contains("pub enum One"), "inline domain should generate sub-enum: {code}");
         assert!(code.contains("A,"), "sub-enum should have variant A: {code}");
         assert!(code.contains("B,"), "sub-enum should have variant B: {code}");
         assert!(code.contains("C,"), "sub-enum should have variant C: {code}");
-        // Parent domain should wrap it
         assert!(code.contains("One(One)"), "parent variant should wrap sub-enum: {code}");
         assert!(code.contains("Two,"), "unit variant should remain: {code}");
     }
 
     #[test]
     fn codegen_operator_trait_impl() {
-        let db = create_db().unwrap();
-        let src = "Point { X F64 Y F64 }\nadd [Point [\n  add(:@Self @Rhs Point) Point [\n    ^Point(X([@Self.X + @Rhs.X]) Y([@Self.Y + @Rhs.Y]))\n  ]\n]]";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Point { X F64 Y F64 }\nadd [Point [\n  add(:@Self @Rhs Point) Point [\n    ^Point(X([@Self.X + @Rhs.X]) Y([@Self.Y + @Rhs.Y]))\n  ]\n]]");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         eprintln!("=== Generated ===\n{code}");
@@ -2231,12 +2180,7 @@ mod tests {
 
     #[test]
     fn codegen_copy_derive_auto() {
-        let db = create_db().unwrap();
-        // All fields are Copy (f64) → should get Copy derive
-        let src = "Point { X F64 Y F64 }";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Point { X F64 Y F64 }");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         eprintln!("=== Generated ===\n{code}");
@@ -2246,12 +2190,7 @@ mod tests {
 
     #[test]
     fn codegen_copy_derive_not_for_string() {
-        let db = create_db().unwrap();
-        // String is not Copy — should NOT get Copy derive
-        let src = "Person { Name String Age U32 }";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Person { Name String Age U32 }");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         eprintln!("=== Generated ===\n{code}");
@@ -2263,11 +2202,7 @@ mod tests {
     #[test]
     #[ignore]
     fn codegen_comprehension() {
-        let db = create_db().unwrap();
-        let src = "Main [ [| @AllSigns @Sign.element {@Sign.modality == Cardinal} |] ]";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Main [ [| @AllSigns @Sign.element {@Sign.modality == Cardinal} |] ]");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         eprintln!("=== Generated ===\n{code}");
@@ -2279,11 +2214,7 @@ mod tests {
 
     #[test]
     fn codegen_struct_variant() {
-        let db = create_db().unwrap();
-        let src = "Shape (Circle (F64) Rectangle { Width F64 Height F64 })";
-        let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-
+        let db = setup("Shape (Circle (F64) Rectangle { Width F64 Height F64 })");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         eprintln!("=== Generated ===\n{code}");

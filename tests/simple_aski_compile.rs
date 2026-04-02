@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::Command;
 
 use aski_rs::codegen::{CodegenConfig, generate_rust_from_db_with_config};
-use aski_rs::db::{create_db, insert_ast};
+use aski_rs::ir;
 use aski_rs::parser::parse_source;
 
 #[test]
@@ -17,13 +17,14 @@ fn simple_aski_parses_stores_generates_compiles() {
     let items = parse_source(&source).expect("failed to parse simple.aski");
     assert!(!items.is_empty(), "parsed zero items");
 
-    // 3. Insert into CozoDB
-    let db = create_db().expect("failed to create db");
-    insert_ast(&db, &items).expect("failed to insert AST into db");
+    // 3. Insert into World
+    let mut world = ir::create_world();
+    ir::insert_ast(&mut world, &items).expect("failed to insert AST into world");
+    ir::run_rules(&mut world);
 
-    // 4. Generate Rust code from DB
+    // 4. Generate Rust code from World
     let config = CodegenConfig { rkyv: false };
-    let rust_code = generate_rust_from_db_with_config(&db, &config).expect("failed to generate Rust from DB");
+    let rust_code = generate_rust_from_db_with_config(&world, &config).expect("failed to generate Rust from World");
 
     eprintln!("=== Generated Rust ===\n{rust_code}\n=== End ===");
 

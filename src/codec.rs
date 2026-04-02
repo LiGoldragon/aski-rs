@@ -10,7 +10,7 @@
 //! Round-trip: encode(decode(bytes)) == bytes
 //! No type_name parameter — the data describes itself via World.
 
-use cozo::DbInstance;
+use crate::ir::World;
 
 // ═══════════════════════════════════════════════════════════════
 // World — the top-level Domain, derived from the DB
@@ -18,21 +18,20 @@ use cozo::DbInstance;
 
 /// Query all top-level domains in declaration order.
 /// These are World's variants — their ordinal is their position.
-fn world_variants(db: &DbInstance) -> Result<Vec<(i32, String, String)>, String> {
+fn world_variants(db: &World) -> Result<Vec<(i32, String, String)>, String> {
     // All top-level nodes (parent=null) that are domains or structs, ordered by id
-    let script = "?[id, kind, name] := *node{id, kind, name, parent: null}, kind in ['domain', 'struct'] :order id";
-    let result = db
-        .run_script(script, Default::default(), cozo::ScriptMutability::Immutable)
-        .map_err(|e| format!("world_variants: {e}"))?;
-    Ok(result.rows.iter().enumerate().map(|(ordinal, row)| {
-        let kind = row[1].get_str().unwrap_or("").to_string();
-        let name = row[2].get_str().unwrap_or("").to_string();
+    let mut nodes: Vec<(i64, String, String)> = db.Node.iter()
+        .filter(|(_, kind, _, parent, _, _)| parent.is_none() && (kind == "domain" || kind == "struct"))
+        .map(|(id, kind, name, _, _, _)| (*id, kind.clone(), name.clone()))
+        .collect();
+    nodes.sort_by_key(|(id, _, _)| *id);
+    Ok(nodes.into_iter().enumerate().map(|(ordinal, (_, kind, name))| {
         (ordinal as i32, name, kind)
     }).collect())
 }
 
 /// Look up a World variant name by ordinal.
-fn world_variant_name(db: &DbInstance, ordinal: i32) -> Result<(String, String), String> {
+fn world_variant_name(db: &World, ordinal: i32) -> Result<(String, String), String> {
     let variants = world_variants(db)?;
     variants.iter()
         .find(|(o, _, _)| *o == ordinal)
@@ -41,7 +40,7 @@ fn world_variant_name(db: &DbInstance, ordinal: i32) -> Result<(String, String),
 }
 
 /// Look up a World variant ordinal by name.
-fn world_variant_ordinal(db: &DbInstance, name: &str) -> Result<(i32, String), String> {
+fn world_variant_ordinal(db: &World, name: &str) -> Result<(i32, String), String> {
     let variants = world_variants(db)?;
     variants.iter()
         .find(|(_, n, _)| n == name)
@@ -53,54 +52,30 @@ fn world_variant_ordinal(db: &DbInstance, name: &str) -> Result<(i32, String), S
 // Schema queries
 // ═══════════════════════════════════════════════════════════════
 
-fn type_kind(db: &DbInstance, type_name: &str) -> Result<Option<String>, String> {
-    let script = format!(
-        "?[kind] := *node{{kind, name: '{}'}}, kind in ['domain', 'struct']",
-        type_name.replace('\'', "\\'")
-    );
-    let result = db
-        .run_script(&script, Default::default(), cozo::ScriptMutability::Immutable)
-        .map_err(|e| format!("type_kind: {e}"))?;
-    Ok(result.rows.first().and_then(|r| r[0].get_str().map(|s| s.to_string())))
+fn type_kind(db: &World, type_name: &str) -> Result<Option<String>, String> {
+    Ok(db.Node.iter()
+        .find(|(_, kind, name, _, _, _)| (kind == "domain" || kind == "struct") && name == type_name)
+        .map(|(_, kind, _, _, _, _)| kind.clone()))
 }
 
-fn struct_fields(db: &DbInstance, type_name: &str) -> Result<Vec<(String, String)>, String> {
-    let script = format!(
-        "?[ordinal, name, type_ref] := *node{{id, kind: 'struct', name: '{}'}}, *field{{struct_id: id, ordinal, name, type_ref}} :order ordinal",
-        type_name.replace('\'', "\\'")
-    );
-    let result = db
-        .run_script(&script, Default::default(), cozo::ScriptMutability::Immutable)
-        .map_err(|e| format!("struct_fields: {e}"))?;
-    Ok(result.rows.iter().map(|row| {
-        (row[1].get_str().unwrap_or("").to_string(),
-         row[2].get_str().unwrap_or("").to_string())
-    }).collect())
+fn struct_fields(db: &World, type_name: &str) -> Result<Vec<(String, String)>, String> {
+    let fields = crate::ir::query_struct_fields(db, type_name)?;
+    Ok(fields.into_iter().map(|(_, name, type_ref)| (name, type_ref)).collect())
 }
 
-fn variant_name(db: &DbInstance, domain: &str, ordinal: i32) -> Result<String, String> {
-    let script = format!(
-        "?[name] := *node{{id, kind: 'domain', name: '{}'}}, *variant{{domain_id: id, ordinal: {}, name}}",
-        domain.replace('\'', "\\'"), ordinal
-    );
-    let result = db
-        .run_script(&script, Default::default(), cozo::ScriptMutability::Immutable)
-        .map_err(|e| format!("variant_name: {e}"))?;
-    result.rows.first()
-        .and_then(|r| r[0].get_str().map(|s| s.to_string()))
+fn variant_name(db: &World, domain: &str, ordinal: i32) -> Result<String, String> {
+    let variants = crate::ir::query_domain_variants(db, domain)?;
+    variants.iter()
+        .find(|(o, _, _)| *o == ordinal)
+        .map(|(_, name, _)| name.clone())
         .ok_or_else(|| format!("no variant at ordinal {ordinal} in {domain}"))
 }
 
-fn variant_ordinal(db: &DbInstance, domain: &str, name: &str) -> Result<i32, String> {
-    let script = format!(
-        "?[ordinal] := *node{{id, kind: 'domain', name: '{}'}}, *variant{{domain_id: id, ordinal, name: '{}'}}",
-        domain.replace('\'', "\\'"), name.replace('\'', "\\'")
-    );
-    let result = db
-        .run_script(&script, Default::default(), cozo::ScriptMutability::Immutable)
-        .map_err(|e| format!("variant_ordinal: {e}"))?;
-    result.rows.first()
-        .and_then(|r| r[0].get_int().map(|i| i as i32))
+fn variant_ordinal(db: &World, domain: &str, name: &str) -> Result<i32, String> {
+    let variants = crate::ir::query_domain_variants(db, domain)?;
+    variants.iter()
+        .find(|(_, n, _)| n == name)
+        .map(|(o, _, _)| *o)
         .ok_or_else(|| format!("variant '{name}' not found in {domain}"))
 }
 
@@ -114,7 +89,7 @@ fn variant_ordinal(db: &DbInstance, domain: &str, name: &str) -> Result<i32, Str
 /// Example: decode(db, &[4, 5, 8, 8])
 ///   where World variant 4 = Placement
 ///   → "Placement(Body(Jupiter) Position(Sagittarius) HouseNum(Ninth))"
-pub fn decode(db: &DbInstance, bytes: &[u8]) -> Result<String, String> {
+pub fn decode(db: &World, bytes: &[u8]) -> Result<String, String> {
     if bytes.is_empty() {
         return Err("empty bytes".to_string());
     }
@@ -143,7 +118,7 @@ pub fn decode(db: &DbInstance, bytes: &[u8]) -> Result<String, String> {
 }
 
 fn decode_struct(
-    db: &DbInstance,
+    db: &World,
     type_name: &str,
     ordinals: &[i32],
     cursor: &mut usize,
@@ -158,7 +133,7 @@ fn decode_struct(
 }
 
 fn decode_value(
-    db: &DbInstance,
+    db: &World,
     type_name: &str,
     ordinals: &[i32],
     cursor: &mut usize,
@@ -195,7 +170,7 @@ fn decode_value(
 ///
 /// Example: encode(db, "Placement(Body(Jupiter) Position(Sagittarius) HouseNum(Ninth))")
 ///   → [world_ord_of_Placement, 5, 8, 8]
-pub fn encode(db: &DbInstance, aski_expr: &str) -> Result<Vec<u8>, String> {
+pub fn encode(db: &World, aski_expr: &str) -> Result<Vec<u8>, String> {
     let tokens = tokenize(aski_expr)?;
     if tokens.is_empty() {
         return Err("empty expression".to_string());
@@ -271,7 +246,7 @@ fn tokenize(expr: &str) -> Result<Vec<String>, String> {
 }
 
 fn encode_struct(
-    db: &DbInstance,
+    db: &World,
     type_name: &str,
     tokens: &[String],
     cursor: &mut usize,
@@ -312,7 +287,7 @@ fn encode_struct(
 }
 
 fn encode_value(
-    db: &DbInstance,
+    db: &World,
     type_name: &str,
     tokens: &[String],
     cursor: &mut usize,
@@ -349,11 +324,11 @@ fn encode_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{create_db, insert_ast};
+    use crate::ir;
     use crate::parser::parse_source;
 
-    fn setup_world() -> DbInstance {
-        let db = create_db().unwrap();
+    fn setup_world() -> World {
+        let mut world = ir::create_world();
         let src = "\
 Element (Fire Earth Air Water)
 Modality (Cardinal Fixed Mutable)
@@ -363,8 +338,9 @@ House (First Second Third Fourth Fifth Sixth Seventh Eighth Ninth Tenth Eleventh
 Placement { Body Planet Position Sign HouseNum House }
 ChartSummary { SunPlacement Placement MoonPlacement Placement DominantElement Element }";
         let items = parse_source(src).unwrap();
-        insert_ast(&db, &items).unwrap();
-        db
+        ir::insert_ast(&mut world, &items).unwrap();
+        ir::run_rules(&mut world);
+        world
     }
 
     #[test]

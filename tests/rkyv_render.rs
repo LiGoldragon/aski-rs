@@ -3,11 +3,11 @@ use std::process::Command;
 
 use aski_rs::codegen::{CodegenConfig, generate_rust_from_db_with_config};
 use aski_rs::codec;
-use aski_rs::db::{create_db, insert_ast};
+use aski_rs::ir;
 use aski_rs::parser::parse_source;
 
-/// End-to-end: parse .aski → generate Rust with rkyv → compile → serialize →
-/// capture bytes → decode to aski syntax via codec.
+/// End-to-end: parse .aski -> generate Rust with rkyv -> compile -> serialize ->
+/// capture bytes -> decode to aski syntax via codec.
 #[test]
 fn rkyv_serialize_then_decode_via_codec() {
     // 1. Parse render_test.aski
@@ -15,14 +15,15 @@ fn rkyv_serialize_then_decode_via_codec() {
     let path = format!("{manifest}/encoder/design/v0.9/examples/render_test.aski");
     let source = std::fs::read_to_string(&path).expect("failed to read render_test.aski");
 
-    // 2. Parse and insert into CozoDB
+    // 2. Parse and insert into World
     let items = parse_source(&source).expect("failed to parse");
-    let db = create_db().expect("failed to create db");
-    insert_ast(&db, &items).expect("failed to insert AST");
+    let mut world = ir::create_world();
+    ir::insert_ast(&mut world, &items).expect("failed to insert AST");
+    ir::run_rules(&mut world);
 
     // 3. Generate Rust with rkyv=true
     let config = CodegenConfig { rkyv: true };
-    let mut rust_code = generate_rust_from_db_with_config(&db, &config).expect("failed to generate");
+    let mut rust_code = generate_rust_from_db_with_config(&world, &config).expect("failed to generate");
 
     // 4. Append main that serializes and prints rkyv bytes
     rust_code.push_str(r#"
@@ -118,16 +119,16 @@ rkyv = { version = "0.8", features = ["bytecheck"] }
     let chart_bytes = rkyv_bytes.get("CHART").expect("no CHART");
     assert_eq!(chart_bytes, &[0, 0, 0, 1, 3, 3, 0], "nested chart ordinals");
 
-    // 8. Use codec to encode aski text → bytes, verify matches rkyv output
-    let encoded = codec::encode(&db, "Placement(Body(Jupiter) Position(Sagittarius) HouseNum(Ninth))").unwrap();
+    // 8. Use codec to encode aski text -> bytes, verify matches rkyv output
+    let encoded = codec::encode(&world, "Placement(Body(Jupiter) Position(Sagittarius) HouseNum(Ninth))").unwrap();
     // First byte is World ordinal for Placement, rest is field ordinals
     assert_eq!(&encoded[1..], placement_bytes, "codec encode matches rkyv serialization");
 
-    // 9. Use codec to decode rkyv bytes → aski text
+    // 9. Use codec to decode rkyv bytes -> aski text
     // Prepend World ordinal for Placement to the rkyv bytes
     let mut world_bytes = encoded[0..1].to_vec();
     world_bytes.extend_from_slice(placement_bytes);
-    let decoded = codec::decode(&db, &world_bytes).unwrap();
+    let decoded = codec::decode(&world, &world_bytes).unwrap();
     assert_eq!(decoded, "Placement(Body(Jupiter) Position(Sagittarius) HouseNum(Ninth))");
 
     let _ = std::fs::remove_dir_all(&proj_dir);
