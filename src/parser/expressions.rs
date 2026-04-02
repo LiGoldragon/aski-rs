@@ -39,57 +39,6 @@ pub(crate) fn expr_parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<
             .ignore_then(pascal())
             .map_with_span(|name, span| Spanned::new(Expr::InstanceRef(name), span));
 
-        // Comprehension: `[| @Source expr {guard} |]`
-        let comp_guard = expr.clone()
-            .delimited_by(tok(Token::LBrace), tok(Token::RBrace));
-
-        // Filter only: [| source {guard} |]
-        let comp_filter = tok(Token::ComprehensionOpen)
-            .ignore_then(skip_newlines())
-            .ignore_then(expr.clone())
-            .then(skip_newlines().ignore_then(comp_guard.clone()))
-            .then_ignore(skip_newlines())
-            .then_ignore(tok(Token::ComprehensionClose))
-            .map_with_span(|(source, guard), span| {
-                Spanned::new(Expr::Comprehension {
-                    source: Box::new(source),
-                    output: None,
-                    guard: Some(Box::new(guard)),
-                }, span)
-            });
-
-        // Map + optional guard: [| source output {guard}? |]
-        let comp_map = tok(Token::ComprehensionOpen)
-            .ignore_then(skip_newlines())
-            .ignore_then(expr.clone())
-            .then(skip_newlines().ignore_then(expr.clone()))
-            .then(skip_newlines().ignore_then(comp_guard).or_not())
-            .then_ignore(skip_newlines())
-            .then_ignore(tok(Token::ComprehensionClose))
-            .map_with_span(|((source, output), guard), span| {
-                Spanned::new(Expr::Comprehension {
-                    source: Box::new(source),
-                    output: Some(Box::new(output)),
-                    guard: guard.map(|g| Box::new(g)),
-                }, span)
-            });
-
-        // Source only: [| source |]
-        let comp_source = tok(Token::ComprehensionOpen)
-            .ignore_then(skip_newlines())
-            .ignore_then(expr.clone())
-            .then_ignore(skip_newlines())
-            .then_ignore(tok(Token::ComprehensionClose))
-            .map_with_span(|source, span| {
-                Spanned::new(Expr::Comprehension {
-                    source: Box::new(source),
-                    output: None,
-                    guard: None,
-                }, span)
-            });
-
-        let comprehension = choice((comp_filter, comp_map, comp_source));
-
         // Inline evaluation: `[expr expr ...]` — Luna brackets
         let inline_eval = skip_newlines()
             .ignore_then(expr.clone())
@@ -218,7 +167,6 @@ pub(crate) fn expr_parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<
             int_lit,
             str_lit,
             instance_ref,
-            comprehension,
             inline_eval,
             group,
             stdout,

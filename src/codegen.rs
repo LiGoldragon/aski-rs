@@ -1271,6 +1271,7 @@ fn emit_expr_from_db(
             }
             Ok(format!("{base}.{snake}({})", args.join(", ")))
         }
+        // ;; STATUS: removed from spec, kept for backward compat (DB may still contain comprehension nodes)
         "comprehension" => {
             let children = db::query_child_exprs(db, expr_id)?;
             // child 0 = source, child 1 = output (optional), child 2 = guard (optional)
@@ -1702,7 +1703,9 @@ mod tests {
         assert!(!code.contains("Copy"), "struct with String field should not derive Copy: {code}");
     }
 
+    // ;; STATUS: removed from spec — comprehension parser deleted, test will fail until removed
     #[test]
+    #[ignore]
     fn codegen_comprehension() {
         let db = create_db().unwrap();
         let src = "Main [ [| @AllSigns @Sign.element {@Sign.modality == Cardinal} |] ]";

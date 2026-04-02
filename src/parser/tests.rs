@@ -290,7 +290,9 @@ fn parse_mutable_binding() {
 
 // === v0.9 tests ===
 
+// ;; STATUS: removed from spec — comprehension parser deleted, tests will fail until removed
 #[test]
+#[ignore]
 fn parse_comprehension_source_only() {
     // Simplest comprehension — just source, no output, no guard
     let src = "Main [ [| @AllSigns |] ]";
@@ -306,7 +308,9 @@ fn parse_comprehension_source_only() {
     }
 }
 
+// ;; STATUS: removed from spec
 #[test]
+#[ignore]
 fn parse_comprehension_filter() {
     let src = "Main [ [| @AllSigns {@Sign.element == Fire} |] ]";
     let items = parse_source(src).unwrap();
@@ -321,7 +325,9 @@ fn parse_comprehension_filter() {
     }
 }
 
+// ;; STATUS: removed from spec
 #[test]
+#[ignore]
 fn parse_comprehension_map() {
     let src = "Main [ [| @AllSigns @Sign.element |] ]";
     let items = parse_source(src).unwrap();
@@ -342,7 +348,9 @@ fn parse_comprehension_map() {
     }
 }
 
+// ;; STATUS: removed from spec
 #[test]
+#[ignore]
 fn parse_comprehension_filter_map() {
     let src = "Main [ [| @AllSigns @Sign.element {@Sign.modality == Cardinal} |] ]";
     let items = parse_source(src).unwrap();
