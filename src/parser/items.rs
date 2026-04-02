@@ -223,18 +223,25 @@ pub(crate) fn trait_decl() -> impl Parser<Token, Item, Error = Simple<Token>> + 
         })
 }
 
-/// An impl member: either an associated type `PascalName Type` (consumed/discarded)
-/// or a method definition (returned). Associated types are parsed and discarded
-/// so they don't block parsing. TODO: proper AST storage for associated types.
-fn impl_member() -> impl Parser<Token, Option<MethodDef>, Error = Simple<Token>> + Clone {
-    // Associated type: PascalName PascalName — two PascalCase identifiers.
+/// An impl member: either an associated type `PascalName Type` or a method definition.
+#[derive(Debug, Clone)]
+enum ImplMember {
+    AssocType(AssociatedTypeDef),
+    Method(MethodDef),
+}
+
+fn impl_member() -> impl Parser<Token, ImplMember, Error = Simple<Token>> + Clone {
+    // Associated type: PascalName Type — PascalCase name followed by a type ref.
     // Method defs start with camelCase, so there's no ambiguity.
-    // We parse and discard associated types for now.
     let assoc_type = pascal()
         .then(type_ref())
-        .map(|_| None);
+        .map_with_span(|(name, concrete_type), span| ImplMember::AssocType(AssociatedTypeDef {
+            name,
+            concrete_type,
+            span,
+        }));
 
-    let method = method_def().map(Some);
+    let method = method_def().map(ImplMember::Method);
 
     choice((assoc_type, method))
 }
@@ -254,10 +261,18 @@ pub(crate) fn impl_block() -> impl Parser<Token, Item, Error = Simple<Token>> + 
                 .delimited_by(tok(Token::LBracket), tok(Token::RBracket)),
         )
         .map_with_span(|(target, members), span| {
-            let methods: Vec<MethodDef> = members.into_iter().flatten().collect();
+            let mut methods = Vec::new();
+            let mut associated_types = Vec::new();
+            for member in members {
+                match member {
+                    ImplMember::Method(m) => methods.push(m),
+                    ImplMember::AssocType(a) => associated_types.push(a),
+                }
+            }
             TypeImpl {
                 target,
                 methods,
+                associated_types,
                 span,
             }
         });

@@ -506,7 +506,7 @@ fn parse_sequence_destructure() {
 
 #[test]
 fn parse_associated_type_in_impl() {
-    // Associated type `Output Point` should be parsed and discarded;
+    // Associated type `Output Point` should be parsed and stored;
     // the method `add` should still be parsed correctly.
     let src = r#"add [Point [
   Output Point
@@ -520,7 +520,11 @@ fn parse_associated_type_in_impl() {
             assert_eq!(ti.trait_name, "add");
             assert_eq!(ti.impls.len(), 1);
             assert_eq!(ti.impls[0].target, "Point");
-            // Associated type was discarded — only the method remains
+            // Associated type is now stored
+            assert_eq!(ti.impls[0].associated_types.len(), 1);
+            assert_eq!(ti.impls[0].associated_types[0].name, "Output");
+            assert!(matches!(&ti.impls[0].associated_types[0].concrete_type, TypeRef::Named(n) if n == "Point"));
+            // Method remains
             assert_eq!(ti.impls[0].methods.len(), 1);
             assert_eq!(ti.impls[0].methods[0].name, "add");
         }

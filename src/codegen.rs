@@ -385,9 +385,23 @@ fn gen_trait_impl_from_db(
     for (impl_body_id, _kind, type_name) in &impl_bodies {
         out.push_str(&format!("impl {rust_trait_name} for {type_name} {{\n"));
 
-        // For operator traits with Output: infer from method return type
-        if operator_traits_with_output.contains(&trait_name) {
-            let methods = db::query_child_nodes(db, *impl_body_id)?;
+        // Emit associated types from DB (assoc_type child nodes)
+        let all_children = db::query_child_nodes(db, *impl_body_id)?;
+        let mut has_explicit_output = false;
+        for (assoc_id, kind, assoc_name) in &all_children {
+            if kind == "assoc_type" {
+                if let Some(type_ref) = db::query_return_type(db, *assoc_id)? {
+                    out.push_str(&format!("    type {} = {};\n", assoc_name, aski_type_to_rust(&type_ref)));
+                    if assoc_name == "Output" {
+                        has_explicit_output = true;
+                    }
+                }
+            }
+        }
+
+        // For operator traits with Output: infer from method return type (if not explicit)
+        if !has_explicit_output && operator_traits_with_output.contains(&trait_name) {
+            let methods: Vec<_> = all_children.iter().filter(|(_, k, _)| k == "method").collect();
             if let Some((method_id, _, _)) = methods.first() {
                 if let Some(ret) = db::query_return_type(db, *method_id)? {
                     out.push_str(&format!("    type Output = {};\n", aski_type_to_rust(&ret)));
@@ -396,7 +410,7 @@ fn gen_trait_impl_from_db(
         }
 
         let is_operator = operator_traits_move_self.contains(&trait_name);
-        let methods = db::query_child_nodes(db, *impl_body_id)?;
+        let methods: Vec<_> = all_children.iter().filter(|(_, k, _)| k == "method").cloned().collect();
         for (method_id, _kind, method_name) in &methods {
             if is_operator {
                 gen_operator_method_from_db(out, db, *method_id, method_name, type_name, 1, variant_map, struct_fields)?;
@@ -794,38 +808,177 @@ fn gen_matching_body_from_db(
             };
             out.push_str(&format!("{arm_indent}({}) => {body},\n", tuple_pats.join(", ")));
         }
+
+        out.push_str(&format!("{indent}}}\n"));
     } else {
-        // Single-value matching: match on self
-        out.push_str(&format!("{indent}match self {{\n"));
+        // Check if any arms are backtrack or destructure type
+        let has_backtrack = arms.iter().any(|(_, _, _, kind)| kind == "backtrack");
+        let has_destructure = arms.iter().any(|(_, _, _, kind)| kind == "destructure");
 
-        for (_ordinal, patterns, body_expr_id, _arm_kind) in arms {
-            if let Some(pat_str) = patterns.first() {
-                let pat = emit_pattern_from_db(pat_str, ctx, db);
+        if has_backtrack || has_destructure {
+            // Backtrack/destructure mode: sequential try
+            for (_ordinal, patterns, body_expr_id, arm_kind) in arms {
+                if arm_kind == "backtrack" {
+                    // Try this arm — if body returns Some/Ok, return it
+                    if let Some(bid) = body_expr_id {
+                        let mut arm_ctx = ctx.clone();
+                        // Add pattern bindings
+                        if let Some(pat_str) = patterns.first() {
+                            let parsed_pat = db::parse_pattern_string(pat_str);
+                            if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+                                if inner.starts_with('@') {
+                                    let bind_name = &inner[1..];
+                                    arm_ctx.bindings.insert(bind_name.to_string(), to_snake_case(bind_name));
+                                }
+                            }
+                        }
+                        let body = emit_expr_from_db(db, *bid, &arm_ctx)?;
+                        let pat_is_wildcard = patterns.first().map(|p| p == "_").unwrap_or(false);
+                        if pat_is_wildcard {
+                            out.push_str(&format!("{indent}if let result @ Some(_) = {body} {{ return result; }}\n"));
+                        } else {
+                            let pat = emit_pattern_from_db(patterns.first().unwrap(), ctx, db);
+                            out.push_str(&format!("{indent}if matches!(self, {pat}) {{\n"));
+                            out.push_str(&format!("{arm_indent}if let result @ Some(_) = {body} {{ return result; }}\n"));
+                            out.push_str(&format!("{indent}}}\n"));
+                        }
+                    }
+                } else if arm_kind == "destructure" {
+                    // Destructure arm: split sequence, try body
+                    // The destructure elements are stored in the patterns list
+                    // Format: "destr:Element1,Element2,...|RestName"
+                    if let Some(bid) = body_expr_id {
+                        if let Some(destr_str) = patterns.first() {
+                            if let Some(destr_data) = destr_str.strip_prefix("destr:") {
+                                let (elements_str, rest_name) = if let Some(pipe_pos) = destr_data.find('|') {
+                                    (&destr_data[..pipe_pos], &destr_data[pipe_pos + 1..])
+                                } else {
+                                    (destr_data, "rest")
+                                };
+                                let elements: Vec<&str> = elements_str.split(',').collect();
+                                let rest_var = to_snake_case(rest_name);
 
-                // Add pattern bindings to context for the arm body
-                let mut arm_ctx = ctx.clone();
-                let parsed_pat = db::parse_pattern_string(pat_str);
-                if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
-                    if inner.starts_with('@') {
-                        let bind_name = &inner[1..];
-                        arm_ctx.bindings.insert(
-                            bind_name.to_string(),
-                            to_snake_case(bind_name),
-                        );
+                                // Generate: check that self has enough elements, then match head elements
+                                // and bind the rest
+                                let elem_count = elements.len();
+                                out.push_str(&format!("{indent}if self.len() >= {elem_count} {{\n"));
+
+                                // Match each head element
+                                let mut conditions = Vec::new();
+                                let mut bindings = Vec::new();
+                                for (i, elem) in elements.iter().enumerate() {
+                                    if elem.starts_with('@') {
+                                        // Binding element — bind it
+                                        let bind_name = &elem[1..];
+                                        let var = to_snake_case(bind_name);
+                                        bindings.push((var.clone(), i));
+                                    } else if *elem != "_" {
+                                        // Exact token match
+                                        let qualified = ctx.qualify_variant(elem);
+                                        conditions.push(format!("self[{i}] == {qualified}"));
+                                    }
+                                }
+
+                                if !conditions.is_empty() {
+                                    out.push_str(&format!("{arm_indent}if {} {{\n", conditions.join(" && ")));
+                                    let inner_indent = "    ".repeat(ctx.indent + 2);
+                                    for (var, i) in &bindings {
+                                        out.push_str(&format!("{inner_indent}let {var} = self[{i}].clone();\n"));
+                                    }
+                                    out.push_str(&format!("{inner_indent}let {rest_var} = self[{elem_count}..].to_vec();\n"));
+                                    let mut arm_ctx = ctx.clone();
+                                    arm_ctx.bindings.insert(rest_name.to_string(), rest_var.clone());
+                                    for (var, _) in &bindings {
+                                        arm_ctx.bindings.insert(var.clone(), var.clone());
+                                    }
+                                    let body = emit_expr_from_db(db, *bid, &arm_ctx)?;
+                                    out.push_str(&format!("{inner_indent}if let result @ Some(_) = {body} {{ return result; }}\n"));
+                                    out.push_str(&format!("{arm_indent}}}\n"));
+                                } else {
+                                    for (var, i) in &bindings {
+                                        out.push_str(&format!("{arm_indent}let {var} = self[{i}].clone();\n"));
+                                    }
+                                    out.push_str(&format!("{arm_indent}let {rest_var} = self[{elem_count}..].to_vec();\n"));
+                                    let mut arm_ctx = ctx.clone();
+                                    arm_ctx.bindings.insert(rest_name.to_string(), rest_var.clone());
+                                    for (var, _) in &bindings {
+                                        arm_ctx.bindings.insert(var.clone(), var.clone());
+                                    }
+                                    let body = emit_expr_from_db(db, *bid, &arm_ctx)?;
+                                    out.push_str(&format!("{arm_indent}if let result @ Some(_) = {body} {{ return result; }}\n"));
+                                }
+
+                                out.push_str(&format!("{indent}}}\n"));
+                            }
+                        }
+                    }
+                } else {
+                    // Commit arm — unconditional return (usually the final fallback)
+                    if let Some(bid) = body_expr_id {
+                        let mut arm_ctx = ctx.clone();
+                        if let Some(pat_str) = patterns.first() {
+                            let parsed_pat = db::parse_pattern_string(pat_str);
+                            if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+                                if inner.starts_with('@') {
+                                    let bind_name = &inner[1..];
+                                    arm_ctx.bindings.insert(bind_name.to_string(), to_snake_case(bind_name));
+                                }
+                            }
+                        }
+                        let body = emit_expr_from_db(db, *bid, &arm_ctx)?;
+                        let pat_is_wildcard = patterns.first().map(|p| p == "_").unwrap_or(true);
+                        if pat_is_wildcard {
+                            out.push_str(&format!("{indent}{body}\n"));
+                        } else {
+                            // Commit arm with pattern in a backtrack body — emit as match
+                            let pat = emit_pattern_from_db(patterns.first().unwrap(), ctx, db);
+                            out.push_str(&format!("{indent}match self {{\n"));
+                            out.push_str(&format!("{arm_indent}{pat} => {body},\n"));
+                            out.push_str(&format!("{arm_indent}_ => None,\n"));
+                            out.push_str(&format!("{indent}}}\n"));
+                        }
                     }
                 }
-
-                let body = if let Some(bid) = body_expr_id {
-                    emit_expr_from_db(db, *bid, &arm_ctx)?
-                } else {
-                    "todo!()".to_string()
-                };
-                out.push_str(&format!("{arm_indent}{pat} => {body},\n"));
             }
+            // If the last arm wasn't a commit, add None fallback
+            let last_kind = arms.last().map(|(_, _, _, k)| k.as_str()).unwrap_or("commit");
+            if last_kind != "commit" {
+                out.push_str(&format!("{indent}None\n"));
+            }
+        } else {
+            // Single-value matching: match on self (all commit arms)
+            out.push_str(&format!("{indent}match self {{\n"));
+
+            for (_ordinal, patterns, body_expr_id, _arm_kind) in arms {
+                if let Some(pat_str) = patterns.first() {
+                    let pat = emit_pattern_from_db(pat_str, ctx, db);
+
+                    // Add pattern bindings to context for the arm body
+                    let mut arm_ctx = ctx.clone();
+                    let parsed_pat = db::parse_pattern_string(pat_str);
+                    if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+                        if inner.starts_with('@') {
+                            let bind_name = &inner[1..];
+                            arm_ctx.bindings.insert(
+                                bind_name.to_string(),
+                                to_snake_case(bind_name),
+                            );
+                        }
+                    }
+
+                    let body = if let Some(bid) = body_expr_id {
+                        emit_expr_from_db(db, *bid, &arm_ctx)?
+                    } else {
+                        "todo!()".to_string()
+                    };
+                    out.push_str(&format!("{arm_indent}{pat} => {body},\n"));
+                }
+            }
+
+            out.push_str(&format!("{indent}}}\n"));
         }
     }
 
-    out.push_str(&format!("{indent}}}\n"));
     Ok(())
 }
 

@@ -390,6 +390,18 @@ fn insert_trait_impl(
         run_mut(db, &script)
             .map_err(|e| format!("insert trait_impl: {e}"))?;
 
+        // Store associated types as assoc_type child nodes
+        for assoc in &type_impl.associated_types {
+            let assoc_id = ids.next();
+            insert_node(db, assoc_id, "assoc_type", &assoc.name, Some(impl_id), &assoc.span)?;
+            let type_str = type_ref_to_string(&assoc.concrete_type);
+            let ret_script = format!(
+                "?[node_id, type_ref] <- [[{}, '{}']]\n:put returns {{node_id => type_ref}}",
+                assoc_id, type_str.replace('\'', "\\'")
+            );
+            run_mut(db, &ret_script).map_err(|e| format!("insert assoc_type returns: {e}"))?;
+        }
+
         for method in &type_impl.methods {
             insert_method_def(db, ids, method, impl_id)?;
         }
@@ -502,7 +514,22 @@ fn insert_body(
         Body::MatchBody(arms) => {
             // Store matching method arms as match_arm rows
             for (arm_ord, arm) in arms.iter().enumerate() {
-                let patterns: Vec<String> = arm.patterns.iter().map(pattern_to_string).collect();
+                let patterns: Vec<String> = if arm.kind == ArmKind::Destructure {
+                    // For destructure arms, encode elements + tail in patterns list
+                    // Format: "destr:Element1,Element2,...|RestName"
+                    if let Some((ref elements, ref rest_name)) = arm.destructure {
+                        let elem_strs: Vec<String> = elements.iter().map(|e| match e {
+                            DestructureElement::ExactToken(name) => name.clone(),
+                            DestructureElement::Binding(name) => format!("@{}", name),
+                            DestructureElement::Wildcard => "_".to_string(),
+                        }).collect();
+                        vec![format!("destr:{}|{}", elem_strs.join(","), rest_name)]
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    arm.patterns.iter().map(pattern_to_string).collect()
+                };
                 let patterns_json = serde_json::to_string(&patterns).unwrap();
 
                 let body_expr_id = if arm.body.len() == 1 {

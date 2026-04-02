@@ -100,6 +100,15 @@ pub struct TraitImplDecl {
 pub struct TypeImpl {
     pub target: String,
     pub methods: Vec<MethodDef>,
+    pub associated_types: Vec<AssociatedTypeDef>,
+    pub span: Span,
+}
+
+/// Associated type definition in a trait impl: `Output Point`
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssociatedTypeDef {
+    pub name: String,
+    pub concrete_type: TypeRef,
     pub span: Span,
 }
 
