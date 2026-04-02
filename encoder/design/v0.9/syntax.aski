@@ -855,12 +855,8 @@ Vec{sort&display} [
   ]
 ]
 
-;; Multiple params with where clause
-{a} {a display} [
-  convertTo{b} {b convert{a}} (:@Self) b [
-    ^b.from(@Self)
-  ]
-]
+;; Multiple bounds use &. No separate where clause syntax.
+;; {a} {a display} is replaced by {display&convert} etc.
 
 ;; Impl on generic instantiation
 Vec{Sign} [
@@ -1503,7 +1499,7 @@ Point [
 ;; mod         -> file header: () self, [] imports, {} constraints
 ;; use         -> [] in file header lists imports
 ;; impl        -> traitName [Type [methods]]
-;; where       -> {} after generic {}
+;; where       -> & trait combination: {display&convert} (no separate where clause)
 ;; type        -> top-level PascalCase alias
 ;; mut         -> ~ prefix
 ;; async/await -> everything async by default
