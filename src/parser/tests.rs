@@ -639,3 +639,36 @@ fn parse_destructure_arm() {
         other => panic!("expected InherentImpl, got {:?}", other),
     }
 }
+
+#[test]
+fn debug_header_inline_match() {
+    let src = "(Parser ItemResult)\n[Token (Token)\n Tokens (_)]\n\nItemResult (Parsed (Tokens) Failed (Tokens))\n\nTokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool.new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]\n";
+    let sf = crate::parser::parse_source_file(src);
+    match sf {
+        Ok(sf) => {
+            eprintln!("Header: {:?}", sf.header.as_ref().map(|h| &h.name));
+            eprintln!("Items: {}", sf.items.len());
+        }
+        Err(e) => eprintln!("PARSE ERROR: {}", e),
+    }
+}
+
+#[test]
+fn debug_no_header_inline_match() {
+    let src = "ItemResult (Parsed (Tokens) Failed (Tokens))\n\nTokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool.new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]\n";
+    let items = crate::parser::parse_source(src);
+    match items {
+        Ok(items) => eprintln!("OK: {} items", items.len()),
+        Err(e) => eprintln!("PARSE ERROR: {}", e),
+    }
+}
+
+#[test]
+fn debug_inline_match_simple_return() {
+    let src = "Tokens { Pos U32 }\n\nTokens [\n  test(@Self) Bool [\n    @Done Bool.new(@Self.Pos >= 10)\n    ^(| @Done\n      (True) True\n      (False) False\n    |)\n  ]\n]\n";
+    let items = crate::parser::parse_source(src);
+    match items {
+        Ok(items) => eprintln!("OK: {} items", items.len()),
+        Err(e) => eprintln!("PARSE ERROR: {}", e),
+    }
+}

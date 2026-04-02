@@ -59,9 +59,9 @@ impl CodegenConfig {
 
     pub fn struct_derives(&self) -> &str {
         if self.rkyv {
-            "#[derive(Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\n"
+            "#[derive(Debug, Clone, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\n"
         } else {
-            "#[derive(Debug, Clone)]\n"
+            "#[derive(Debug, Clone, PartialEq, Eq)]\n"
         }
     }
 }
@@ -286,9 +286,9 @@ fn gen_struct_from_db(
 
     if all_copy {
         if config.rkyv {
-            out.push_str("#[derive(Debug, Copy, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\n");
+            out.push_str("#[derive(Debug, Copy, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\n");
         } else {
-            out.push_str("#[derive(Debug, Copy, Clone)]\n");
+            out.push_str("#[derive(Debug, Copy, Clone, PartialEq)]\n");
         }
     } else {
         out.push_str(config.struct_derives());
@@ -1139,6 +1139,24 @@ fn emit_expr_from_db(
         "struct_construct" => {
             let name = value.unwrap_or_default();
             let children = db::query_child_exprs(db, expr_id)?;
+
+            // Check if this is a variant construction (name is in variant_map)
+            // If so, generate Domain::Variant(value) instead of Struct { field: value }
+            if let Some(domain) = ctx.variant_map.get(&name) {
+                // Check if it has a single _0 field (variant wrap)
+                if children.len() == 1 {
+                    let fname = children[0].3.as_deref().unwrap_or("");
+                    if fname == "_0" {
+                        let inner = db::query_child_exprs(db, children[0].0)?;
+                        if let Some((val_id, _k, _o, _v)) = inner.first() {
+                            let val = emit_expr_from_db(db, *val_id, ctx)?;
+                            let qualified = ctx.qualify_variant(&name);
+                            return Ok(format!("{qualified}({val})"));
+                        }
+                    }
+                }
+            }
+
             let mut field_inits = Vec::new();
             for (child_id, _kind, _ord, field_name) in &children {
                 let fname = to_snake_case(field_name.as_deref().unwrap_or(""));

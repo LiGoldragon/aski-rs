@@ -118,10 +118,26 @@ pub(crate) fn expr_parser() -> impl Parser<Token, Spanned<Expr>, Error = Simple<
             .at_least(1)
             .delimited_by(tok(Token::LParen), tok(Token::RParen));
 
-        // Match arm body: a single expression
+        // Variant construction for match arm results: PascalName(expr)
+        // Handles Failed(@Self), Parsed(@Self.advance), Some(value), etc.
+        let variant_construct_expr = pascal()
+            .then(
+                expr.clone()
+                    .delimited_by(tok(Token::LParen), tok(Token::RParen)),
+            )
+            .map_with_span(|(name, inner), span| {
+                Spanned::new(
+                    Expr::StructConstruct(name, vec![("_0".to_string(), inner)]),
+                    span,
+                )
+            });
+
+        // Match arm body: variant construction OR plain expression
+        let arm_body = choice((variant_construct_expr, expr.clone()));
+
         let match_arm = skip_newlines()
             .ignore_then(arm_patterns)
-            .then(skip_newlines().ignore_then(expr.clone()))
+            .then(skip_newlines().ignore_then(arm_body))
             .map_with_span(|(patterns, body_expr), span| {
                 MatchArm { patterns, body: vec![body_expr], span }
             });
