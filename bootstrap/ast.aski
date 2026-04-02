@@ -1,0 +1,16 @@
+(Ast NodeKind ParsedItem ParsedVariant ParsedField)
+[Token (Token)]
+
+;; Minimal AST for bootstrap — enough to parse domains and structs.
+;; Uses ordinals instead of strings for names (aski principle).
+
+NodeKind (DomainNode StructNode TraitNode ImplNode MainNode ConstNode AliasNode)
+
+;; A parsed item result: the kind, name index, and remaining token position
+ParsedItem { Kind NodeKind Name String Pos U32 }
+
+;; A parsed variant
+ParsedVariant { Name String }
+
+;; A parsed field
+ParsedField { Name String TypeName String }

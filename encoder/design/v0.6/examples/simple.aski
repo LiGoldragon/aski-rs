@@ -1,0 +1,67 @@
+;; simple.aski — minimal complete program for parser MVP
+;; Must parse → CozoDB → codegen → rustc → binary
+
+;; Domains
+Element (Fire Earth Air Water)
+Modality (Cardinal Fixed Mutable)
+
+;; Struct — sub-types as fields
+Point { X F64 Y F64 }
+
+;; Constant
+!Pi F64 {3.14159265358979}
+
+;; Named input struct — no anonymous params
+Addition { Left U32 Right U32 }
+
+;; Function with named input, lunar body
+add(@Addition) U32 [
+  ^(@Addition.Left + @Addition.Right)
+]
+
+;; Function with match
+describe_element(@Element) String [
+  ^(| @Element
+    (Fire)  "passionate"
+    (Earth) "grounded"
+    (Air)   "intellectual"
+    (Water) "intuitive"
+  |)
+]
+
+;; Function with binding
+Radius { Value F64 }
+circle_area(@Radius) F64 [
+  @Area F64
+  @Area.new([@Radius.Value * @Radius.Value * !Pi])
+  ^@Area
+]
+
+;; Trait — : for borrow
+Classifiable ([element(:@Self) Element])
+
+;; Trait impl with match
+Classifiable [Point [element(:@Self) Element [
+  @IsPositive Bool
+  @IsPositive.new([@Self.X > 0.0])
+  ^(| @IsPositive
+    (True)  Fire
+    (False) Water
+  |)
+]]]
+
+;; Inherent method — : for borrow, named input
+Point [
+  distance(:@Self @Other Point) F64 [
+    @DeltaX F64
+    @DeltaX.new([(@Self.X - @Other.X) * (@Self.X - @Other.X)])
+    @DeltaY F64
+    @DeltaY.new([(@Self.Y - @Other.Y) * (@Self.Y - @Other.Y)])
+    ^[@DeltaX + @DeltaY].sqrt
+  ]
+]
+
+;; Entry point
+Main [
+  StdOut "hello aski"
+]

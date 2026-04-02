@@ -1,0 +1,639 @@
+;; program.aski — complete astrology chart program (v0.7)
+;; Exercises ALL features: domains, structs, traits, supertraits, impls,
+;; blanket impls, generics, closures, iteration, pattern matching, error
+;; propagation, Vec/Map operations, string interpolation, constants,
+;; contracts, modules, Main entry.
+
+
+;; =============================================================
+;; Constants
+;; =============================================================
+
+!MaxSigns U32 {12}
+!DegreesPerSign F64 {30.0}
+!TotalDegrees F64 {360.0}
+
+
+;; =============================================================
+;; Domains
+;; =============================================================
+
+Element (Fire Earth Air Water)
+
+Modality (Cardinal Fixed Mutable)
+
+Sign (Aries Taurus Gemini Cancer Leo Virgo
+      Libra Scorpio Sagittarius Capricorn Aquarius Pisces)
+
+Planet (Sun Moon Mercury Venus Mars Jupiter Saturn Uranus Neptune Pluto)
+
+House (First Second Third Fourth Fifth Sixth
+       Seventh Eighth Ninth Tenth Eleventh Twelfth)
+
+AspectKind (Conjunction Opposition Trine Square Sextile)
+
+Dignity (Ruler Exalted Detriment Fall Peregrine)
+
+
+;; =============================================================
+;; Refinement types
+;; =============================================================
+
+Degree F64 #(@Self >= 0.0) #(@Self < 360.0)
+Orb F64 #(@Self >= 0.0) #(@Self <= 10.0)
+
+
+;; =============================================================
+;; Structs
+;; =============================================================
+
+Placement {
+  Body Planet
+  Position Sign
+  Deg Degree
+  HouseNum House
+}
+
+Aspect {
+  Kind AspectKind
+  First Planet
+  Second Planet
+  Separation Degree
+}
+
+NatalChart {
+  Name String
+  Placements Vec{Placement}
+  Aspects Vec{Aspect}
+}
+
+ParseError { Message String }
+ChartResult Result{NatalChart ParseError}
+
+
+;; =============================================================
+;; Trait: Classifiable
+;; =============================================================
+
+Classifiable ([element(:@Self) Element])
+
+;; Sign -> Element mapping
+Classifiable [Sign [element(:@Self) Element [
+  ^(| @Self
+    (Aries | Leo | Sagittarius)       Fire
+    (Taurus | Virgo | Capricorn)      Earth
+    (Gemini | Libra | Aquarius)       Air
+    (Cancer | Scorpio | Pisces)       Water
+  |)
+]]]
+
+;; Sign -> Modality mapping
+Sign [
+  modality(:@Self) Modality [
+    ^(| @Self
+      (Aries | Cancer | Libra | Capricorn)          Cardinal
+      (Taurus | Leo | Scorpio | Aquarius)            Fixed
+      (Gemini | Virgo | Sagittarius | Pisces)        Mutable
+    |)
+  ]
+]
+
+
+;; =============================================================
+;; Trait: Describable (supertrait of Display + Classifiable)
+;; =============================================================
+
+Describable (Display Classifiable [describe(:@Self) String])
+
+
+;; =============================================================
+;; Trait: Display — with default method
+;; =============================================================
+
+Display ([
+  display(:@Self) String
+
+  displayLn(:@Self) String [ ^@Self.display + "\n" ]
+])
+
+Display [Sign [display(:@Self) String [
+  ^(| @Self
+    (Aries)       "Aries"
+    (Taurus)      "Taurus"
+    (Gemini)      "Gemini"
+    (Cancer)      "Cancer"
+    (Leo)         "Leo"
+    (Virgo)       "Virgo"
+    (Libra)       "Libra"
+    (Scorpio)     "Scorpio"
+    (Sagittarius) "Sagittarius"
+    (Capricorn)   "Capricorn"
+    (Aquarius)    "Aquarius"
+    (Pisces)      "Pisces"
+  |)
+]]]
+
+Display [Element [display(:@Self) String [
+  ^(| @Self
+    (Fire)  "Fire"
+    (Earth) "Earth"
+    (Air)   "Air"
+    (Water) "Water"
+  |)
+]]]
+
+Display [Modality [display(:@Self) String [
+  ^(| @Self
+    (Cardinal) "Cardinal"
+    (Fixed)    "Fixed"
+    (Mutable)  "Mutable"
+  |)
+]]]
+
+Display [Planet [display(:@Self) String [
+  ^(| @Self
+    (Sun)     "Sun"
+    (Moon)    "Moon"
+    (Mercury) "Mercury"
+    (Venus)   "Venus"
+    (Mars)    "Mars"
+    (Jupiter) "Jupiter"
+    (Saturn)  "Saturn"
+    (Uranus)  "Uranus"
+    (Neptune) "Neptune"
+    (Pluto)   "Pluto"
+  |)
+]]]
+
+Display [AspectKind [display(:@Self) String [
+  ^(| @Self
+    (Conjunction) "Conjunction"
+    (Opposition)  "Opposition"
+    (Trine)       "Trine"
+    (Square)      "Square"
+    (Sextile)     "Sextile"
+  |)
+]]]
+
+
+;; =============================================================
+;; Describable impl for Sign (blanket would need Display+Classifiable)
+;; =============================================================
+
+Describable [Sign [describe(:@Self) String [
+  @Elem Element
+  @Elem.new(@Self.element)
+  @Mod Modality
+  @Mod.new(@Self.modality)
+  ^"$Self ($Elem, $Mod)"
+]]]
+
+
+;; =============================================================
+;; Blanket impl: anything Describable gets Printable
+;; =============================================================
+
+Printable (Display [print(:@Self)])
+
+Printable [{@Describable} [print(:@Self) [
+  StdOut @Self.describe
+]]]
+
+
+;; =============================================================
+;; Display for Placement
+;; =============================================================
+
+Display [Placement [display(:@Self) String [
+  ^"[@Self.Body.display] in [@Self.Position.display] at [@Self.Deg.to_string] deg ([@Self.HouseNum.to_string] house)"
+]]]
+
+Display [Aspect [display(:@Self) String [
+  ^"[@Self.First.display] [@Self.Kind.display] [@Self.Second.display] ([@Self.Separation.to_string] deg)"
+]]]
+
+Display [NatalChart [display(:@Self) String [
+  ^"Chart: @Self.Name"
+]]]
+
+
+;; =============================================================
+;; Dignity calculation with contracts
+;; =============================================================
+
+dignity(@Planet @Sign) Dignity
+  #(@Planet.to_string.len > 0)
+  [
+    ^(| @Planet @Sign
+      (Sun Leo)              Ruler
+      (Moon Cancer)          Ruler
+      (Venus Taurus)         Ruler
+      (Venus Libra)          Ruler
+      (Mars Aries)           Ruler
+      (Jupiter Sagittarius)  Ruler
+      (Saturn Capricorn)     Ruler
+      (Sun Aries)            Exalted
+      (Moon Taurus)          Exalted
+      (Venus Pisces)         Exalted
+      (Mars Capricorn)       Exalted
+      (Jupiter Cancer)       Exalted
+      (Saturn Libra)         Exalted
+      (Sun Aquarius)         Detriment
+      (Moon Capricorn)       Detriment
+      (Sun Libra)            Fall
+      (Moon Scorpio)         Fall
+      (_ _)                  Peregrine
+    |)
+  ]
+
+
+;; =============================================================
+;; Aspect calculation — generics + contracts
+;; =============================================================
+
+!ConjunctionOrb Orb {8.0}
+!OppositionOrb Orb {8.0}
+!TrineOrb Orb {6.0}
+!SquareOrb Orb {6.0}
+!SextileOrb Orb {4.0}
+
+angleBetween(@First Degree @Second Degree) F64
+  #(@First >= 0.0)
+  #(@Second >= 0.0)
+  [
+    @Raw F64
+    @Raw.new([(@First - @Second).abs])
+    @Normalized Bool
+    @Normalized.new([@Raw > 180.0])
+    ^(| @Normalized
+      (True)  [!TotalDegrees - @Raw]
+      (False) @Raw
+    |)
+  ]
+
+findAspect(@First Placement @Second Placement) Option{AspectKind} [
+  @Angle F64
+  @Angle.new(angleBetween(@First.Deg @Second.Deg))
+
+  ^(| [@Angle < !ConjunctionOrb]
+    (True) Some(Conjunction)
+    (False) (| [(@Angle - 180.0).abs < !OppositionOrb]
+      (True) Some(Opposition)
+      (False) (| [(@Angle - 120.0).abs < !TrineOrb]
+        (True) Some(Trine)
+        (False) (| [(@Angle - 90.0).abs < !SquareOrb]
+          (True) Some(Square)
+          (False) (| [(@Angle - 60.0).abs < !SextileOrb]
+            (True) Some(Sextile)
+            (False) None
+          |)
+        |)
+      |)
+    |)
+  |)
+]
+
+
+;; =============================================================
+;; Generic utility: format any collection of Displayable items
+;; =============================================================
+
+formatList{@Display} (:@Source Vec{@Display} @Separator String) String [
+  @Result String
+  @Result.new("")
+  @Index U32
+  @Index.new(0)
+  @Source(| @Display |
+    @IsFirst Bool
+    @IsFirst.new([@Index == 0])
+    @Prefix String
+    @Prefix.new((| @IsFirst (True) "" (False) @Separator |))
+    @Result.new([@Result + @Prefix + @Display.display])
+    @Index.new([@Index + 1])
+  |)
+  ^@Result
+]
+
+
+;; =============================================================
+;; Chart analysis — closures, iteration, Vec/Map operations
+;; =============================================================
+
+NatalChart [
+  elementDistribution(:@Self) Map{Element U32} [
+    @Counts Map{Element U32}
+    @Counts.new(Map[Fire 0 Earth 0 Air 0 Water 0])
+    @Self.Placements(| @Placement |
+      @Elem Element
+      @Elem.new(@Placement.Position.element)
+      @Current U32
+      @Current.new(@Counts(@Elem))
+      @Counts{@Elem [@Current + 1]}
+    |)
+    ^@Counts
+  ]
+
+  dominantElement(:@Self) Element [
+    @Dist Map{Element U32}
+    @Dist.new(@Self.elementDistribution)
+    @Best Element
+    @Best.new(Fire)
+    @BestCount U32
+    @BestCount.new(0)
+    @Dist.entries(| @Entry |
+      @IsBetter Bool
+      @IsBetter.new([@Entry.Value > @BestCount])
+      (| @IsBetter
+        (True) [
+          @Best.new(@Entry.Key)
+          @BestCount.new(@Entry.Value)
+        ]
+        (False) >[]
+      |)
+    |)
+    ^@Best
+  ]
+
+  findPlacements(:@Self @Sign Sign) Vec{Placement} [
+    ^@Self.Placements.filter([@Placement | ^@Placement.Position == @Sign])
+  ]
+
+  computeAspects(:@Self) Vec{Aspect} [
+    @Results Vec{Aspect}
+    @Results.new(Vec[])
+    @Len U32
+    @Len.new(@Self.Placements.len)
+    @I U32
+    @I.new(0)
+    [@I < @Len |
+      @J U32
+      @J.new([@I + 1])
+      [@J < @Len |
+        @First Placement
+        @First.new(@Self.Placements(@I))
+        @Second Placement
+        @Second.new(@Self.Placements(@J))
+        @MaybeAspect Option{AspectKind}
+        @MaybeAspect.new(findAspect(@First @Second))
+        (| @MaybeAspect
+          (Some) [
+            @Separation Degree
+            @Separation.new(angleBetween(@First.Deg @Second.Deg))
+            ~@Results.push(Aspect(
+              Kind(@MaybeAspect.value)
+              First(@First.Body)
+              Second(@Second.Body)
+              Separation(@Separation)
+            ))
+          ]
+          (None) >[]
+        |)
+        @J.new([@J + 1])
+      ]
+      @I.new([@I + 1])
+    ]
+    ^@Results
+  ]
+
+  report(:@Self) String [
+    @Header String
+    @Header.new("=== Chart: @Self.Name ===\n")
+
+    ;; Placements section
+    @PlacementLines String
+    @PlacementLines.new(formatList(:@Self.Placements "\n"))
+
+    ;; Element distribution
+    @Dominant Element
+    @Dominant.new(@Self.dominantElement)
+    @DomLine String
+    @DomLine.new("Dominant element: [@Dominant.display]")
+
+    ;; Aspects
+    @ChartAspects Vec{Aspect}
+    @ChartAspects.new(@Self.computeAspects)
+    @AspectLines String
+    @AspectLines.new(formatList(:@ChartAspects "\n"))
+
+    ;; Dignities for each placement
+    @DignityLines String
+    @DignityLines.new("")
+    @Self.Placements(| @Placement |
+      @Dig Dignity
+      @Dig.new(dignity(@Placement.Body @Placement.Position))
+      @Line String
+      @Line.new("[@Placement.Body.display] in [@Placement.Position.display]: [@Dig.to_string]")
+      @DignityLines.new([@DignityLines + @Line + "\n"])
+    |)
+
+    ^@Header + "\nPlacements:\n" + @PlacementLines
+      + "\n\n" + @DomLine
+      + "\n\nAspects:\n" + @AspectLines
+      + "\n\nDignities:\n" + @DignityLines
+  ]
+]
+
+
+;; =============================================================
+;; Module: Parsing
+;; =============================================================
+
+Parsing (parseSign parsePlanet parseChart) {
+
+  parseSign(@Input String) Result{Sign ParseError} [
+    ^(| @Input
+      ("aries")       Ok(Aries)
+      ("taurus")      Ok(Taurus)
+      ("gemini")      Ok(Gemini)
+      ("cancer")      Ok(Cancer)
+      ("leo")         Ok(Leo)
+      ("virgo")       Ok(Virgo)
+      ("libra")       Ok(Libra)
+      ("scorpio")     Ok(Scorpio)
+      ("sagittarius") Ok(Sagittarius)
+      ("capricorn")   Ok(Capricorn)
+      ("aquarius")    Ok(Aquarius)
+      ("pisces")      Ok(Pisces)
+      (_)             Err(ParseError(Message("unknown sign: @Input")))
+    |)
+  ]
+
+  parsePlanet(@Input String) Result{Planet ParseError} [
+    ^(| @Input
+      ("sun")     Ok(Sun)
+      ("moon")    Ok(Moon)
+      ("mercury") Ok(Mercury)
+      ("venus")   Ok(Venus)
+      ("mars")    Ok(Mars)
+      ("jupiter") Ok(Jupiter)
+      ("saturn")  Ok(Saturn)
+      ("uranus")  Ok(Uranus)
+      ("neptune") Ok(Neptune)
+      ("pluto")   Ok(Pluto)
+      (_)         Err(ParseError(Message("unknown planet: @Input")))
+    |)
+  ]
+
+  ;; Parse a full chart from structured input
+  ;; Each placement is "planet sign degree house"
+  parseChart(@Name String @Lines Vec{String}) Result{NatalChart ParseError} [
+    @Placements Vec{Placement}
+    @Placements.new(Vec[])
+    @Lines(| @Line |
+      @Parts Vec{String}
+      @Parts.new(@Line.splitWhitespace)
+      @PlanetResult Result{Planet ParseError}
+      @PlanetResult.new(parsePlanet(@Parts(0)))
+      @SignResult Result{Sign ParseError}
+      @SignResult.new(parseSign(@Parts(1)))
+
+      @P Planet
+      @P.new(@PlanetResult?)
+      @S Sign
+      @S.new(@SignResult?)
+      @D Degree
+      @D.new(@Parts(2).parseF64?)
+      @H House
+      @H.new(@Parts(3).parseHouse?)
+
+      ~@Placements.push(Placement(
+        Body(@P)
+        Position(@S)
+        Deg(@D)
+        HouseNum(@H)
+      ))
+    |)
+    ^Ok(NatalChart(
+      Name(@Name)
+      Placements(@Placements)
+      Aspects(Vec[])
+    ))
+  ]
+}
+
+
+;; =============================================================
+;; Generator: iterate all signs with their elements
+;; =============================================================
+
+signElements() Iterator{Pair{Sign Element}} [
+  Vec[Aries Taurus Gemini Cancer Leo Virgo
+      Libra Scorpio Sagittarius Capricorn Aquarius Pisces]
+    [Sign |
+      @Elem Element
+      @Elem.new(@Sign.element)
+      >Pair(First(@Sign) Second(@Elem))
+    ]
+]
+
+
+;; =============================================================
+;; Generic: collect fire signs from any collection of Classifiable
+;; =============================================================
+
+fireOnly{@Classifiable} (:@Source Vec{@Classifiable}) Vec{@Classifiable} [
+  ^@Source.filter([@Classifiable | ^@Classifiable.element == Fire])
+]
+
+
+;; =============================================================
+;; Entry point
+;; =============================================================
+
+Main [
+  StdOut "=== Aski Natal Chart Calculator ==="
+
+  ;; Build a chart from hardcoded placements
+  @Placements Vec{Placement}
+  @Placements.new(Vec[
+    Placement(Body(Sun)     Position(Aries)   Deg(15.0)  HouseNum(First))
+    Placement(Body(Moon)    Position(Cancer)  Deg(22.0)  HouseNum(Fourth))
+    Placement(Body(Mercury) Position(Pisces)  Deg(8.0)   HouseNum(Twelfth))
+    Placement(Body(Venus)   Position(Taurus)  Deg(3.0)   HouseNum(Second))
+    Placement(Body(Mars)    Position(Leo)     Deg(28.0)  HouseNum(Fifth))
+    Placement(Body(Jupiter) Position(Sagittarius) Deg(12.0) HouseNum(Ninth))
+    Placement(Body(Saturn)  Position(Capricorn) Deg(20.0) HouseNum(Tenth))
+  ])
+
+  @Chart NatalChart
+  @Chart.new(NatalChart(
+    Name("Example Chart")
+    Placements(@Placements)
+    Aspects(Vec[])
+  ))
+
+  ;; Print full report
+  StdOut @Chart.report
+
+  ;; Demonstrate generic function with closures
+  @FireSigns Vec{Sign}
+  @FireSigns.new(
+    Vec[Aries Taurus Gemini Cancer Leo Virgo
+        Libra Scorpio Sagittarius Capricorn Aquarius Pisces]
+      .filter([@Sign | ^@Sign.element == Fire])
+  )
+  StdOut "\nFire signs:"
+  @FireSigns(| @Sign |
+    StdOut "  [@Sign.display]"
+  |)
+
+  ;; Demonstrate iteration with element distribution
+  @Dist Map{Element U32}
+  @Dist.new(@Chart.elementDistribution)
+  StdOut "\nElement counts:"
+  @Dist.entries(| @Entry |
+    StdOut "  [@Entry.Key.display]: [@Entry.Value.to_string]"
+  |)
+
+  ;; Demonstrate match + closure + string interpolation
+  @Dominant Element
+  @Dominant.new(@Chart.dominantElement)
+  @Quality String
+  @Quality.new((| @Dominant
+    (Fire)  "passionate and driven"
+    (Earth) "grounded and practical"
+    (Air)   "intellectual and social"
+    (Water) "intuitive and emotional"
+  |))
+  StdOut "\nDominant element: [@Dominant.display] — @Quality"
+
+  ;; Demonstrate error propagation with parsing
+  @ParseResult Result{Sign ParseError}
+  @ParseResult.new(Parsing.parseSign("aries"))
+  (| @ParseResult
+    (Ok)  StdOut "\nParsed: [@Ok.value.display]"
+    (Err) StdErr "\nParse error: @Err.Message"
+  |)
+
+  @BadResult Result{Sign ParseError}
+  @BadResult.new(Parsing.parseSign("not_a_sign"))
+  (| @BadResult
+    (Ok)  StdOut "\nParsed: [@Ok.value.display]"
+    (Err) StdErr "\nParse error: @Err.Message"
+  |)
+
+  ;; Demonstrate generator
+  StdOut "\nAll signs with elements:"
+  signElements() [Pair |
+    StdOut "  [@Pair.First.display] -> [@Pair.Second.display]"
+  ]
+
+  ;; Demonstrate dignity
+  @SunDig Dignity
+  @SunDig.new(dignity(Sun Aries))
+  StdOut "\nSun in Aries dignity: [@SunDig.to_string]"
+
+  @MoonDig Dignity
+  @MoonDig.new(dignity(Moon Cancer))
+  StdOut "Moon in Cancer dignity: [@MoonDig.to_string]"
+
+  ;; Demonstrate aspects
+  @ChartAspects Vec{Aspect}
+  @ChartAspects.new(@Chart.computeAspects)
+  StdOut "\nAspects found: [@ChartAspects.len.to_string]"
+  @ChartAspects(| @Aspect |
+    StdOut "  [@Aspect.display]"
+  |)
+
+  StdOut "\n=== Done ==="
+]

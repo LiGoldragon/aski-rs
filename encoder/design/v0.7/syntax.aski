@@ -1,0 +1,996 @@
+;; Aski v0.7 — complete syntax specification
+;;
+;; CLEAN REWRITE. This is the authoritative spec — v0.6 is superseded.
+;;
+;; DESIGN PRINCIPLES:
+;;   Highest signal-to-noise ratio for both humans and LLMs.
+;;   No keywords — every symbol carries meaning.
+;;   If it exists, it has a name. No anonymous variables, generics, or lifetimes.
+;;   Move by default (actor model). Borrow is the explicit exception.
+;;   Async by default. Core is the language, not a library.
+;;   Every binding creates a named sub-type (newtype pattern via rkyv).
+
+
+;; =============================================================
+;; 1. SEVEN DELIMITERS
+;; =============================================================
+;;
+;; Glyph   Planet    Quality      Usage
+;; ()      Sol       Identity     Domain variants, struct construction (auto-Protocol),
+;;                                singleton calls, trait envelope, module exports
+;; []      Luna      Reflection   ALL bodies (function, method, closure), iteration,
+;;                                inline eval, collection construction, break/continue
+;; {}      Saturn    Structure    Struct declaration, generic params+bounds, contracts,
+;;                                options, const values, module body, mutation on types
+;; (||)    Match     Dispatch     Pattern matching, iteration on collections,
+;;                                domain composition
+;; <>      FREE      (reserved)   Available for future use
+;; {||}    TBD       (reserved)   Available for future use
+;; [||]    TBD       (reserved)   Available for future use
+
+
+;; =============================================================
+;; 2. SYMBOLS
+;; =============================================================
+;;
+;; Symbol  Name               Meaning
+;; @       Instance           Allocated value — on ALL instances everywhere
+;; :       Immutable borrow   Viewing without owning
+;; ~       Mutable borrow     Exclusive access, can mutate
+;; &       Trait combination   Display&Classify creates compound type
+;; .       Access             Field, method, namespace
+;; $       Interpolation      Sugar for [@X.to_string] inside strings
+;; ^       Return             Mandatory return prefix
+;; >       Yield              Partial return (generators)
+;; '       Lifetime/scope     Named lifetime prefix
+;; ?       Error propagation  Postfix — propagates Err
+;; !       Const              Compile-time fixity prefix
+;; #       Contract           Pre/post condition prefix
+;; |       Separator          Closure input/body, or-pattern in match
+;; ==      Equals sugar       Sugar for .equals
+;; ..      Exclusive range    start..end
+;; ..=     Inclusive range     start..=end
+;; ...     Variadic           Protocol input shapes — zero or more
+;; ;;      Comment            Line comment
+;; ___     Stub               Placeholder for unwritten body
+
+
+;; =============================================================
+;; 3. NAMED DELIMITERS
+;; =============================================================
+;;
+;; Symbol directly before delimiter, NO space:
+;;
+;;   Name(...)   Solar Protocol call / struct construction
+;;   Name[...]   Lunar Protocol call
+;;   Name{...}   Saturn: generic params / Protocol call
+;;   Name<...>   (available — reserved)
+;;
+;; SPACE SIGNIFICANCE:
+;;
+;;   Name (...)   WITH space = domain declaration (solar identity)
+;;   Name(...)    NO space   = Protocol call / construction
+
+
+;; =============================================================
+;; 4. CASING
+;; =============================================================
+;;
+;; PascalCase = types, sub-types, domains, traits, struct fields
+;; camelCase  = methods, functions
+
+
+;; =============================================================
+;; 5. CORE TYPES (always available)
+;; =============================================================
+
+;; Pair{T} { First T Second T }
+;; Triple{T} { First T Second T Third T }
+;; Option{T} (Some(T) None)
+;; Result{T E} (Ok(T) Err(E))
+;; Vec{T} — growable collection
+;; Map{K V} — key-value collection
+;; Iterator{T} — lazy sequence
+
+
+;; =============================================================
+;; 6. CORE SINGLETONS (always exist, no @, no construction)
+;; =============================================================
+;;
+;; StdOut   — output (solar Protocol for printing)
+;; StdErr   — error output
+;; StdIn    — input
+;; Env      — environment variables
+;; Args     — command line arguments
+
+
+;; =============================================================
+;; 7. DOMAIN DECLARATION
+;; =============================================================
+;;
+;; A domain lists its variants in solar ().
+;; Space before ( = declaration (not a call).
+
+Element (Fire Earth Air Water)
+Modality (Cardinal Fixed Mutable)
+Sign (Aries Taurus Gemini Cancer Leo Virgo
+      Libra Scorpio Sagittarius Capricorn Aquarius Pisces)
+
+
+;; =============================================================
+;; 8. STRUCT DECLARATION
+;; =============================================================
+;;
+;; Saturnian {} holds the skeleton.
+;; Every entry creates a sub-type scoped to parent.
+;; Sub-type only created if not already in context.
+
+Point { X F64 Y F64 }
+
+NatalChart { SunSign Sign MoonSign Sign Rising Sign }
+
+;; Nested domain inside struct
+User {
+  Name (Arthur Dorothee Adam)
+  Access { Level (Minimum Medium Maximum)
+           Branches (Main Development Research) }
+}
+
+
+;; =============================================================
+;; 9. STRUCT CONSTRUCTION (auto-Protocol)
+;; =============================================================
+;;
+;; Every struct declaration auto-generates a solar () Protocol.
+;; Sub-types are named — order-independent.
+
+Point(X(1.0) Y(2.0))
+Point(Y(2.0) X(1.0))           ;; same thing — names resolve
+
+NatalChart(SunSign(Aries) MoonSign(Cancer) Rising(Libra))
+
+User(Name(Arthur) Access(Level(Maximum) Branches(Research)))
+
+
+;; =============================================================
+;; 10. CONSTANTS
+;; =============================================================
+;;
+;; ! prefix = compile-time fixity. {} holds the value.
+
+!MaxSigns U32 {12}
+!MaxDecans U32 {36}
+!Pi F64 {3.14159265358979}
+!DegreesPerSign F64 {30.0}
+
+;; Const function — can be const-evaluated
+!degreesInSigns(@Count U32) F64 [ ^(@Count.to_f64 * !DegreesPerSign) ]
+
+;; Const generic
+!Array{N T} { ___ }
+
+;; Const in struct context
+Placement {
+  !MaxPlanets U32 {10}
+  Body Sign
+  Degree F64
+}
+
+
+;; =============================================================
+;; 11. FUNCTIONS — lunar body []
+;; =============================================================
+;;
+;; name(params) ReturnType [body]
+;;
+;; @ on instance params — move by default.
+;; :@ for immutable borrow. ~@ for mutable borrow.
+;; Named input types — no anonymous params.
+
+;; Simple function with named struct input
+Addition { Left U32 Right U32 }
+
+add(@Addition) U32 [
+  ^(@Addition.Left + @Addition.Right)
+]
+
+;; Borrow param — caller keeps value
+validate(:@String) Bool [
+  ^@String.len > 0
+]
+
+;; Mutable borrow + move
+append(~@Vec{String} @Item String) [
+  ~@Vec.push(@Item)
+]
+
+
+;; =============================================================
+;; 12. LOCAL BINDINGS
+;; =============================================================
+;;
+;; Two steps: declare type, then construct.
+;; Every binding is a named sub-type.
+
+Radius { Value F64 }
+
+circleArea(@Radius) F64 [
+  @Area F64
+  @Area.new([@Radius.Value * @Radius.Value * !Pi])
+  ^@Area
+]
+
+
+;; =============================================================
+;; 13. RETURN — ^ mandatory
+;; =============================================================
+
+;; Direct value
+;; ^@Area
+
+;; Expression
+;; ^(@Addition.Left + @Addition.Right)
+
+;; Inline eval
+;; ^[@DeltaX + @DeltaY].sqrt
+
+
+;; =============================================================
+;; 14. PATTERN MATCHING — (| |)
+;; =============================================================
+;;
+;; Universal match/dispatch form.
+;; Exhaustiveness enforced — all variants must be covered.
+
+;; Single-value match
+describeElement(@Element) String [
+  ^(| @Element
+    (Fire)  "passionate"
+    (Earth) "grounded"
+    (Air)   "intellectual"
+    (Water) "intuitive"
+  |)
+]
+
+;; Wildcard
+isFire(@Element) Bool [
+  ^(| @Element
+    (Fire) True
+    (_)    False
+  |)
+]
+
+;; Or-pattern with |
+elementCategory(@Element) String [
+  ^(| @Element
+    (Fire | Air)    "active"
+    (Earth | Water) "receptive"
+  |)
+]
+
+;; Multi-value match
+classifySign(@Element @Modality) String [
+  ^(| @Element @Modality
+    (Fire Cardinal) "initiator"
+    (Fire _)        "burns steady"
+    (Water Fixed)   "deep"
+    (Water _)       "flows"
+    (Earth _)       "builds"
+    (Air _)         "thinks"
+  |)
+]
+
+;; Computed target — [expr] evaluated then matched
+dispatchParse(@Input String) String [
+  ^(| [@Input.parse]
+    (Ok)  @Ok.value.to_string
+    (Err) @Err.message
+  |)
+]
+
+;; Arm body computation — [] for complex arms
+describePlacement(:@NatalChart) String [
+  @Element Element
+  @Element.new(@NatalChart.SunSign.element)
+  @Modality Modality
+  @Modality.new(@NatalChart.SunSign.modality)
+  ^(| @Element @Modality
+    (Fire Cardinal) [
+      @Intensity F64
+      @Intensity.new([@NatalChart.SunSign.degree / 30.0])
+      @IsStrong Bool
+      @IsStrong.new([@Intensity > 0.5])
+      ^(| @IsStrong
+        (True)  "$(@NatalChart.SunSign) leads with fierce initiative"
+        (False) "$(@NatalChart.SunSign) sparks quietly"
+      |)
+    ]
+    (Fire _)  "$(@NatalChart.SunSign) burns steady"
+    (Water _) "$(@NatalChart.SunSign) flows"
+    (Earth _) "$(@NatalChart.SunSign) builds"
+    (Air _)   "$(@NatalChart.SunSign) thinks"
+  |)
+]
+
+;; Destructure variant inner value
+unwrapOrDefault(@Option Option{Sign}) Sign [
+  ^(| @Option
+    (Some) @Some.value
+    (None) Aries
+  |)
+]
+
+
+;; =============================================================
+;; 15. ITERATION — (| |) on collections
+;; =============================================================
+;;
+;; (| |) on a collection = iterate elements.
+;; Same delimiter as match — context determines meaning.
+
+;; Print each sign
+;; @Signs(| @Sign |
+;;   StdOut "$Sign"
+;; |)
+
+;; Accumulate with iteration
+;; @Count U32
+;; @Count.new(0)
+;; @Signs(| @Sign |
+;;   (| @Sign.element
+;;     (Fire) @Count.new([@Count + 1])
+;;     (_)    >[]
+;;   |)
+;; |)
+
+
+;; =============================================================
+;; 16. CLOSURES — lunar []
+;; =============================================================
+;;
+;; [inputs | body] — inputs before |, body after.
+;; Closures capture from environment.
+
+;; Zero inputs
+[| ^42]
+
+;; One input
+[@Sign | ^@Sign.element]
+
+;; Two inputs
+[@Pair{Sign} | ^@Pair.First.compare(@Pair.Second)]
+
+;; Multi-line closure
+[@Sign |
+  @Element Element
+  @Element.new(@Sign.element)
+  ^@Element.to_string
+]
+
+;; Closure as function parameter — closure type in signature
+filter{@Display} (@Source Vec{@Display} @Predicate [@Display | Bool]) Vec{@Display} [
+  ^@Source.filter(@Predicate)
+]
+
+
+;; =============================================================
+;; 17. LOOPS
+;; =============================================================
+
+;; For-each — collection [Item | body]
+;; @Signs [Sign | StdOut @Sign.describe]
+
+;; Infinite loop — [| body]
+;; [| StdOut "forever" ]
+
+;; While — [@Bool | body] — condition re-evaluated each iteration
+;; [@Iter.hasNext | @Item.new(@Iter.next)]
+
+;; Break — ^[]
+;; Break with value — ^[Value]
+;; Continue — >[]
+
+;; Labeled loop
+;; 'search [| body]
+;; ^['search]           ;; break labeled
+;; >['search]           ;; continue labeled
+
+;; Find first cardinal sign
+findFirstCardinal(@Signs Vec{Sign}) Option{Sign} [
+  @Result Option{Sign}
+  @Result.new(None)
+  'search @Signs [Sign |
+    (| @Sign.modality
+      (Cardinal) [
+        @Result.new(Some(@Sign))
+        ^['search]
+      ]
+      (_) >[]
+    |)
+  ]
+  ^@Result
+]
+
+
+;; =============================================================
+;; 18. TRAIT DECLARATION — solar envelope, lunar content
+;; =============================================================
+;;
+;; TraitName ([method signatures])
+;; Methods without [] = required.
+;; Methods with [] = provided (default impl).
+
+;; Simple trait
+Classifiable ([element(:@Self) Element])
+
+;; Trait with default method
+Displayable ([
+  ;; Required — no body
+  name(:@Self) String
+
+  ;; Provided — has default body
+  display(:@Self) String [ ^@Self.name ]
+
+  ;; Provided — uses other methods
+  debug(:@Self) String [ ^"[$(@Self.name)]" ]
+])
+
+
+;; =============================================================
+;; 19. SUPERTRAITS
+;; =============================================================
+;;
+;; Supertrait list goes in the solar envelope before lunar methods.
+
+;; Single supertrait
+Printable (Display [print(:@Self)])
+
+;; Multiple supertraits
+Describable (Display Classifiable [describe(:@Self) String])
+
+;; Composition only — no additional methods
+Renderable (Display Debug Printable [])
+
+
+;; =============================================================
+;; 20. TRAIT COMBINATION (& operator)
+;; =============================================================
+;;
+;; & auto-creates a compound type.
+
+;; In generic bounds
+render{@Display&Classify} String [
+  ^@Display&Classify.display + " " + @Display&Classify.classify
+]
+
+;; Named explicitly via supertrait when desired
+;; Describable (Display Classifiable [])
+
+
+;; =============================================================
+;; 21. TRAIT IMPL — trait gathers its reflections
+;; =============================================================
+;;
+;; TraitName [Type [methods]]
+
+Classifiable [Point [element(:@Self) Element [
+  @IsPositive Bool
+  @IsPositive.new([@Self.X > 0.0])
+  ^(| @IsPositive
+    (True)  Fire
+    (False) Water
+  |)
+]]]
+
+;; Impl can override defaults or just implement required
+Displayable [Sign [name(:@Self) String [ ^@Self.to_string ]]]
+;; display and debug use their defaults
+
+
+;; =============================================================
+;; 22. BLANKET IMPLS
+;; =============================================================
+;;
+;; Trait impl where the type is a generic parameter.
+;; {@Trait} in the type position.
+
+;; Any type with Display gets Printable
+Printable [{@Display} [print(:@Self) [ StdOut @Self.display ]]]
+
+;; Blanket with multiple bounds
+Describable [{@Display&Classifiable} [describe(:@Self) String [
+  ^@Self.display + " — " + @Self.element.to_string
+]]]
+
+
+;; =============================================================
+;; 23. INHERENT IMPL
+;; =============================================================
+;;
+;; Type [methods]
+
+Point [
+  translate(:@Self @DX F64 @DY F64) Self [
+    ^Point(X([@Self.X + @DX]) Y([@Self.Y + @DY]))
+  ]
+
+  scale(:@Self @Factor F64) Self [
+    ^Point(X([@Self.X * @Factor]) Y([@Self.Y * @Factor]))
+  ]
+
+  distance(:@Self @Other Point) F64 [
+    @DeltaX F64
+    @DeltaX.new([(@Self.X - @Other.X) * (@Self.X - @Other.X)])
+    @DeltaY F64
+    @DeltaY.new([(@Self.Y - @Other.Y) * (@Self.Y - @Other.Y)])
+    ^[@DeltaX + @DeltaY].sqrt
+  ]
+]
+
+
+;; =============================================================
+;; 24. GENERICS — {} with trait name as type param
+;; =============================================================
+;;
+;; No anonymous T. The trait name IS the type parameter.
+;; @Trait in generic position = "any type implementing Trait."
+
+;; Simple — single bound
+transform{@Display} String [ ^@Display.to_string ]
+
+;; Multiple bounds via &
+sortAndDisplay{@Sortable&Display} (@Source Vec{@Sortable&Display}) Vec{String} [
+  ^@Source.sort.map [@Sortable&Display | ^@Sortable&Display.to_string]
+]
+
+;; Multiple params with where clause
+convert{@A @B} {@A Display @B From{@A}} (@Source @A) @B [
+  ^@B.from(@Source)
+]
+
+;; Impl on generic instantiation
+Vec{Sign} [
+  fireCount(:@Self) U32 [
+    ^@Self.filter([@Sign | ^@Sign.element == Fire]).len
+  ]
+
+  cardinalSigns(:@Self) Vec{Sign} [
+    ^@Self.filter([@Sign | ^@Sign.modality == Cardinal])
+  ]
+]
+
+
+;; =============================================================
+;; 25. LIFETIMES — type-based, not anonymous
+;; =============================================================
+;;
+;; Borrows carry their origin through the type system.
+;; The struct IS the lifetime scope. No 'a annotation in most code.
+
+;; Struct that borrows — : marks the borrow
+Excerpt {
+  Text :String        ;; borrows a String — Excerpt can't outlive it
+  Page U32
+}
+
+;; Interior reference (self-referential)
+Message {
+  Text String
+  Body :Text          ;; borrows from own Text sub-type
+}
+
+;; In functions — :@Type already names the origin
+;; The borrow's lifetime IS the input type
+longest(:@Pair{String}) String [
+  @Longer Bool
+  @Longer.new([@Pair.First.len > @Pair.Second.len])
+  ^(| @Longer
+    (True)  @Pair.First
+    (False) @Pair.Second
+  |)
+]
+
+
+;; =============================================================
+;; 26. OWNERSHIP — move by default
+;; =============================================================
+;;
+;; Actor model: send = transfer ownership.
+;; Bare @Type in params = move (consume).
+;; :@Type = shared borrow. ~@Type = mutable borrow.
+;; Copy types (U32, F64, Bool, domains) — move is trivially a copy.
+
+;; Move — function consumes the String
+process(@Input String) Bool [ ^@Input.len > 0 ]
+
+;; Shared borrow — caller keeps the value
+inspect(:@Input String) Bool [ ^@Input.len > 0 ]
+
+;; Mutable borrow — exclusive access, caller keeps ownership
+appendSuffix(~@Target String @Suffix String) [
+  ~@Target.push(@Suffix)
+]
+
+
+;; =============================================================
+;; 27. ERROR PROPAGATION
+;; =============================================================
+;;
+;; ? postfix propagates errors. Result{T E} is the error type.
+
+parseChart(@Input String) Result{NatalChart ParseError} [
+  @Sign Sign
+  @Sign.new(@Input.parseSign?)
+  @Element Element
+  @Element.new(@Sign.element)
+  ^Ok(NatalChart(SunSign(@Sign) MoonSign(Cancer) Rising(Libra)))
+]
+
+;; Chained ?
+buildWorld(@AgentSource String @StoreSource String) Result{World Error} [
+  @Agent Agent
+  @Agent.new(@AgentSource.parseAgent?)
+  @Store Store
+  @Store.new(@StoreSource.parseStore?)
+  ^Ok(World(@Agent @Store))
+]
+
+
+;; =============================================================
+;; 28. NEGATION
+;; =============================================================
+;;
+;; ! is const prefix — not boolean negation.
+;; Negation is a method.
+
+;; Boolean negation
+isNotFire(@Element) Bool [
+  ^@Element.equals(Fire).not
+]
+
+;; Arithmetic negation
+negate(@Value F64) F64 [
+  ^@Value.neg
+]
+
+
+;; =============================================================
+;; 29. STRINGS
+;; =============================================================
+
+;; Literal
+;; "hello"
+
+;; Interpolation — $ for names, [] for expressions
+;; "$Sign at [@Degree.to_string] degrees"
+
+;; Concatenation — + operator
+;; @First + " " + @Second
+
+describeSign(@Sign Sign) String [
+  @Element Element
+  @Element.new(@Sign.element)
+  @Modality Modality
+  @Modality.new(@Sign.modality)
+  ^"$Sign is $Element $Modality"
+]
+
+
+;; =============================================================
+;; 30. CONTRACTS
+;; =============================================================
+;;
+;; # prefix = structural law.
+;; Before body [] = precondition. After body [] = postcondition.
+
+Divide { Numerator F64 Denominator F64 }
+
+divide(@Divide) F64
+  #(@Divide.Denominator != 0.0)
+  [ ^(@Divide.Numerator / @Divide.Denominator) ]
+
+normalize(@Value F64) F64 [
+  ^(@Value / @Value.abs)
+] #(^@F64.abs == 1.0)
+
+;; Both pre and post
+Clamp { Min F64 Max F64 Value F64 }
+
+clamp(@Clamp) F64
+  #(@Clamp.Min <= @Clamp.Max)
+  [
+    ^(| [@Clamp.Value < @Clamp.Min] [@Clamp.Value > @Clamp.Max]
+      (True _)      @Clamp.Min
+      (False True)  @Clamp.Max
+      (False False) @Clamp.Value
+    |)
+  ] #(^@F64 >= @Clamp.Min) #(^@F64 <= @Clamp.Max)
+
+
+;; =============================================================
+;; 31. RANGE EXPRESSIONS
+;; =============================================================
+
+;; Exclusive: 0..12   (0 through 11)
+;; Inclusive: 0..=11   (0 through 11)
+
+;; In iteration
+;; 0..12 [U32 | StdOut @U32.to_string]
+
+
+;; =============================================================
+;; 32. YIELD / GENERATORS
+;; =============================================================
+;;
+;; > yields and continues. ^ returns and terminates.
+;; Generator functions return Iterator{T}.
+
+fibonacci() Iterator{U64} [
+  @Current U64
+  @Current.new(0)
+  @Next U64
+  @Next.new(1)
+  >@Current
+  >@Next
+  [|
+    @Sum U64
+    @Sum.new([@Current + @Next])
+    >@Sum
+    @Current.new(@Next)
+    @Next.new(@Sum)
+  ]
+]
+
+
+;; =============================================================
+;; 33. ASSOCIATED TYPES IN TRAITS
+;; =============================================================
+;;
+;; Bare PascalCase name in the trait body = associated type.
+
+Iterable ([Item
+           next(~@Self) Option{Item}])
+
+;; Impl provides the concrete type
+Iterable [SignIterator [Item Sign
+                        next(~@Self) Option{Sign} [ ___ ]]]
+
+
+;; =============================================================
+;; 34. ASSOCIATED CONSTANTS IN TRAITS
+;; =============================================================
+
+Bounded ([!Max U32
+          !Min U32
+          clamp(:@Self) Self])
+
+Bounded [Degree [!Max U32 {360}
+                 !Min U32 {0}
+                 clamp(:@Self) Self [ ___ ]]]
+
+
+;; =============================================================
+;; 35. TYPE ALIASES
+;; =============================================================
+;;
+;; PascalCase name followed by another type (no delimiters) = alias.
+
+ChartResult Result{NatalChart ChartError}
+AppResult{T} Result{T AppError}
+SignList Vec{Sign}
+ElementMap Map{Element Vec{Sign}}
+
+
+;; =============================================================
+;; 36. REFINEMENT TYPES
+;; =============================================================
+;;
+;; Type alias + contract. Checked at construction time.
+
+Degree F64 #(@Self >= 0.0) #(@Self < 360.0)
+NonZeroU32 U32 #(@Self != 0)
+HouseNumber U32 #(@Self >= 1) #(@Self <= 12)
+SignIndex U32 #(@Self 0..12)
+
+
+;; =============================================================
+;; 37. MODULE SYSTEM / VISIBILITY
+;; =============================================================
+;;
+;; Module (exposed items) { private contents }
+;; Items in () are public. Everything else is private.
+
+Chart (parse validate NatalChart Element) {
+  NatalChart { SunSign Sign MoonSign Sign Rising Sign }
+  Element (Fire Earth Air Water)
+
+  parse(@Input String) Result{NatalChart ParseError} [ ___ ]
+  validate(:@NatalChart) Bool [ ___ ]
+
+  ;; Not in () — private helper
+  normalizeDegree(@Deg F64) F64 [ ___ ]
+}
+
+;; Accessing module items
+;; Chart.parse
+;; Chart.NatalChart
+
+;; Nested modules
+Astrology (Chart Aspect Transit) {
+  Chart (NatalChart parse) { ___ }
+  Aspect (Conjunction Opposition Trine) { ___ }
+  Transit (calculate) { ___ }
+}
+
+;; Pub() for individual exports
+Pub(User)
+Pub(@User(Alfred))
+Pub(parseChart)
+
+
+;; =============================================================
+;; 38. COLLECTION OPERATIONS
+;; =============================================================
+
+;; -- Vec --
+
+;; Construct — lunar []
+;; Vec[Aries Taurus Gemini]
+
+;; Read — solar ()
+;; @Signs(0)
+
+;; Write — saturnian {}
+;; @Signs{0 Cancer}
+
+;; Map, filter, find, fold
+;; @Signs.map [@Sign | ^@Sign.element]
+;; @Signs.filter [@Sign | ^@Sign.element == Fire]
+;; @Signs.find [@Sign | ^@Sign.element == Water]
+;; @Signs.fold(0) [@U32 @Sign | ^(| @Sign.element (Fire) [@U32 + 1] (_) @U32 |)]
+
+;; Push (mutates)
+;; ~@Signs.push(Capricorn)
+
+;; -- Map --
+
+;; Construct — lunar []
+;; Map[Aries Fire Taurus Earth Gemini Air]
+
+;; Read — solar ()
+;; @Elements(Aries)
+
+;; Write — saturnian {}
+;; @Elements{Cancer Water}
+
+;; Membership
+;; @Elements.contains(Aries)
+
+
+;; =============================================================
+;; 39. DELIMITER PROTOCOL — extensible delimiter behavior
+;; =============================================================
+;;
+;; Every type can define what each delimiter does when applied to it.
+;; The delimiter wrapping the definition matches the delimiter being defined.
+;;
+;; (Type (inputs) [body])   — defines what Type(...) does
+;; [Type (inputs) [body]]   — defines what Type[...] does
+;; {Type (inputs) [body]}   — defines what Type{...} does
+
+;; Vec: construction, indexing, mutation
+[Vec (T ...) [ ___ ]]              ;; Vec[...] constructs
+(Vec (U32) [ ___ ])                ;; @Vec(...) reads at index
+{Vec (U32 T) [ ___ ]}              ;; @Vec{...} writes at index
+
+;; Map
+[Map (K V ...) [ ___ ]]            ;; Map[k1 v1 k2 v2] constructs
+(Map (K) [ ___ ])                  ;; @Map(...) reads
+{Map (K V) [ ___ ]}                ;; @Map{...} writes
+
+;; Option / Result
+(Option (T) [ ___ ])               ;; Option(value) = Some
+(Result (T) [ ___ ])               ;; Result(value) = Ok
+
+
+;; =============================================================
+;; 40. ENTRY POINT — Main
+;; =============================================================
+
+;; Main with lunar body — executes when program runs
+Main [
+  StdOut "hello aski"
+]
+
+
+;; =============================================================
+;; 41. ASYNC BY DEFAULT
+;; =============================================================
+;;
+;; Every function is async. No sync/async distinction in the surface
+;; language. The compiler decides what to await. The programmer
+;; writes sequential code, the runtime handles concurrency.
+;; Core is the language, not a library.
+
+
+;; =============================================================
+;; 42. OPERATOR PRECEDENCE (highest to lowest)
+;; =============================================================
+;;
+;;  1. .                  access
+;;  2. ! : ~ @            prefix
+;;  3. * / %              multiply
+;;  4. + -                add
+;;  5. .. ..=             range
+;;  6. == != < > <= >=    comparison
+;;  7. &&                 logical and
+;;  8. ||                 logical or
+;;  9. ?                  error propagation (postfix)
+;; 10. ^ >               return/yield (lowest)
+
+
+;; =============================================================
+;; 43. ELIMINATED — no keywords for any of these
+;; =============================================================
+;;
+;; fn          -> name(params) Type [body]
+;; let         -> @Name Type then @Name.new(expr)
+;; return      -> ^
+;; if/else     -> (| |) match on Bool
+;; match       -> (| |)
+;; for/while   -> [] forms
+;; break       -> ^[]
+;; continue    -> >[]
+;; loop        -> [| body]
+;; const       -> ! prefix
+;; pub         -> Pub() or module () exports
+;; mod         -> Module (exports) { body }
+;; impl        -> TraitName [Type [methods]]
+;; where       -> {} after generic {}
+;; type        -> top-level PascalCase alias
+;; mut         -> ~ prefix
+;; async/await -> everything async by default
+;; yield       -> > prefix
+;; println     -> StdOut singleton
+;; & for borrow -> : prefix (& is trait combination)
+;; <> generics -> {} (freed for future use)
+;; anonymous T -> trait name IS the type parameter (@Display not T)
+;; ordinal _N  -> named struct inputs
+
+
+;; =============================================================
+;; COMPLETE SYMBOL TABLE (v0.7)
+;; =============================================================
+;;
+;; DELIMITERS
+;; ()     Sol       Domain, trait envelope, module exports,
+;;                  struct construction (auto), read/query on types
+;; []     Luna      Bodies, closures [x | body], loops, collection
+;;                  construction, inline eval, break ^[], continue >[]
+;; {}     Saturn    Struct body, generic params, where clause,
+;;                  module body, const values, mutation on types
+;; (||)   Match     Match/dispatch, iteration on collections
+;; <>     FREE      Available
+;; {||}   TBD       Reserved
+;; [||]   TBD       Reserved
+;;
+;; SYMBOLS
+;; .      access    Namespace, method, field, .new() construction
+;; @      instance  Reference to allocated value
+;; $      interp    Sugar for [@X.to_string] in strings
+;; ^      return    Mandatory return prefix
+;; >      yield     Partial return (generator yield)
+;; :      borrow    Immutable borrow / viewing
+;; ~      mut       Mutable borrow
+;; &      combine   Trait combination: Display&Classify
+;; '      lifetime  Scope/duration parameter
+;; ?      propagate Error propagation on Result (postfix)
+;; ==     equals    Sugar for .equals
+;; ..     range     Exclusive range
+;; ..=    range     Inclusive range
+;; ...    variadic  Zero or more (Protocol input shapes)
+;; !      const     Compile-time fixity
+;; #      contract  Pre/post condition
+;; |      separator Closure input/body, or-pattern in match
+;; ;;     comment   Line comment
+;; ___    stub      Placeholder for unwritten body

@@ -1,0 +1,21 @@
+(Token Token)
+
+;; Token domain — mirrors the Rust lexer.
+;; Data-carrying variants wrap their payload type.
+
+Token (
+  LParen RParen LBracket RBracket LBrace RBrace
+  MatchOpen MatchClose
+  Dot At Dollar Caret Gt Lt Ampersand Tilde
+  Question Bang Hash Pipe Tick Colon
+  Plus Minus Star Slash Percent
+  DoubleEq Eq Neq Gte Lte And Or
+  Comma Underscore TokenStub
+  RangeExclusive RangeInclusive
+  Newline
+  PascalIdent (String)
+  CamelIdent (String)
+  IntLit (I64)
+  FloatLit (String)
+  StringLit (String)
+)

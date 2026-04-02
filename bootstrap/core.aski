@@ -1,0 +1,7 @@
+(Core Pair)
+
+;; Core types available in every aski program.
+;; Option, Result, Vec, Bool, U32, I64, F64, String are built-in.
+;; Pair is the parser's result carrier: parsed value + remaining tokens.
+
+Pair { First U32 Second U32 }

@@ -1,0 +1,77 @@
+;; parser.aski — aski parser written in aski (bootstrap target)
+;; Compiles through: aski → Rust parser → CozoDB → codegen → rustc
+;;
+;; The lexer stays in Rust (logos). This parser consumes Vec{Token}.
+;; Each parse method returns Option{ParseOk{T}} — None = backtrack.
+
+;; ================================================================
+;; Token domain — all lexer tokens
+;; ================================================================
+
+Token (
+  LParen RParen LBracket RBracket LBrace RBrace
+  MatchOpen MatchClose
+  ComprehensionOpen ComprehensionClose
+  At Colon Tilde Dot Bang Hash Caret Pipe Ampersand
+  Question Underscore Stub
+  Plus Minus Star Slash Percent
+  DoubleEq Neq Lt Gt Lte Gte And Or
+  RangeExcl RangeIncl
+  Newline
+  PascalIdent CamelIdent
+  IntLit FloatLit StringLit
+)
+
+;; ================================================================
+;; Parse result — every parser returns this or None
+;; ================================================================
+
+;; A successful parse: the value and the new cursor position
+ParseOk { Value U32 Next U32 }
+
+;; ParseState — immutable cursor into token stream
+ParseState { Tokens Vec{Token} Position U32 }
+
+;; ================================================================
+;; ParseState core methods
+;; ================================================================
+
+ParseState [
+  ;; Check if at end of token stream
+  atEnd(:@Self) Bool [
+    ^(@Self.Position >= 10)
+  ]
+
+  ;; Advance position by one
+  advance(:@Self) ParseState [
+    ^@Self.with(Position([@Self.Position + 1]))
+  ]
+]
+
+;; ================================================================
+;; AST domains
+;; ================================================================
+
+NodeKind (DomainNode StructNode TraitNode ImplNode MainNode ConstNode AliasNode)
+ArmKind (Commit Backtrack)
+
+;; Patterns in match arms
+PatternKind (
+  VariantPat
+  WildcardPat
+  OrPat
+  InstanceBindPat
+  DataCarryingPat
+  DestructurePat
+)
+
+;; Binary operators
+BinOp (Add Sub Mul Div Rem Eq Neq Lt Gt Lte Gte OpAnd OpOr)
+
+;; ================================================================
+;; Entry point
+;; ================================================================
+
+Main [
+  StdOut "aski parser bootstrap — self-hosting target"
+]

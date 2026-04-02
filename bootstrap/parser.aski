@@ -1,0 +1,93 @@
+(Parser ParseResult DomainResult StructResult)
+[Token (Token)
+ Tokens (Tokens advance skipNewlines peekIsPascal peekIsLParen
+         peekIsRParen peekIsLBrace peekIsRBrace)]
+
+;; Parse results
+ParseResult (Parsed Failed)
+
+;; Domain parse result with variant count
+DomainResult { Count U32 Remaining Tokens }
+
+;; Struct parse result with field count
+StructResult { Count U32 Remaining Tokens }
+
+;; Domain parser — parses PascalName ( Variant1 Variant2 ... )
+Tokens [
+  parseDomain(@Self) ParseResult [
+    @Toks Tokens.new(@Self.skipNewlines)
+    @HasName Bool.new(@Toks.peekIsPascal)
+    ^(| @HasName
+      (True) @Toks.advance.skipNewlines.tryDomainOpen
+      (False) Failed
+    |)
+  ]
+
+  tryDomainOpen(@Self) ParseResult [
+    @IsOpen Bool.new(@Self.peekIsLParen)
+    ^(| @IsOpen
+      (True) @Self.advance.countVariants
+      (False) Failed
+    |)
+  ]
+
+  countVariants(@Self) ParseResult [
+    @Toks Tokens.new(@Self.skipNewlines)
+    @Done Bool.new(@Toks.atEnd)
+    ^(| @Done
+      (True)  Failed
+      (False) @Toks.checkCloseOrVariant
+    |)
+  ]
+
+  checkCloseOrVariant(@Self) ParseResult [
+    @IsClose Bool.new(@Self.peekIsRParen)
+    ^(| @IsClose
+      (True)  Parsed
+      (False) @Self.skipVariantAndContinue
+    |)
+  ]
+
+  skipVariantAndContinue(@Self) ParseResult [
+    @IsPascal Bool.new(@Self.peekIsPascal)
+    ^(| @IsPascal
+      (True)  @Self.advance.countVariants
+      (False) @Self.advance.countVariants
+    |)
+  ]
+
+  ;; Struct parser — parses PascalName { Field Type ... }
+  parseStruct(@Self) ParseResult [
+    @Toks Tokens.new(@Self.skipNewlines)
+    @HasName Bool.new(@Toks.peekIsPascal)
+    ^(| @HasName
+      (True) @Toks.advance.skipNewlines.tryStructOpen
+      (False) Failed
+    |)
+  ]
+
+  tryStructOpen(@Self) ParseResult [
+    @IsOpen Bool.new(@Self.peekIsLBrace)
+    ^(| @IsOpen
+      (True) @Self.advance.skipToCloseBrace
+      (False) Failed
+    |)
+  ]
+
+  skipToCloseBrace(@Self) ParseResult [
+    @Toks Tokens.new(@Self.skipNewlines)
+    @Done Bool.new(@Toks.atEnd)
+    ^(| @Done
+      (True) Failed
+      (False) @Toks.checkCloseBrace
+    |)
+  ]
+
+  checkCloseBrace(@Self) ParseResult [
+    @IsClose Bool.new(@Self.peekIsRBrace)
+    ^(| @IsClose
+      (True)  Parsed
+      (False) @Self.advance.skipToCloseBrace
+    |)
+  ]
+]

@@ -1,0 +1,75 @@
+(Tokens Tokens advance skipNewlines peekIsPascal peekIsLParen
+        peekIsRParen peekIsLBrace peekIsRBrace peekIsCamel
+        peekIsLBracket peekIsRBracket peekIsMatchOpen peekIsMatchClose
+        peekIsBorrowSelf peekIsColon peekIsAt peekIsTilde peekIsBang
+        peekIsUnderscore peekIsStub peekIsPipe)
+[Token (Token)]
+
+Tokens { Stream Vec{Token} Pos U32 }
+
+Tokens [
+  ;; === OBSERVE — borrow ===
+
+  atEnd(:@Self) Bool [ ^(@Self.Pos >= @Self.Stream.len) ]
+  peek(:@Self) Token [ ^@Self.Stream.get(@Self.Pos) ]
+
+  peekIsNewline(:@Self) Bool [ ^@Self.peek.checkNewline ]
+  peekIsLParen(:@Self) Bool [ ^@Self.peek.isLParen ]
+  peekIsRParen(:@Self) Bool [ ^@Self.peek.isRParen ]
+  peekIsLBrace(:@Self) Bool [ ^@Self.peek.isLBrace ]
+  peekIsRBrace(:@Self) Bool [ ^@Self.peek.isRBrace ]
+  peekIsLBracket(:@Self) Bool [ ^@Self.peek.isLBracket ]
+  peekIsRBracket(:@Self) Bool [ ^@Self.peek.isRBracket ]
+  peekIsMatchOpen(:@Self) Bool [ ^@Self.peek.isMatchOpen ]
+  peekIsMatchClose(:@Self) Bool [ ^@Self.peek.isMatchClose ]
+  peekIsPascal(:@Self) Bool [ ^@Self.peek.isPascal ]
+  peekIsCamel(:@Self) Bool [ ^@Self.peek.isCamel ]
+  peekIsColon(:@Self) Bool [ ^@Self.peek.isColon ]
+  peekIsAt(:@Self) Bool [ ^@Self.peek.isAt ]
+  peekIsTilde(:@Self) Bool [ ^@Self.peek.isTilde ]
+  peekIsBang(:@Self) Bool [ ^@Self.peek.isBang ]
+  peekIsUnderscore(:@Self) Bool [ ^@Self.peek.isUnderscore ]
+  peekIsStub(:@Self) Bool [ ^@Self.peek.isStub ]
+  peekIsPipe(:@Self) Bool [ ^@Self.peek.isPipe ]
+
+  ;; === TRANSFORM — move ===
+
+  advance(@Self) Tokens [ ^@Self.with(Pos([@Self.Pos + 1])) ]
+
+  skipNewlines(@Self) Tokens [
+    @Done Bool.new(@Self.atEnd)
+    ^(| @Done
+      (True) @Self
+      (False) @Self.skipOneNewline
+    |)
+  ]
+
+  skipOneNewline(@Self) Tokens [
+    @IsNl Bool.new(@Self.peekIsNewline)
+    ^(| @IsNl
+      (True)  @Self.advance.skipNewlines
+      (False) @Self
+    |)
+  ]
+]
+
+Token [
+  checkNewline(:@Self) Bool (| (Newline) True (_) False |)
+  isLParen(:@Self) Bool (| (LParen) True (_) False |)
+  isRParen(:@Self) Bool (| (RParen) True (_) False |)
+  isLBrace(:@Self) Bool (| (LBrace) True (_) False |)
+  isRBrace(:@Self) Bool (| (RBrace) True (_) False |)
+  isLBracket(:@Self) Bool (| (LBracket) True (_) False |)
+  isRBracket(:@Self) Bool (| (RBracket) True (_) False |)
+  isMatchOpen(:@Self) Bool (| (MatchOpen) True (_) False |)
+  isMatchClose(:@Self) Bool (| (MatchClose) True (_) False |)
+  isPascal(:@Self) Bool (| (PascalIdent) True (_) False |)
+  isCamel(:@Self) Bool (| (CamelIdent) True (_) False |)
+  isColon(:@Self) Bool (| (Colon) True (_) False |)
+  isAt(:@Self) Bool (| (At) True (_) False |)
+  isTilde(:@Self) Bool (| (Tilde) True (_) False |)
+  isBang(:@Self) Bool (| (Bang) True (_) False |)
+  isUnderscore(:@Self) Bool (| (Underscore) True (_) False |)
+  isStub(:@Self) Bool (| (TokenStub) True (_) False |)
+  isPipe(:@Self) Bool (| (Pipe) True (_) False |)
+]
