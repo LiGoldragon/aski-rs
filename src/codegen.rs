@@ -552,18 +552,25 @@ fn gen_trait_method_params(params: &[(String, Option<String>, Option<String>)]) 
             "owned" => {
                 let t = type_ref.as_deref().unwrap_or("()");
                 let var = to_snake_case(t);
-                parts.push(format!("{}: &{}", var, aski_type_to_rust(t)));
+                let rust_t = aski_type_to_rust(t);
+                parts.push(format!("{var}: &{rust_t}"));
             }
             "named" => {
                 let n = name.as_deref().unwrap_or("arg");
                 let t = type_ref.as_deref().unwrap_or("()");
                 let var = to_snake_case(n);
-                parts.push(format!("{}: &{}", var, aski_type_to_rust(t)));
+                let rust_t = aski_type_to_rust(t);
+                parts.push(format!("{var}: &{rust_t}"));
             }
             _ => {}
         }
     }
     parts.join(", ")
+}
+
+/// Check if a Rust type is Copy (passed by value, not reference).
+fn is_copy_type(rust_type: &str) -> bool {
+    matches!(rust_type, "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "f32" | "f64" | "bool" | "char")
 }
 
 /// Generate param list for method implementations.
@@ -577,13 +584,15 @@ fn gen_method_impl_params(params: &[(String, Option<String>, Option<String>)]) -
             "owned" => {
                 let t = type_ref.as_deref().unwrap_or("()");
                 let var = to_snake_case(t);
-                parts.push(format!("{}: &{}", var, aski_type_to_rust(t)));
+                let rust_t = aski_type_to_rust(t);
+                parts.push(format!("{var}: &{rust_t}"));
             }
             "named" => {
                 let n = name.as_deref().unwrap_or("arg");
                 let t = type_ref.as_deref().unwrap_or("()");
                 let var = to_snake_case(n);
-                parts.push(format!("{}: &{}", var, aski_type_to_rust(t)));
+                let rust_t = aski_type_to_rust(t);
+                parts.push(format!("{var}: &{rust_t}"));
             }
             "borrow" => {
                 let t = type_ref.as_deref().unwrap_or("()");
@@ -775,8 +784,22 @@ fn gen_matching_body_from_db(
         for (_ordinal, patterns, body_expr_id) in arms {
             if let Some(pat_str) = patterns.first() {
                 let pat = emit_pattern_from_db(pat_str, ctx, db);
+
+                // Add pattern bindings to context for the arm body
+                let mut arm_ctx = ctx.clone();
+                let parsed_pat = db::parse_pattern_string(pat_str);
+                if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+                    if inner.starts_with('@') {
+                        let bind_name = &inner[1..];
+                        arm_ctx.bindings.insert(
+                            bind_name.to_string(),
+                            to_snake_case(bind_name),
+                        );
+                    }
+                }
+
                 let body = if let Some(bid) = body_expr_id {
-                    emit_expr_from_db(db, *bid, ctx)?
+                    emit_expr_from_db(db, *bid, &arm_ctx)?
                 } else {
                     "todo!()".to_string()
                 };
@@ -1231,6 +1254,7 @@ fn emit_expr_from_db(
             let mut args = Vec::new();
             for (child_id, _kind, _ord, _val) in children.iter().skip(1) {
                 let arg = emit_expr_from_db(db, *child_id, ctx)?;
+                // Pass by reference for method args — Rust auto-derefs as needed
                 args.push(format!("&{arg}"));
             }
             Ok(format!("{base}.{snake}({})", args.join(", ")))
@@ -1325,6 +1349,18 @@ fn emit_pattern_from_db(pat_str: &str, ctx: &ExprCtx, db: &DbInstance) -> String
                 }
             }
             qualified
+        }
+        db::ParsedPattern::DataCarrying(name, inner) => {
+            let qualified = ctx.qualify_variant(&name);
+            // Inner binding: @Name → ref variable, _ → wildcard
+            if inner.starts_with('@') {
+                let bind_name = to_snake_case(&inner[1..]);
+                format!("{qualified}({bind_name})")
+            } else if inner == "_" {
+                format!("{qualified}(..)")
+            } else {
+                format!("{qualified}(..)")
+            }
         }
         db::ParsedPattern::Wildcard => "_".to_string(),
         db::ParsedPattern::BoolLit(b) => b.to_string(),

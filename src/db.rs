@@ -770,7 +770,17 @@ pub fn parse_pattern_string(s: &str) -> ParsedPattern {
         "_" => ParsedPattern::Wildcard,
         "True" => ParsedPattern::BoolLit(true),
         "False" => ParsedPattern::BoolLit(false),
-        other => ParsedPattern::Variant(other.to_string()),
+        other => {
+            // Check for data-carrying pattern: "Name(@Bind)" or "Name(inner)"
+            if let Some(paren_pos) = other.find('(') {
+                if other.ends_with(')') {
+                    let name = other[..paren_pos].to_string();
+                    let inner = other[paren_pos + 1..other.len() - 1].to_string();
+                    return ParsedPattern::DataCarrying(name, inner);
+                }
+            }
+            ParsedPattern::Variant(other.to_string())
+        }
     }
 }
 
@@ -779,6 +789,8 @@ pub enum ParsedPattern {
     Variant(String),
     Wildcard,
     BoolLit(bool),
+    /// Data-carrying variant: Name(binding) — e.g., Parsed(@Toks)
+    DataCarrying(String, String),
 }
 
 // ═══════════════════════════════════════════════════════════════════
