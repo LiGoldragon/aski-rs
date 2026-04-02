@@ -350,17 +350,38 @@ fn gen_trait_from_db(
     let rust_name = aski_trait_to_rust(name);
     out.push_str(&format!("pub trait {rust_name} {{\n"));
 
-    let methods = db::query_child_nodes(db, node_id)?;
-    for (method_id, _kind, method_name) in &methods {
-        let params = db::query_params(db, *method_id)?;
-        let return_type = db::query_return_type(db, *method_id)?;
+    let children = db::query_child_nodes(db, node_id)?;
+    for (child_id, kind, child_name) in &children {
+        if kind == "method_sig" {
+            let params = db::query_params(db, *child_id)?;
+            let return_type = db::query_return_type(db, *child_id)?;
 
-        let rust_params = gen_trait_method_params(&params);
-        let ret = return_type.as_ref()
-            .map(|r| format!(" -> {}", aski_type_to_rust(r)))
-            .unwrap_or_default();
-        let snake = to_snake_case(method_name);
-        out.push_str(&format!("    fn {snake}({rust_params}){ret};\n"));
+            let rust_params = gen_trait_method_params(&params);
+            let ret = return_type.as_ref()
+                .map(|r| format!(" -> {}", aski_type_to_rust(r)))
+                .unwrap_or_default();
+            let snake = to_snake_case(child_name);
+            out.push_str(&format!("    fn {snake}({rust_params}){ret};\n"));
+        } else if kind == "const" {
+            if let Some((cname, type_ref, has_value)) = db::query_constant(db, *child_id)? {
+                let rust_type = aski_type_to_rust(&type_ref);
+                let screaming = to_screaming_snake(&cname);
+                if has_value {
+                    let expr_children = db::query_child_exprs(db, *child_id)?;
+                    if let Some((expr_id, _, _, _)) = expr_children.first() {
+                        let empty_variants = HashMap::new();
+                        let empty_fields = HashMap::new();
+                        let ctx = ExprCtx::new_default(&empty_variants, &empty_fields);
+                        let val = emit_expr_from_db(db, *expr_id, &ctx)?;
+                        out.push_str(&format!("    const {screaming}: {rust_type} = {val};\n"));
+                    } else {
+                        out.push_str(&format!("    const {screaming}: {rust_type};\n"));
+                    }
+                } else {
+                    out.push_str(&format!("    const {screaming}: {rust_type};\n"));
+                }
+            }
+        }
     }
 
     out.push_str("}\n\n");
@@ -385,7 +406,7 @@ fn gen_trait_impl_from_db(
     for (impl_body_id, _kind, type_name) in &impl_bodies {
         out.push_str(&format!("impl {rust_trait_name} for {type_name} {{\n"));
 
-        // Emit associated types from DB (assoc_type child nodes)
+        // Emit associated types and constants from DB (assoc_type / const child nodes)
         let all_children = db::query_child_nodes(db, *impl_body_id)?;
         let mut has_explicit_output = false;
         for (assoc_id, kind, assoc_name) in &all_children {
@@ -394,6 +415,25 @@ fn gen_trait_impl_from_db(
                     out.push_str(&format!("    type {} = {};\n", assoc_name, aski_type_to_rust(&type_ref)));
                     if assoc_name == "Output" {
                         has_explicit_output = true;
+                    }
+                }
+            } else if kind == "const" {
+                if let Some((cname, type_ref, has_value)) = db::query_constant(db, *assoc_id)? {
+                    let rust_type = aski_type_to_rust(&type_ref);
+                    let screaming = to_screaming_snake(&cname);
+                    if has_value {
+                        let expr_children = db::query_child_exprs(db, *assoc_id)?;
+                        if let Some((expr_id, _, _, _)) = expr_children.first() {
+                            let empty_variants = HashMap::new();
+                            let empty_fields = HashMap::new();
+                            let ctx = ExprCtx::new_default(&empty_variants, &empty_fields);
+                            let val = emit_expr_from_db(db, *expr_id, &ctx)?;
+                            out.push_str(&format!("    const {screaming}: {rust_type} = {val};\n"));
+                        } else {
+                            out.push_str(&format!("    const {screaming}: {rust_type} = todo!();\n"));
+                        }
+                    } else {
+                        out.push_str(&format!("    const {screaming}: {rust_type} = todo!();\n"));
                     }
                 }
             }
@@ -494,6 +534,7 @@ fn gen_operator_method_from_db(
         bindings: param_bindings,
         binding_types: HashMap::new(),
         self_type: Some(self_type.to_string()),
+        current_method: Some(method_name.to_string()),
     };
     gen_body_from_db(out, db, method_id, &ctx)?;
     out.push_str(&format!("{indent}}}\n"));
@@ -532,6 +573,7 @@ fn gen_method_impl_from_db(
         bindings: param_bindings,
         binding_types: HashMap::new(),
         self_type: Some(self_type.to_string()),
+        current_method: Some(method_name.to_string()),
     };
     gen_body_from_db(out, db, method_id, &ctx)?;
     out.push_str(&format!("{indent}}}\n"));
@@ -554,6 +596,7 @@ fn gen_main_from_db(
         bindings: HashMap::new(),
         binding_types: HashMap::new(),
         self_type: None,
+        current_method: None,
     };
     gen_body_from_db(out, db, node_id, &ctx)?;
     out.push_str("}\n");
@@ -680,6 +723,8 @@ struct ExprCtx<'a> {
     /// @Name -> aski type name (for format decisions)
     binding_types: HashMap<String, String>,
     self_type: Option<String>,
+    /// The name of the method currently being generated (for tail-call detection).
+    current_method: Option<String>,
 }
 
 impl<'a> ExprCtx<'a> {
@@ -694,15 +739,17 @@ impl<'a> ExprCtx<'a> {
             bindings: HashMap::new(),
             binding_types: HashMap::new(),
             self_type: None,
+            current_method: None,
         }
     }
 
     fn resolve_instance(&self, name: &str) -> String {
-        if name == "Self" {
-            return "self".to_string();
-        }
+        // Check bindings first — allows tail-call optimization to remap Self → _self
         if let Some(var) = self.bindings.get(name) {
             return var.clone();
+        }
+        if name == "Self" {
+            return "self".to_string();
         }
         // Fall back to snake_case of the name
         to_snake_case(name)
@@ -752,6 +799,73 @@ fn gen_body_from_db(
         return Ok(());
     }
 
+    // Tail-call optimization: detect the two-statement pattern
+    // let result = self.method_a(); return result.method_b(args)
+    // where method_b is a matching method with a recursive arm back to current_method
+    if children.len() == 2 && ctx.current_method.is_some() {
+        let current = ctx.current_method.as_ref().unwrap().clone();
+        let (bind_id, bind_kind, _, bind_val) = &children[0];
+        let (ret_id, ret_kind, _, _) = &children[1];
+
+        let is_binding = matches!(bind_kind.as_str(), "same_type_new" | "sub_type_new" | "deferred_new");
+        let is_return = ret_kind == "return";
+
+        if is_binding && is_return {
+            // Check if the return's inner expression is a method_call on the binding
+            let ret_children = db::query_child_exprs(db, *ret_id)?;
+            let ret_inner_id = if let Some((rid, rkind, _, _)) = ret_children.first() {
+                if rkind == "group" {
+                    db::query_child_exprs(db, *rid)?.first().map(|(id, _, _, _)| *id).unwrap_or(*rid)
+                } else {
+                    *rid
+                }
+            } else {
+                0
+            };
+
+            if ret_inner_id != 0 {
+                if let Ok(Some((ref rk, ref rv))) = db::query_expr_by_id(db, ret_inner_id) {
+                    if rk == "method_call" {
+                        if let Some(continuation_method) = rv.as_ref() {
+                            // Look up the continuation method in the DB to see if it's a matching method
+                            // with an arm that calls back to current_method
+                            let _cont_snake = to_snake_case(continuation_method);
+                            let script = format!(
+                                "?[id] := *node{{id, kind: 'method', name: '{}'}}",
+                                continuation_method.replace('\'', "\\'")
+                            );
+                            if let Ok(result) = db.run_script(&script, Default::default(), cozo::ScriptMutability::Immutable) {
+                                for row in &result.rows {
+                                    let cont_method_id = row[0].get_int().unwrap_or(0);
+                                    let cont_arms = db::query_match_arms(db, cont_method_id).unwrap_or_default();
+                                    if !cont_arms.is_empty() {
+                                        // Check if any arm body calls current_method
+                                        let has_recursive_arm = cont_arms.iter().any(|(_, _, body_id, _)| {
+                                            if let Some(bid) = body_id {
+                                                contains_method_call_to(db, *bid, &current)
+                                            } else {
+                                                false
+                                            }
+                                        });
+
+                                        if has_recursive_arm {
+                                            return gen_fused_tail_call_loop(
+                                                out, db, ctx,
+                                                *bind_id, bind_kind, bind_val.as_deref(),
+                                                ret_inner_id, continuation_method,
+                                                cont_method_id, &cont_arms,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let indent = "    ".repeat(ctx.indent);
     let mut ctx = ctx.clone();
 
@@ -759,6 +873,159 @@ fn gen_body_from_db(
         let is_last = i == children.len() - 1;
         gen_statement_from_db(out, db, *child_id, kind, value.as_deref(), &mut ctx, &indent, is_last)?;
     }
+    Ok(())
+}
+
+/// Generate a fused tail-call loop from a computed body + matching continuation method.
+///
+/// Pattern: `let result = self.method_a(); return result.method_b(args)`
+/// where method_b has a matching body with one arm recursing back to the current method.
+///
+/// Generates:
+/// ```ignore
+/// let mut _self = self;
+/// let mut _param = *param;
+/// loop {
+///     let result: ResultType = _self.method_a();
+///     match result {
+///         Arm1(binding) => { _self = binding; _param = new_val; }
+///         Arm2(_) => { return value; }
+///     }
+/// }
+/// ```
+#[allow(clippy::too_many_arguments)]
+fn gen_fused_tail_call_loop(
+    out: &mut String,
+    db: &DbInstance,
+    ctx: &ExprCtx,
+    bind_id: i64,
+    bind_kind: &str,
+    bind_val: Option<&str>,
+    _ret_method_call_id: i64,
+    _continuation_method: &str,
+    _cont_method_id: i64,
+    cont_arms: &[(i64, Vec<String>, Option<i64>, String)],
+) -> Result<(), String> {
+    let indent = "    ".repeat(ctx.indent);
+    let inner_indent = "    ".repeat(ctx.indent + 1);
+    let arm_indent = "    ".repeat(ctx.indent + 2);
+    let current_method = ctx.current_method.as_ref().unwrap();
+
+    // Collect method params (non-self) for mutable loop variables
+    // These are from the CURRENT method's params in ctx.bindings
+    // Deduplicate by rust_var since named params insert both name and type keys
+    let mut loop_vars: Vec<(String, String)> = Vec::new(); // (original_name, rust_var)
+    let mut seen_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (name, rust_var) in &ctx.bindings {
+        if name != "Self" {
+            let clean_var = rust_var.trim_start_matches('*').to_string();
+            if seen_vars.insert(clean_var) {
+                loop_vars.push((name.clone(), rust_var.clone()));
+            }
+        }
+    }
+
+    // Emit mutable copies of self and params
+    out.push_str(&format!("{indent}let mut _self = self;\n"));
+    for (_name, rust_var) in &loop_vars {
+        // If the var is *name (deref'd), we need the original var name
+        let clean_var = rust_var.trim_start_matches('*');
+        out.push_str(&format!("{indent}let mut _{clean_var} = {rust_var};\n"));
+    }
+    out.push_str(&format!("{indent}loop {{\n"));
+
+    // Emit the binding statement with mutated self reference
+    // Build a modified context where Self → _self and params → _param
+    let mut loop_ctx = ctx.clone();
+    loop_ctx.indent = ctx.indent + 1;
+    loop_ctx.bindings.insert("Self".to_string(), "_self".to_string());
+    for (_name, rust_var) in &loop_vars {
+        let clean_var = rust_var.trim_start_matches('*');
+        // Re-insert with underscore prefix
+        for (k, v) in ctx.bindings.iter() {
+            if v == rust_var {
+                loop_ctx.bindings.insert(k.clone(), format!("_{clean_var}"));
+            }
+        }
+    }
+    loop_ctx.current_method = None; // prevent nested detection
+
+    // Emit the binding (first statement) — register the binding name
+    let binding_name = match bind_kind {
+        "same_type_new" | "deferred_new" => bind_val.unwrap_or("result").to_string(),
+        "sub_type_new" => {
+            if let Some(val) = bind_val {
+                val.split(':').next().unwrap_or("result").to_string()
+            } else {
+                "result".to_string()
+            }
+        }
+        _ => "result".to_string(),
+    };
+    let binding_var = to_snake_case(&binding_name);
+
+    gen_statement_from_db(out, db, bind_id, bind_kind, bind_val, &mut loop_ctx, &inner_indent, false)?;
+
+    // Now emit the match from the continuation method's arms
+    out.push_str(&format!("{inner_indent}match {binding_var} {{\n"));
+
+    for (_ordinal, patterns, body_expr_id, _arm_kind) in cont_arms {
+        if let Some(pat_str) = patterns.first() {
+            let pat = emit_pattern_from_db(pat_str, &loop_ctx, db);
+
+            // Add pattern bindings to context
+            let mut arm_ctx = loop_ctx.clone();
+            arm_ctx.indent = ctx.indent + 2;
+            let parsed_pat = db::parse_pattern_string(pat_str);
+            if let db::ParsedPattern::DataCarrying(_, ref inner) = parsed_pat {
+                if inner.starts_with('@') {
+                    let bind_name = &inner[1..];
+                    arm_ctx.bindings.insert(
+                        bind_name.to_string(),
+                        to_snake_case(bind_name),
+                    );
+                }
+            }
+
+            if let Some(bid) = body_expr_id {
+                // Check if this arm calls current_method (recursive arm)
+                if contains_method_call_to(db, *bid, current_method) {
+                    // This is the recursive arm — extract the receiver and args
+                    // and generate reassignment instead of recursion
+                    if let Some((_receiver_id, arg_ids)) = is_method_call_to(db, *bid, current_method) {
+                        // The receiver becomes the new _self
+                        let new_self = emit_expr_from_db(db, _receiver_id, &arm_ctx)?;
+                        out.push_str(&format!("{arm_indent}{pat} => {{ _self = {new_self}; "));
+
+                        // Reassign loop vars from method call args
+                        for (i, arg_id) in arg_ids.iter().enumerate() {
+                            if i < loop_vars.len() {
+                                let clean_var = loop_vars[i].1.trim_start_matches('*');
+                                let new_val = emit_expr_from_db(db, *arg_id, &arm_ctx)?;
+                                // Strip the & prefix that method_call args normally get
+                                out.push_str(&format!("_{clean_var} = {new_val}; "));
+                            }
+                        }
+                        out.push_str("}\n");
+                    } else {
+                        // Fallback — can't extract the recursive call cleanly
+                        let body = emit_expr_from_db(db, *bid, &arm_ctx)?;
+                        out.push_str(&format!("{arm_indent}{pat} => {{ return {body}; }}\n"));
+                    }
+                } else {
+                    // Non-recursive arm — emit return
+                    let body = emit_expr_from_db(db, *bid, &arm_ctx)?;
+                    out.push_str(&format!("{arm_indent}{pat} => {{ return {body}; }}\n"));
+                }
+            } else {
+                out.push_str(&format!("{arm_indent}{pat} => {{ todo!(); }}\n"));
+            }
+        }
+    }
+
+    out.push_str(&format!("{inner_indent}}}\n"));
+    out.push_str(&format!("{indent}}}\n"));
+
     Ok(())
 }
 
@@ -1421,6 +1688,38 @@ fn emit_expr_from_db(
                 return Ok(format!("{base}.get({arg} as usize).unwrap().clone()"));
             }
 
+            // Collection trait methods: filter, map, each, find, count
+            let collection_methods = ["filter", "map", "each", "find", "count"];
+            if collection_methods.contains(&snake.as_str()) && children.len() >= 2 {
+                // Find element binding: scan arg expression tree for instance_ref not in ctx.bindings
+                let arg_id = children[1].0;
+                let mut unknown_refs = Vec::new();
+                collect_unknown_instance_refs(db, arg_id, ctx, &mut unknown_refs);
+                let elem_var = if let Some(ref_name) = unknown_refs.first() {
+                    to_snake_case(ref_name)
+                } else {
+                    "item".to_string()
+                };
+                let elem_binding_name = unknown_refs.first().cloned().unwrap_or_default();
+
+                // Build a closure context with the element binding
+                let mut closure_ctx = ctx.clone();
+                if !elem_binding_name.is_empty() {
+                    closure_ctx.bindings.insert(elem_binding_name, elem_var.clone());
+                }
+
+                let body_expr = emit_expr_from_db(db, arg_id, &closure_ctx)?;
+
+                return match snake.as_str() {
+                    "filter" => Ok(format!("{base}.iter().filter(|{elem_var}| {body_expr}).cloned().collect::<Vec<_>>()")),
+                    "map" => Ok(format!("{base}.iter().map(|{elem_var}| {body_expr}).collect::<Vec<_>>()")),
+                    "each" => Ok(format!("for {elem_var} in &{base} {{ {body_expr}; }}")),
+                    "find" => Ok(format!("{base}.iter().find(|{elem_var}| {body_expr}).cloned()")),
+                    "count" => Ok(format!("({base}.iter().filter(|{elem_var}| {body_expr}).count() as u32)")),
+                    _ => unreachable!(),
+                };
+            }
+
             let mut args = Vec::new();
             for (child_id, _kind, _ord, _val) in children.iter().skip(1) {
                 let arg = emit_expr_from_db(db, *child_id, ctx)?;
@@ -1630,6 +1929,73 @@ fn emit_interpolation_expr(s: &str, ctx: &ExprCtx) -> String {
         }
     } else {
         s.to_string()
+    }
+}
+
+/// Check if an expression node is a method_call to a specific method name.
+/// Returns Some((receiver_expr_id, vec_of_arg_ids)) if it matches, None otherwise.
+fn is_method_call_to(
+    db: &DbInstance,
+    expr_id: i64,
+    method_name: &str,
+) -> Option<(i64, Vec<i64>)> {
+    if let Ok(Some((kind, value))) = db::query_expr_by_id(db, expr_id) {
+        if kind == "method_call" && value.as_deref() == Some(method_name) {
+            if let Ok(children) = db::query_child_exprs(db, expr_id) {
+                if !children.is_empty() {
+                    let receiver = children[0].0;
+                    let args: Vec<i64> = children.iter().skip(1).map(|(id, _, _, _)| *id).collect();
+                    return Some((receiver, args));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Check if any expression in a subtree contains a method_call to a specific method name.
+fn contains_method_call_to(
+    db: &DbInstance,
+    expr_id: i64,
+    method_name: &str,
+) -> bool {
+    if is_method_call_to(db, expr_id, method_name).is_some() {
+        return true;
+    }
+    if let Ok(children) = db::query_child_exprs(db, expr_id) {
+        for (child_id, _, _, _) in &children {
+            if contains_method_call_to(db, *child_id, method_name) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Recursively collect instance_ref names from an expression tree that are NOT in ctx.bindings.
+/// These are inferred element bindings for collection trait methods.
+fn collect_unknown_instance_refs(
+    db: &DbInstance,
+    expr_id: i64,
+    ctx: &ExprCtx,
+    out: &mut Vec<String>,
+) {
+    if let Ok(Some((kind, value))) = db::query_expr_by_id(db, expr_id) {
+        if kind == "instance_ref" {
+            if let Some(name) = value {
+                if name != "Self" && !ctx.bindings.contains_key(&name) {
+                    if !out.contains(&name) {
+                        out.push(name);
+                    }
+                }
+            }
+        }
+        // Recurse into children
+        if let Ok(children) = db::query_child_exprs(db, expr_id) {
+            for (child_id, _, _, _) in &children {
+                collect_unknown_instance_refs(db, *child_id, ctx, out);
+            }
+        }
     }
 }
 

@@ -84,6 +84,8 @@ pub struct TraitDecl {
     /// Supertrait names (camelCase): `print (display [methods])`
     pub supertraits: Vec<String>,
     pub methods: Vec<MethodSig>,
+    /// Associated constants: `!Max U32` or `!Max U32 {360}`
+    pub constants: Vec<ConstDecl>,
     pub span: Span,
 }
 
@@ -101,6 +103,8 @@ pub struct TypeImpl {
     pub target: String,
     pub methods: Vec<MethodDef>,
     pub associated_types: Vec<AssociatedTypeDef>,
+    /// Associated constants: `!Max U32 {360}`
+    pub associated_constants: Vec<ConstDecl>,
     pub span: Span,
 }
 

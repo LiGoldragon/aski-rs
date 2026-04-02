@@ -346,6 +346,10 @@ fn insert_trait(
         insert_method_sig(db, ids, method, id)?;
     }
 
+    for constant in &t.constants {
+        insert_const(db, ids, constant, Some(id))?;
+    }
+
     Ok(id)
 }
 
@@ -400,6 +404,11 @@ fn insert_trait_impl(
                 assoc_id, type_str.replace('\'', "\\'")
             );
             run_mut(db, &ret_script).map_err(|e| format!("insert assoc_type returns: {e}"))?;
+        }
+
+        // Store associated constants as const child nodes
+        for constant in &type_impl.associated_constants {
+            insert_const(db, ids, constant, Some(impl_id))?;
         }
 
         for method in &type_impl.methods {

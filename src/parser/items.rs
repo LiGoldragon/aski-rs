@@ -191,12 +191,34 @@ pub(crate) fn struct_decl() -> impl Parser<Token, Item, Error = Simple<Token>> +
         })
 }
 
-/// Trait declaration: `name (supertrait1 supertrait2 [method signatures])`
+/// A trait member: either a method signature or an associated constant.
+#[derive(Debug, Clone)]
+enum TraitMember {
+    Method(MethodSig),
+    Const(ConstDecl),
+}
+
+/// Trait declaration: `name (supertrait1 supertrait2 [method signatures / constants])`
 /// Trait names are camelCase — they are verbs (behavior).
 /// Supertraits are camelCase identifiers before the methods block.
 pub(crate) fn trait_decl() -> impl Parser<Token, Item, Error = Simple<Token>> + Clone {
-    let methods_block = skip_newlines()
-        .ignore_then(method_sig())
+    let trait_const = tok(Token::Bang)
+        .ignore_then(pascal())
+        .then(type_ref())
+        .then(const_body().or_not())
+        .map_with_span(|((name, tr), val), span| {
+            TraitMember::Const(ConstDecl {
+                name,
+                type_ref: tr,
+                value: val,
+                span,
+            })
+        });
+
+    let trait_method = method_sig().map(TraitMember::Method);
+
+    let members_block = skip_newlines()
+        .ignore_then(choice((trait_const, trait_method)))
         .separated_by(skip_newlines())
         .allow_trailing()
         .then_ignore(skip_newlines())
@@ -206,31 +228,53 @@ pub(crate) fn trait_decl() -> impl Parser<Token, Item, Error = Simple<Token>> + 
         .then(
             skip_newlines()
                 .ignore_then(
-                    // Optional supertraits before the methods block
+                    // Optional supertraits before the members block
                     camel().repeated()
                 )
-                .then(skip_newlines().ignore_then(methods_block))
+                .then(skip_newlines().ignore_then(members_block))
                 .then_ignore(skip_newlines())
                 .delimited_by(tok(Token::LParen), tok(Token::RParen)),
         )
-        .map_with_span(|(name, (supertraits, methods)), span| {
+        .map_with_span(|(name, (supertraits, members)), span| {
+            let mut methods = Vec::new();
+            let mut constants = Vec::new();
+            for member in members {
+                match member {
+                    TraitMember::Method(m) => methods.push(m),
+                    TraitMember::Const(c) => constants.push(c),
+                }
+            }
             Item::Trait(TraitDecl {
                 name,
                 supertraits,
                 methods,
+                constants,
                 span,
             })
         })
 }
 
-/// An impl member: either an associated type `PascalName Type` or a method definition.
+/// An impl member: associated type, associated constant, or method definition.
 #[derive(Debug, Clone)]
 enum ImplMember {
     AssocType(AssociatedTypeDef),
+    AssocConst(ConstDecl),
     Method(MethodDef),
 }
 
 fn impl_member() -> impl Parser<Token, ImplMember, Error = Simple<Token>> + Clone {
+    // Associated constant: `!Name Type {value}` — starts with Bang, no ambiguity.
+    let assoc_const = tok(Token::Bang)
+        .ignore_then(pascal())
+        .then(type_ref())
+        .then(const_body().or_not())
+        .map_with_span(|((name, tr), val), span| ImplMember::AssocConst(ConstDecl {
+            name,
+            type_ref: tr,
+            value: val,
+            span,
+        }));
+
     // Associated type: PascalName Type — PascalCase name followed by a type ref.
     // Method defs start with camelCase, so there's no ambiguity.
     let assoc_type = pascal()
@@ -243,7 +287,7 @@ fn impl_member() -> impl Parser<Token, ImplMember, Error = Simple<Token>> + Clon
 
     let method = method_def().map(ImplMember::Method);
 
-    choice((assoc_type, method))
+    choice((assoc_const, assoc_type, method))
 }
 
 /// Trait impl: `TraitName [TypeName [methods...]]`
@@ -263,16 +307,19 @@ pub(crate) fn impl_block() -> impl Parser<Token, Item, Error = Simple<Token>> + 
         .map_with_span(|(target, members), span| {
             let mut methods = Vec::new();
             let mut associated_types = Vec::new();
+            let mut associated_constants = Vec::new();
             for member in members {
                 match member {
                     ImplMember::Method(m) => methods.push(m),
                     ImplMember::AssocType(a) => associated_types.push(a),
+                    ImplMember::AssocConst(c) => associated_constants.push(c),
                 }
             }
             TypeImpl {
                 target,
                 methods,
                 associated_types,
+                associated_constants,
                 span,
             }
         });
