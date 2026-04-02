@@ -12,7 +12,7 @@ use aski_rs::parser::parse_source;
 fn rkyv_serialize_then_decode_via_codec() {
     // 1. Parse render_test.aski
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let path = format!("{manifest}/encoder/design/v0.8/examples/render_test.aski");
+    let path = format!("{manifest}/encoder/design/v0.9/examples/render_test.aski");
     let source = std::fs::read_to_string(&path).expect("failed to read render_test.aski");
 
     // 2. Parse and insert into CozoDB

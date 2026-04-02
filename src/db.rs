@@ -46,7 +46,7 @@ pub fn init_schema(db: &DbInstance) -> Result<(), String> {
             name: String,
             type_ref: String
         }"#,
-        // Function/method parameters (v0.6 Param-based)
+        // Function/method parameters (Param-based)
         r#":create param {
             node_id: Int, ordinal: Int =>
             kind: String,
@@ -277,7 +277,7 @@ fn insert_struct(
     Ok(id)
 }
 
-/// Insert a v0.6 Param into the param relation.
+/// Insert a Param into the param relation.
 fn insert_param(
     db: &DbInstance,
     node_id: i64,
