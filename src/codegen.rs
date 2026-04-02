@@ -620,9 +620,17 @@ fn build_method_param_bindings(params: &[(String, Option<String>, Option<String>
             "named" => {
                 let n = name.as_deref().unwrap_or("arg");
                 let t = type_ref.as_deref().unwrap_or("Unknown");
-                map.insert(n.to_string(), to_snake_case(n));
-                // Also allow resolving by type
-                map.insert(t.to_string(), to_snake_case(n));
+                let var = to_snake_case(n);
+                // Params are &Type in generated Rust. For primitive types,
+                // auto-deref so arithmetic works: *count instead of count
+                let rust_t = aski_type_to_rust(t);
+                let resolved = if is_copy_type(&rust_t) {
+                    format!("*{var}")
+                } else {
+                    var.clone()
+                };
+                map.insert(n.to_string(), resolved.clone());
+                map.insert(t.to_string(), resolved);
             }
             "borrow" => {
                 let t = type_ref.as_deref().unwrap_or("Unknown");
@@ -1254,8 +1262,12 @@ fn emit_expr_from_db(
             let mut args = Vec::new();
             for (child_id, _kind, _ord, _val) in children.iter().skip(1) {
                 let arg = emit_expr_from_db(db, *child_id, ctx)?;
-                // Pass by reference for method args — Rust auto-derefs as needed
-                args.push(format!("&{arg}"));
+                // Pass by reference — wrap in parens if arg contains operators
+                if arg.contains(' ') || arg.starts_with('*') {
+                    args.push(format!("&({arg})"));
+                } else {
+                    args.push(format!("&{arg}"));
+                }
             }
             Ok(format!("{base}.{snake}({})", args.join(", ")))
         }
