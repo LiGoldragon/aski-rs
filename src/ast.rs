@@ -180,6 +180,14 @@ pub enum Param {
     MutBorrow(String),
 }
 
+/// Trait bound: `{|a&display|}` — type param with trait constraints.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TraitBound {
+    pub name: String,        // the combined name (e.g., "a&display")
+    pub bounds: Vec<String>, // individual traits via & (e.g., ["a", "display"])
+    pub span: Span,
+}
+
 /// A type reference (may be parameterized, borrowed, etc.)
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeRef {
@@ -191,6 +199,8 @@ pub enum TypeRef {
     SelfType,
     /// Borrowed type: `:String` in struct fields
     Borrowed(Box<TypeRef>),
+    /// Trait bound: `{|a&display|}` — constrained generic
+    Bound(TraitBound),
 }
 
 impl TypeRef {
@@ -200,6 +210,7 @@ impl TypeRef {
             TypeRef::Parameterized(n, _) => n,
             TypeRef::SelfType => "Self",
             TypeRef::Borrowed(inner) => inner.name(),
+            TypeRef::Bound(tb) => &tb.name,
         }
     }
 }

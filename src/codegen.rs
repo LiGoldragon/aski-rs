@@ -2038,6 +2038,14 @@ fn aski_type_to_rust(aski: &str) -> String {
         return format!("&{}", aski_type_to_rust(inner));
     }
 
+    // Trait bound: "sort&display" → "impl Sort + Display"
+    if aski.contains('&') && !aski.contains('(') {
+        let bounds: Vec<String> = aski.split('&')
+            .map(|b| aski_trait_to_rust(b.trim()))
+            .collect();
+        return format!("impl {}", bounds.join(" + "));
+    }
+
     if let Some(idx) = aski.find('(') {
         let name = &aski[..idx];
         let params = &aski[idx + 1..aski.len() - 1];

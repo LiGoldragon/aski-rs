@@ -684,3 +684,43 @@ fn debug_inline_match_simple_return() {
         Err(e) => eprintln!("PARSE ERROR: {}", e),
     }
 }
+
+#[test]
+fn parse_trait_bound_type() {
+    // {|display|} as a type reference (single bound)
+    let src = "!Test {|display|} {___}";
+    let items = parse_source(src).unwrap();
+    assert_eq!(items.len(), 1);
+    match &items[0].node {
+        Item::Const(c) => {
+            assert_eq!(c.name, "Test");
+            match &c.type_ref {
+                TypeRef::Bound(tb) => {
+                    assert_eq!(tb.bounds, vec!["display"]);
+                    assert_eq!(tb.name, "display");
+                }
+                other => panic!("expected Bound type, got {:?}", other),
+            }
+        }
+        other => panic!("expected Const, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_trait_bound_compound() {
+    // {|sort&display|} as a type reference (compound bounds)
+    let src = "!Test {|sort&display|} {___}";
+    let items = parse_source(src).unwrap();
+    match &items[0].node {
+        Item::Const(c) => {
+            match &c.type_ref {
+                TypeRef::Bound(tb) => {
+                    assert_eq!(tb.bounds, vec!["sort", "display"]);
+                    assert_eq!(tb.name, "sort&display");
+                }
+                other => panic!("expected Bound type, got {:?}", other),
+            }
+        }
+        other => panic!("expected Const, got {:?}", other),
+    }
+}

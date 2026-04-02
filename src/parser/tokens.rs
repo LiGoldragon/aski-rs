@@ -55,10 +55,31 @@ pub(crate) fn skip_newlines() -> impl Parser<Token, (), Error = Simple<Token>> +
     tok(Token::Newline).repeated().ignored()
 }
 
+/// Trait bound parser: `{| name&name&... |}`
+pub(crate) fn trait_bound() -> impl Parser<Token, TraitBound, Error = Simple<Token>> + Clone {
+    tok(Token::TraitBoundOpen)
+        .ignore_then(camel())
+        .then(
+            tok(Token::Ampersand)
+                .ignore_then(camel())
+                .repeated()
+        )
+        .then_ignore(tok(Token::TraitBoundClose))
+        .map_with_span(|(first, rest), span| {
+            let mut bounds = vec![first];
+            bounds.extend(rest);
+            let name = bounds.join("&");
+            TraitBound { name, bounds, span }
+        })
+}
+
 /// Type reference parser.
 pub(crate) fn type_ref() -> impl Parser<Token, TypeRef, Error = Simple<Token>> + Clone {
     let self_type = filter(|t: &Token| *t == Token::PascalIdent("Self".into()))
         .map(|_| TypeRef::SelfType);
+
+    // Trait bound type: {|display|}, {|a&display|}
+    let bound_type = trait_bound().map(TypeRef::Bound);
 
     // Parameterized type: Name{T U ...} — no space before {
     let parameterized = pascal()
@@ -66,6 +87,7 @@ pub(crate) fn type_ref() -> impl Parser<Token, TypeRef, Error = Simple<Token>> +
             recursive(|tr| {
                 let inner_self = filter(|t: &Token| *t == Token::PascalIdent("Self".into()))
                     .map(|_| TypeRef::SelfType);
+                let inner_bound = trait_bound().map(TypeRef::Bound);
                 let inner_param = pascal()
                     .then(
                         tr.clone()
@@ -83,7 +105,7 @@ pub(crate) fn type_ref() -> impl Parser<Token, TypeRef, Error = Simple<Token>> +
                             TypeRef::Named(name)
                         }
                     });
-                choice((inner_self, inner_param))
+                choice((inner_self, inner_bound, inner_param))
             })
             .repeated()
             .at_least(1)
@@ -99,7 +121,7 @@ pub(crate) fn type_ref() -> impl Parser<Token, TypeRef, Error = Simple<Token>> +
         }
     });
 
-    choice((self_type, parameterized, named))
+    choice((self_type, bound_type, parameterized, named))
 }
 
 /// Type reference parser for struct fields — supports `:Type` borrowed types.

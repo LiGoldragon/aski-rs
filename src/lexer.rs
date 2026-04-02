@@ -18,6 +18,12 @@ pub enum Token {
     #[token("|)")]
     CompositionClose,
 
+    #[token("{|")]
+    TraitBoundOpen,
+
+    #[token("|}")]
+    TraitBoundClose,
+
     #[token("[|")]
     IterOpen,
 
@@ -171,6 +177,8 @@ impl std::fmt::Display for Token {
         match self {
             Token::Comment => write!(f, ";;"),
             Token::Newline => write!(f, "\\n"),
+            Token::TraitBoundOpen => write!(f, "{{|"),
+            Token::TraitBoundClose => write!(f, "|}}"),
             Token::CompositionOpen => write!(f, "(|"),
             Token::CompositionClose => write!(f, "|)"),
             Token::IterOpen => write!(f, "[|"),
@@ -368,5 +376,25 @@ mod tests {
         let tokens = lex(source).unwrap();
         assert_eq!(tokens[0].token, Token::Bang);
         assert_eq!(tokens[1].token, Token::PascalIdent("Pi".into()));
+    }
+
+    #[test]
+    fn lex_trait_bound_delimiters() {
+        let source = "{|display|}";
+        let tokens = lex(source).unwrap();
+        assert_eq!(tokens[0].token, Token::TraitBoundOpen);
+        assert_eq!(tokens[1].token, Token::CamelIdent("display".into()));
+        assert_eq!(tokens[2].token, Token::TraitBoundClose);
+    }
+
+    #[test]
+    fn lex_trait_bound_compound() {
+        let source = "{|sort&display|}";
+        let tokens = lex(source).unwrap();
+        assert_eq!(tokens[0].token, Token::TraitBoundOpen);
+        assert_eq!(tokens[1].token, Token::CamelIdent("sort".into()));
+        assert_eq!(tokens[2].token, Token::Ampersand);
+        assert_eq!(tokens[3].token, Token::CamelIdent("display".into()));
+        assert_eq!(tokens[4].token, Token::TraitBoundClose);
     }
 }

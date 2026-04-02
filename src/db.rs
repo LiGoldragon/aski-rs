@@ -127,6 +127,7 @@ pub fn type_ref_to_string(tr: &TypeRef) -> String {
         }
         TypeRef::SelfType => "Self".to_string(),
         TypeRef::Borrowed(inner) => format!("&{}", type_ref_to_string(inner)),
+        TypeRef::Bound(tb) => tb.bounds.join("&"),
     }
 }
 
