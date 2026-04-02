@@ -1,7 +1,7 @@
 ;; simple.aski — minimal complete program (v0.9)
 ;; Exercises: domains, struct-domains, constants, matching methods,
-;; computed methods, bindings, trait + impl, inherent impl, operator
-;; overloading, struct update (.with), comprehension [||], Main.
+;; computed methods, bindings, trait + impl, operator overloading,
+;; struct update (.with), comprehension [||], Main.
 ;; No free functions. No strings in types. All behavior on types.
 
 ;; Domains (enum-domains)
@@ -17,32 +17,41 @@ Point { X F64 Y F64 }
 ;; Named input struct-domain
 Addition { Left U32 Right U32 }
 
+;; Trait declaration for compute
+compute ([add(:@Self) U32])
+
 ;; Computed method on Addition
-Addition [
+compute [Addition [
   add(:@Self) U32 [
     ^(@Self.Left + @Self.Right)
   ]
-]
+]]
+
+;; Trait declaration for describe
+describe ([describe(:@Self) Element])
 
 ;; Matching method on Element — pattern dispatch
-Element [
+describe [Element [
   describe(:@Self) Element (|
     (Fire)  Fire
     (Earth) Earth
     (Air)   Air
     (Water) Water
   |)
-]
+]]
 
 ;; Computed method with binding
 Radius { Value F64 }
 
-Radius [
+;; Trait declaration for measure
+measure ([area(:@Self) F64])
+
+measure [Radius [
   area(:@Self) F64 [
     @Area F64.new([@Self.Value * @Self.Value * !Pi])
     ^@Area
   ]
-]
+]]
 
 ;; Trait declaration — : for borrow, camelCase = verb
 classify ([element(:@Self) Element])
@@ -56,14 +65,17 @@ classify [Point [element(:@Self) Element [
   |)
 ]]]
 
-;; Inherent impl — distance between two points
-Point [
+;; Trait declaration for navigate
+navigate ([distance(:@Self @Other Point) F64])
+
+;; Distance between two points
+navigate [Point [
   distance(:@Self @Other Point) F64 [
     @DeltaX F64.new([(@Self.X - @Other.X) * (@Self.X - @Other.X)])
     @DeltaY F64.new([(@Self.Y - @Other.Y) * (@Self.Y - @Other.Y)])
     ^[@DeltaX + @DeltaY].sqrt
   ]
-]
+]]
 
 ;; v0.9: Operator overloading — impl add for Point
 ;; (Associated type Output handled by codegen — maps to Rust's type Output)
@@ -97,7 +109,7 @@ Main [
   @PointElement Element.new(@Point.element)
   StdOut @PointElement
 
-  ;; Inherent method
+  ;; Trait method (navigate)
   @Origin Point.new(X(0.0) Y(0.0))
   @Distance F64.new(@Point.distance(@Origin))
   StdOut @Distance

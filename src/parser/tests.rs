@@ -32,17 +32,19 @@ fn parse_simple_struct() {
 }
 
 #[test]
-fn parse_inherent_method() {
-    let src = "Addition [ add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ] ]";
+fn parse_trait_impl_method() {
+    let src = "compute [Addition [ add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ] ]]";
     let items = parse_source(src).unwrap();
     assert_eq!(items.len(), 1);
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            assert_eq!(ii.type_name, "Addition");
-            assert_eq!(ii.methods.len(), 1);
-            assert_eq!(ii.methods[0].name, "add");
+        Item::TraitImpl(ti) => {
+            assert_eq!(ti.trait_name, "compute");
+            assert_eq!(ti.impls.len(), 1);
+            assert_eq!(ti.impls[0].target, "Addition");
+            assert_eq!(ti.impls[0].methods.len(), 1);
+            assert_eq!(ti.impls[0].methods[0].name, "add");
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
@@ -92,22 +94,23 @@ fn parse_multiple_items() {
 
 #[test]
 fn parse_matching_method() {
-    let src = r#"Element [
+    let src = r#"describe [Element [
   describe(:@Self) String (|
     (Fire)  "passionate"
     (Earth) "grounded"
     (Air)   "intellectual"
     (Water) "intuitive"
   |)
-]"#;
+]]"#;
     let items = parse_source(src).unwrap();
     assert_eq!(items.len(), 1);
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            assert_eq!(ii.type_name, "Element");
-            assert_eq!(ii.methods.len(), 1);
-            assert_eq!(ii.methods[0].name, "describe");
-            match &ii.methods[0].body {
+        Item::TraitImpl(ti) => {
+            assert_eq!(ti.trait_name, "describe");
+            assert_eq!(ti.impls[0].target, "Element");
+            assert_eq!(ti.impls[0].methods.len(), 1);
+            assert_eq!(ti.impls[0].methods[0].name, "describe");
+            match &ti.impls[0].methods[0].body {
                 Body::MatchBody(arms) => {
                     assert_eq!(arms.len(), 4);
                     assert!(matches!(arms[0].kind, ArmKind::Commit));
@@ -117,7 +120,7 @@ fn parse_matching_method() {
                 other => panic!("expected MatchBody, got {:?}", other),
             }
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
@@ -161,16 +164,16 @@ fn parse_subtype_binding() {
 
 #[test]
 fn parse_matching_method_with_wildcard() {
-    let src = r#"Element [
+    let src = r#"check [Element [
   isFire(:@Self) Bool (|
     (Fire) True
     (_)    False
   |)
-]"#;
+]]"#;
     let items = parse_source(src).unwrap();
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            match &ii.methods[0].body {
+        Item::TraitImpl(ti) => {
+            match &ti.impls[0].methods[0].body {
                 Body::MatchBody(arms) => {
                     assert_eq!(arms.len(), 2);
                     assert!(matches!(&arms[1].patterns[0], Pattern::Wildcard));
@@ -178,22 +181,22 @@ fn parse_matching_method_with_wildcard() {
                 other => panic!("expected MatchBody, got {:?}", other),
             }
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
 #[test]
 fn parse_multi_value_matching() {
-    let src = r#"Element [
+    let src = r#"classify [Element [
   classify(:@Self @Modality) String (|
     (Fire Cardinal) "initiator"
     (_ _)           "other"
   |)
-]"#;
+]]"#;
     let items = parse_source(src).unwrap();
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            match &ii.methods[0].body {
+        Item::TraitImpl(ti) => {
+            match &ti.impls[0].methods[0].body {
                 Body::MatchBody(arms) => {
                     assert_eq!(arms[0].patterns.len(), 2);
                     assert!(matches!(&arms[0].patterns[0], Pattern::Variant(v) if v == "Fire"));
@@ -202,7 +205,7 @@ fn parse_multi_value_matching() {
                 other => panic!("expected MatchBody, got {:?}", other),
             }
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
@@ -391,16 +394,16 @@ fn parse_parameterized_struct_field() {
 
 #[test]
 fn parse_or_pattern() {
-    let src = r#"Element [
+    let src = r#"check [Element [
   isFire(:@Self) Bool (|
     ((Fire | Air)) True
     (_) False
   |)
-]"#;
+]]"#;
     let items = parse_source(src).unwrap();
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            match &ii.methods[0].body {
+        Item::TraitImpl(ti) => {
+            match &ti.impls[0].methods[0].body {
                 Body::MatchBody(arms) => {
                     assert_eq!(arms.len(), 2);
                     match &arms[0].patterns[0] {
@@ -416,22 +419,22 @@ fn parse_or_pattern() {
                 other => panic!("expected MatchBody, got {:?}", other),
             }
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
 #[test]
 fn parse_nested_pattern() {
-    let src = r#"Option [
+    let src = r#"extract [Option [
   unwrap(:@Self) String (|
     (Some(@Value)) @Value
     (_) "none"
   |)
-]"#;
+]]"#;
     let items = parse_source(src).unwrap();
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            match &ii.methods[0].body {
+        Item::TraitImpl(ti) => {
+            match &ti.impls[0].methods[0].body {
                 Body::MatchBody(arms) => {
                     assert_eq!(arms.len(), 2);
                     match &arms[0].patterns[0] {
@@ -445,22 +448,22 @@ fn parse_nested_pattern() {
                 other => panic!("expected MatchBody, got {:?}", other),
             }
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
 #[test]
 fn parse_instance_bind_pattern() {
-    let src = r#"Wrapper [
+    let src = r#"extract [Wrapper [
   extract(:@Self) String (|
     (@Inner) @Inner
     (_) "empty"
   |)
-]"#;
+]]"#;
     let items = parse_source(src).unwrap();
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            match &ii.methods[0].body {
+        Item::TraitImpl(ti) => {
+            match &ti.impls[0].methods[0].body {
                 Body::MatchBody(arms) => {
                     assert_eq!(arms.len(), 2);
                     assert!(matches!(&arms[0].patterns[0], Pattern::InstanceBind(n) if n == "Inner"));
@@ -468,7 +471,7 @@ fn parse_instance_bind_pattern() {
                 other => panic!("expected MatchBody, got {:?}", other),
             }
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
@@ -476,16 +479,16 @@ fn parse_instance_bind_pattern() {
 
 #[test]
 fn parse_sequence_destructure() {
-    let src = r#"List [
+    let src = r#"extract [List [
   head(:@Self) String (|
     ((@Head | @Rest)) @Head
     (_) "empty"
   |)
-]"#;
+]]"#;
     let items = parse_source(src).unwrap();
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            match &ii.methods[0].body {
+        Item::TraitImpl(ti) => {
+            match &ti.impls[0].methods[0].body {
                 Body::MatchBody(arms) => {
                     assert_eq!(arms.len(), 2);
                     match &arms[0].patterns[0] {
@@ -500,7 +503,7 @@ fn parse_sequence_destructure() {
                 other => panic!("expected MatchBody, got {:?}", other),
             }
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
@@ -534,13 +537,13 @@ fn parse_associated_type_in_impl() {
 
 #[test]
 fn parse_owned_self_param() {
-    let src = "String [\n  process(@Self) Bool [\n    ^@Self.len > 0\n  ]\n]";
+    let src = "process [String [\n  process(@Self) Bool [\n    ^@Self.len > 0\n  ]\n]]";
     let items = parse_source(src).unwrap();
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            assert!(matches!(&ii.methods[0].params[0], Param::OwnedSelf));
+        Item::TraitImpl(ti) => {
+            assert!(matches!(&ti.impls[0].methods[0].params[0], Param::OwnedSelf));
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
@@ -632,12 +635,12 @@ fn parse_headerless_file() {
 fn parse_destructure_arm() {
     use crate::ast::*;
     // Destructure arm uses PascalCase token variant names — [] delimiters (not {})
-    let src = "Tokens [\n  parse(:@Self) Option{Pair{Token Tokens}} (|\n    [PascalIdent LParen @Variants RParen | @Rest]  @Rest\n  |)\n]";
+    let src = "parse [Tokens [\n  parse(:@Self) Option{Pair{Token Tokens}} (|\n    [PascalIdent LParen @Variants RParen | @Rest]  @Rest\n  |)\n]]";
     let items = parse_source(src).unwrap();
     match &items[0].node {
-        Item::InherentImpl(ii) => {
-            assert_eq!(ii.methods.len(), 1);
-            match &ii.methods[0].body {
+        Item::TraitImpl(ti) => {
+            assert_eq!(ti.impls[0].methods.len(), 1);
+            match &ti.impls[0].methods[0].body {
                 Body::MatchBody(arms) => {
                     assert_eq!(arms.len(), 1);
                     assert!(matches!(arms[0].kind, ArmKind::Destructure));
@@ -648,13 +651,13 @@ fn parse_destructure_arm() {
                 other => panic!("expected MatchBody, got {:?}", other),
             }
         }
-        other => panic!("expected InherentImpl, got {:?}", other),
+        other => panic!("expected TraitImpl, got {:?}", other),
     }
 }
 
 #[test]
 fn debug_header_inline_match() {
-    let src = "(Parser ItemResult)\n[Token (Token)\n Tokens (_)]\n\nItemResult (Parsed (Tokens) Failed (Tokens))\n\nTokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool.new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]\n";
+    let src = "(Parser ItemResult)\n[Token (Token)\n Tokens (_)]\n\nItemResult (Parsed (Tokens) Failed (Tokens))\n\nparse [Tokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool.new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]]\n";
     let sf = crate::parser::parse_source_file(src);
     match sf {
         Ok(sf) => {
@@ -667,7 +670,7 @@ fn debug_header_inline_match() {
 
 #[test]
 fn debug_no_header_inline_match() {
-    let src = "ItemResult (Parsed (Tokens) Failed (Tokens))\n\nTokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool.new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]\n";
+    let src = "ItemResult (Parsed (Tokens) Failed (Tokens))\n\nparse [Tokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool.new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]]\n";
     let items = crate::parser::parse_source(src);
     match items {
         Ok(items) => eprintln!("OK: {} items", items.len()),
@@ -677,7 +680,7 @@ fn debug_no_header_inline_match() {
 
 #[test]
 fn debug_inline_match_simple_return() {
-    let src = "Tokens { Pos U32 }\n\nTokens [\n  test(@Self) Bool [\n    @Done Bool.new(@Self.Pos >= 10)\n    ^(| @Done\n      (True) True\n      (False) False\n    |)\n  ]\n]\n";
+    let src = "Tokens { Pos U32 }\n\ncheck [Tokens [\n  test(@Self) Bool [\n    @Done Bool.new(@Self.Pos >= 10)\n    ^(| @Done\n      (True) True\n      (False) False\n    |)\n  ]\n]]\n";
     let items = crate::parser::parse_source(src);
     match items {
         Ok(items) => eprintln!("OK: {} items", items.len()),

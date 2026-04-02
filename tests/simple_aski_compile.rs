@@ -30,7 +30,7 @@ fn simple_aski_parses_stores_generates_compiles() {
 
     assert!(rust_code.contains("pub enum Element"));
     assert!(rust_code.contains("pub struct Point"));
-    assert!(rust_code.contains("pub fn add"));
+    assert!(rust_code.contains("fn add("));
     assert!(rust_code.contains("fn main()"));
 
     // 5. Write the Rust to a temp file and compile with rustc (if available)

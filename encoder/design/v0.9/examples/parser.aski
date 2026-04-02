@@ -36,7 +36,12 @@ ParseState { Tokens Vec{Token} Position U32 }
 ;; ParseState core methods
 ;; ================================================================
 
-ParseState [
+navigate ([
+  atEnd(:@Self) Bool
+  advance(:@Self) ParseState
+])
+
+navigate [ParseState [
   ;; Check if at end of token stream
   atEnd(:@Self) Bool [
     ^(@Self.Position >= 10)
@@ -46,7 +51,7 @@ ParseState [
   advance(:@Self) ParseState [
     ^@Self.with(Position([@Self.Position + 1]))
   ]
-]
+]]
 
 ;; ================================================================
 ;; AST domains

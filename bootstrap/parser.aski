@@ -13,7 +13,19 @@ DomainResult { Count U32 Remaining Tokens }
 StructResult { Count U32 Remaining Tokens }
 
 ;; Domain parser — parses PascalName ( Variant1 Variant2 ... )
-Tokens [
+parse ([
+  parseDomain(@Self) ParseResult
+  tryDomainOpen(@Self) ParseResult
+  countVariants(@Self) ParseResult
+  checkCloseOrVariant(@Self) ParseResult
+  skipVariantAndContinue(@Self) ParseResult
+  parseStruct(@Self) ParseResult
+  tryStructOpen(@Self) ParseResult
+  skipToCloseBrace(@Self) ParseResult
+  checkCloseBrace(@Self) ParseResult
+])
+
+parse [Tokens [
   parseDomain(@Self) ParseResult [
     @Toks Tokens.new(@Self.skipNewlines)
     @HasName Bool.new(@Toks.peekIsPascal)
@@ -90,4 +102,4 @@ Tokens [
       (False) @Self.advance.skipToCloseBrace
     |)
   ]
-]
+]]

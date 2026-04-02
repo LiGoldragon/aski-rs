@@ -105,7 +105,7 @@ pub fn generate_rust_from_db_with_config(db: &World, config: &CodegenConfig) -> 
         match kind {
             "domain" | "struct" | "const" | "type_alias" => 0,  // type definitions first
             "trait" => 1,                         // trait declarations
-            "impl" | "inherent_impl" => 2,        // implementations
+            "impl" => 2,                          // implementations
             "main" => 3,                          // entry point last
             _ => 4,
         }
@@ -121,7 +121,6 @@ pub fn generate_rust_from_db_with_config(db: &World, config: &CodegenConfig) -> 
             "type_alias" => gen_type_alias_from_db(&mut out, db, *node_id, name)?,
             "trait" => gen_trait_from_db(&mut out, db, *node_id, name)?,
             "impl" => gen_trait_impl_from_db(&mut out, db, *node_id, name, &variant_map, &struct_fields)?,
-            "inherent_impl" => gen_inherent_impl_from_db(&mut out, db, *node_id, name, &variant_map, &struct_fields)?,
             "main" => gen_main_from_db(&mut out, db, *node_id, &variant_map, &struct_fields)?,
             _ => {}
         }
@@ -453,31 +452,12 @@ fn gen_trait_impl_from_db(
             if is_operator {
                 gen_operator_method_from_db(out, db, *method_id, method_name, type_name, 1, variant_map, struct_fields)?;
             } else {
-                gen_method_impl_from_db(out, db, *method_id, method_name, type_name, 1, false, variant_map, struct_fields)?;
+                gen_method_impl_from_db(out, db, *method_id, method_name, type_name, 1, variant_map, struct_fields)?;
             }
         }
 
         out.push_str("}\n\n");
     }
-    Ok(())
-}
-
-fn gen_inherent_impl_from_db(
-    out: &mut String,
-    db: &World,
-    node_id: i64,
-    type_name: &str,
-    variant_map: &HashMap<String, String>,
-    struct_fields: &HashMap<String, Vec<(String, String)>>,
-) -> Result<(), String> {
-    out.push_str(&format!("impl {type_name} {{\n"));
-
-    let methods = ir::query_child_nodes(db, node_id)?;
-    for (method_id, _kind, method_name) in &methods {
-        gen_method_impl_from_db(out, db, *method_id, method_name, type_name, 1, true, variant_map, struct_fields)?;
-    }
-
-    out.push_str("}\n\n");
     Ok(())
 }
 
@@ -546,7 +526,6 @@ fn gen_method_impl_from_db(
     method_name: &str,
     self_type: &str,
     base_indent: usize,
-    is_inherent: bool,
     variant_map: &HashMap<String, String>,
     struct_fields: &HashMap<String, Vec<(String, String)>>,
 ) -> Result<(), String> {
@@ -559,9 +538,8 @@ fn gen_method_impl_from_db(
         .map(|r| format!(" -> {}", aski_type_to_rust(r)))
         .unwrap_or_default();
     let snake = to_snake_case(method_name);
-    let vis = if is_inherent { "pub " } else { "" };
 
-    out.push_str(&format!("{indent}{vis}fn {snake}({rust_params}){ret} {{\n"));
+    out.push_str(&format!("{indent}fn {snake}({rust_params}){ret} {{\n"));
 
     let param_bindings = build_method_param_bindings(&params, self_type);
     let ctx = ExprCtx {
@@ -2115,13 +2093,13 @@ mod tests {
     }
 
     #[test]
-    fn codegen_inherent_method() {
-        let db = setup("Addition { Left U32 Right U32 }\nAddition [ add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ] ]");
+    fn codegen_trait_impl_method() {
+        let db = setup("Addition { Left U32 Right U32 }\ncompute [Addition [add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ]]]");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.contains("pub struct Addition"));
-        assert!(code.contains("impl Addition"));
-        assert!(code.contains("pub fn add(&self)"));
+        assert!(code.contains("impl Compute for Addition"));
+        assert!(code.contains("fn add(&self)"));
     }
 
     #[test]

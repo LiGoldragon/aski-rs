@@ -25,8 +25,6 @@ pub enum Item {
     Trait(TraitDecl),
     /// Trait implementation: `traitName [TypeName [methods]]`
     TraitImpl(TraitImplDecl),
-    /// Inherent impl: `TypeName [methods]`
-    InherentImpl(InherentImplDecl),
     /// Constant: `!Name Type {value}`
     Const(ConstDecl),
     /// Main entry point: `Main [ body ]`
@@ -113,14 +111,6 @@ pub struct TypeImpl {
 pub struct AssociatedTypeDef {
     pub name: String,
     pub concrete_type: TypeRef,
-    pub span: Span,
-}
-
-/// Inherent impl block (methods on a type, no trait).
-#[derive(Debug, Clone, PartialEq)]
-pub struct InherentImplDecl {
-    pub type_name: String,
-    pub methods: Vec<MethodDef>,
     pub span: Span,
 }
 

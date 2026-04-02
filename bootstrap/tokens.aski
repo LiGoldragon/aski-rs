@@ -7,9 +7,30 @@
 
 Tokens { Stream Vec{Token} Pos U32 }
 
-Tokens [
-  ;; === OBSERVE — borrow ===
+observe ([
+  atEnd(:@Self) Bool
+  peek(:@Self) Token
+  peekIsNewline(:@Self) Bool
+  peekIsLParen(:@Self) Bool
+  peekIsRParen(:@Self) Bool
+  peekIsLBrace(:@Self) Bool
+  peekIsRBrace(:@Self) Bool
+  peekIsLBracket(:@Self) Bool
+  peekIsRBracket(:@Self) Bool
+  peekIsMatchOpen(:@Self) Bool
+  peekIsMatchClose(:@Self) Bool
+  peekIsPascal(:@Self) Bool
+  peekIsCamel(:@Self) Bool
+  peekIsColon(:@Self) Bool
+  peekIsAt(:@Self) Bool
+  peekIsTilde(:@Self) Bool
+  peekIsBang(:@Self) Bool
+  peekIsUnderscore(:@Self) Bool
+  peekIsStub(:@Self) Bool
+  peekIsPipe(:@Self) Bool
+])
 
+observe [Tokens [
   atEnd(:@Self) Bool [ ^(@Self.Pos >= @Self.Stream.len) ]
   peek(:@Self) Token [ ^@Self.Stream.get(@Self.Pos) ]
 
@@ -31,9 +52,15 @@ Tokens [
   peekIsUnderscore(:@Self) Bool [ ^@Self.peek.isUnderscore ]
   peekIsStub(:@Self) Bool [ ^@Self.peek.isStub ]
   peekIsPipe(:@Self) Bool [ ^@Self.peek.isPipe ]
+]]
 
-  ;; === TRANSFORM — move ===
+transform ([
+  advance(@Self) Tokens
+  skipNewlines(@Self) Tokens
+  skipOneNewline(@Self) Tokens
+])
 
+transform [Tokens [
   advance(@Self) Tokens [ ^@Self.with(Pos([@Self.Pos + 1])) ]
 
   skipNewlines(@Self) Tokens [
@@ -51,9 +78,30 @@ Tokens [
       (False) @Self
     |)
   ]
-]
+]]
 
-Token [
+check ([
+  checkNewline(:@Self) Bool
+  isLParen(:@Self) Bool
+  isRParen(:@Self) Bool
+  isLBrace(:@Self) Bool
+  isRBrace(:@Self) Bool
+  isLBracket(:@Self) Bool
+  isRBracket(:@Self) Bool
+  isMatchOpen(:@Self) Bool
+  isMatchClose(:@Self) Bool
+  isPascal(:@Self) Bool
+  isCamel(:@Self) Bool
+  isColon(:@Self) Bool
+  isAt(:@Self) Bool
+  isTilde(:@Self) Bool
+  isBang(:@Self) Bool
+  isUnderscore(:@Self) Bool
+  isStub(:@Self) Bool
+  isPipe(:@Self) Bool
+])
+
+check [Token [
   checkNewline(:@Self) Bool (| (Newline) True (_) False |)
   isLParen(:@Self) Bool (| (LParen) True (_) False |)
   isRParen(:@Self) Bool (| (RParen) True (_) False |)
@@ -72,4 +120,4 @@ Token [
   isUnderscore(:@Self) Bool (| (Underscore) True (_) False |)
   isStub(:@Self) Bool (| (TokenStub) True (_) False |)
   isPipe(:@Self) Bool (| (Pipe) True (_) False |)
-]
+]]

@@ -342,26 +342,7 @@ pub(crate) fn impl_block() -> impl Parser<Token, Item, Error = Simple<Token>> + 
             })
         });
 
-    // DEPRECATED: inherent impls (`PascalName [methods]`) — use trait impl form instead.
-    // Kept for backward compatibility during transition.
-    let inherent_impl = pascal()
-        .then(
-            skip_newlines()
-                .ignore_then(method_def())
-                .separated_by(skip_newlines())
-                .allow_trailing()
-                .then_ignore(skip_newlines())
-                .delimited_by(tok(Token::LBracket), tok(Token::RBracket)),
-        )
-        .map_with_span(|(name, methods), span| {
-            Item::InherentImpl(InherentImplDecl {
-                type_name: name,
-                methods,
-                span,
-            })
-        });
-
-    choice((trait_impl, inherent_impl))
+    trait_impl
 }
 
 /// Constant declaration: `!Name Type {value}`

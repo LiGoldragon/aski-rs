@@ -95,7 +95,6 @@ fn insert_item(
         Item::Struct(s) => insert_struct(world, ids, s, parent),
         Item::Trait(t) => insert_trait(world, ids, t, parent),
         Item::TraitImpl(ti) => insert_trait_impl(world, ids, ti, parent),
-        Item::InherentImpl(ii) => insert_inherent_impl(world, ids, ii, parent),
         Item::Const(c) => insert_const(world, ids, c, parent),
         Item::Main(m) => insert_main(world, ids, m, parent),
         Item::TypeAlias(ta) => {
@@ -296,22 +295,6 @@ fn insert_method_def(
     }
 
     insert_body(world, ids, &method.body, id)?;
-
-    Ok(id)
-}
-
-fn insert_inherent_impl(
-    world: &mut World,
-    ids: &mut IdGen,
-    ii: &InherentImplDecl,
-    parent: Option<i64>,
-) -> Result<i64, String> {
-    let id = ids.next();
-    insert_node(world, id, "inherent_impl", &ii.type_name, parent, &ii.span);
-
-    for method in &ii.methods {
-        insert_method_def(world, ids, method, id)?;
-    }
 
     Ok(id)
 }
@@ -720,8 +703,8 @@ pub fn query_recursive_fields(world: &World) -> Result<Vec<(String, String, Stri
                 continue;
             }
             let matches_rule1 = field_type == owner_name
-                && world.TransitiveContains.iter().any(|(a, b)| a == owner_name && b == field_type);
-            let matches_rule2 = world.TransitiveContains.iter().any(|(a, b)| a == field_type && b == owner_name);
+                && world.RecursiveType.iter().any(|(a, b)| a == owner_name && b == field_type);
+            let matches_rule2 = world.RecursiveType.iter().any(|(a, b)| a == field_type && b == owner_name);
 
             if matches_rule1 || matches_rule2 {
                 fields.push((owner_name.clone(), field_name.clone(), field_type.clone()));
@@ -804,11 +787,11 @@ mod tests {
     }
 
     #[test]
-    fn ir_roundtrip_inherent_method() {
-        let world = setup_world("Addition [ add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ] ]");
-        let nodes = query_nodes_by_kind(&world, "inherent_impl").unwrap();
+    fn ir_roundtrip_trait_impl_method() {
+        let world = setup_world("compute [Addition [add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ]]]");
+        let nodes = query_nodes_by_kind(&world, "impl").unwrap();
         assert_eq!(nodes.len(), 1);
-        assert_eq!(nodes[0].1, "Addition");
+        assert_eq!(nodes[0].1, "compute");
     }
 
     #[test]
@@ -827,7 +810,7 @@ mod tests {
 
     #[test]
     fn validate_module_scope_return_type_passes() {
-        let world = setup_world("Point { X F64 Y F64 }\nPoint [ translate(:@Self) Point [ ^@Self ] ]");
+        let world = setup_world("Point { X F64 Y F64 }\ntranslate [Point [translate(:@Self) Point [ ^@Self ]]]");
         let violations = validate_return_type_scope(&world).unwrap();
         assert!(violations.is_empty(), "expected no violations, got {:?}", violations);
     }

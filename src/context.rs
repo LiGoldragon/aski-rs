@@ -11,7 +11,7 @@ pub enum Context {
     StructBody,
     /// Inside `([])`: trait method signatures + associated types/consts
     TraitDecl,
-    /// Inside `[]` at top level: trait impl or inherent impl
+    /// Inside `[]` at top level: trait impl
     TraitImpl,
     /// Inside `{}` after method/function signature: expressions
     MethodBody,
