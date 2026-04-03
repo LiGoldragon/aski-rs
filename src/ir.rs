@@ -65,7 +65,7 @@ pub fn insert_ast(
 ) -> Result<(), String> {
     let mut ids = IdGen::new();
     for item in items {
-        insert_item(world, &mut ids, &item.node, None)?;
+        insert_item(world, &mut ids, &item.node, None, None)?;
     }
     Ok(())
 }
@@ -76,12 +76,48 @@ pub fn insert_ast_with_offset(
     world: &mut World,
     items: &[Spanned<Item>],
     offset: i64,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let mut ids = IdGen { next: offset + 1 };
     for item in items {
-        insert_item(world, &mut ids, &item.node, None)?;
+        insert_item(world, &mut ids, &item.node, None, scope_id)?;
     }
     Ok(ids.next - offset - 1)
+}
+
+/// Insert a module header into the World, creating a Scope node and
+/// populating Export and Import relations.
+/// Returns the scope_id.
+pub fn insert_module_header(
+    world: &mut World,
+    ids: &mut IdGen,
+    header: &ModuleHeader,
+) -> i64 {
+    let scope_id = ids.next();
+
+    // Create scope node
+    world.Scope.push((scope_id, "module".to_string(), header.name.clone(), None));
+
+    // Store exports
+    for export in &header.exports {
+        world.Export.push((scope_id, export.clone()));
+    }
+
+    // Store imports
+    for import in &header.imports {
+        match &import.items {
+            ImportItems::Named(items) => {
+                for item in items {
+                    world.Import.push((scope_id, import.module.clone(), item.clone()));
+                }
+            }
+            ImportItems::Wildcard => {
+                world.Import.push((scope_id, import.module.clone(), "_".to_string()));
+            }
+        }
+    }
+
+    scope_id
 }
 
 fn insert_item(
@@ -89,18 +125,19 @@ fn insert_item(
     ids: &mut IdGen,
     item: &Item,
     parent: Option<i64>,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     match item {
-        Item::Domain(d) => insert_domain(world, ids, d, parent),
-        Item::Struct(s) => insert_struct(world, ids, s, parent),
-        Item::Trait(t) => insert_trait(world, ids, t, parent),
-        Item::TraitImpl(ti) => insert_trait_impl(world, ids, ti, parent),
-        Item::Const(c) => insert_const(world, ids, c, parent),
-        Item::Main(m) => insert_main(world, ids, m, parent),
+        Item::Domain(d) => insert_domain(world, ids, d, parent, scope_id),
+        Item::Struct(s) => insert_struct(world, ids, s, parent, scope_id),
+        Item::Trait(t) => insert_trait(world, ids, t, parent, scope_id),
+        Item::TraitImpl(ti) => insert_trait_impl(world, ids, ti, parent, scope_id),
+        Item::Const(c) => insert_const(world, ids, c, parent, scope_id),
+        Item::Main(m) => insert_main(world, ids, m, parent, scope_id),
         Item::TypeAlias(ta) => {
             let id = ids.next();
             let span = &ta.span;
-            insert_node(world, id, "type_alias", &ta.name, parent, span);
+            insert_node(world, id, "type_alias", &ta.name, parent, span, scope_id);
             let aliased = type_ref_to_string(&ta.target);
             world.Returns.push((id, aliased));
             Ok(id)
@@ -115,8 +152,9 @@ fn insert_node(
     name: &str,
     parent: Option<i64>,
     span: &Span,
+    scope_id: Option<i64>,
 ) {
-    world.Node.push((id, kind.to_string(), name.to_string(), parent, span.start, span.end, None));
+    world.Node.push((id, kind.to_string(), name.to_string(), parent, span.start, span.end, scope_id));
 }
 
 fn insert_domain(
@@ -124,9 +162,10 @@ fn insert_domain(
     ids: &mut IdGen,
     domain: &DomainDecl,
     parent: Option<i64>,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let id = ids.next();
-    insert_node(world, id, "domain", &domain.name, parent, &domain.span);
+    insert_node(world, id, "domain", &domain.name, parent, &domain.span, scope_id);
 
     for (ordinal, variant) in domain.variants.iter().enumerate() {
         let wraps = variant.wraps.as_ref().map(type_ref_to_string);
@@ -135,7 +174,7 @@ fn insert_domain(
         // Struct variant fields
         if let Some(ref fields) = variant.fields {
             let variant_id = ids.next();
-            insert_node(world, variant_id, "struct", &variant.name, Some(id), &variant.span);
+            insert_node(world, variant_id, "struct", &variant.name, Some(id), &variant.span, scope_id);
             for (ford, field) in fields.iter().enumerate() {
                 let tr = type_ref_to_string(&field.type_ref);
                 world.Field.push((variant_id, ford as i64, field.name.clone(), tr));
@@ -145,7 +184,7 @@ fn insert_domain(
         // Inline domain variant — sub-variants form a nested domain
         if let Some(ref sub_vars) = variant.sub_variants {
             let sub_domain_id = ids.next();
-            insert_node(world, sub_domain_id, "domain", &variant.name, Some(id), &variant.span);
+            insert_node(world, sub_domain_id, "domain", &variant.name, Some(id), &variant.span, scope_id);
             for (sord, sub_var) in sub_vars.iter().enumerate() {
                 let sw = sub_var.wraps.as_ref().map(type_ref_to_string);
                 world.Variant.push((sub_domain_id, sord as i64, sub_var.name.clone(), sw));
@@ -161,9 +200,10 @@ fn insert_struct(
     ids: &mut IdGen,
     s: &StructDecl,
     parent: Option<i64>,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let id = ids.next();
-    insert_node(world, id, "struct", &s.name, parent, &s.span);
+    insert_node(world, id, "struct", &s.name, parent, &s.span, scope_id);
 
     for (ordinal, field) in s.fields.iter().enumerate() {
         let tr = type_ref_to_string(&field.type_ref);
@@ -207,20 +247,21 @@ fn insert_trait(
     ids: &mut IdGen,
     t: &TraitDecl,
     parent: Option<i64>,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let id = ids.next();
-    insert_node(world, id, "trait", &t.name, parent, &t.span);
+    insert_node(world, id, "trait", &t.name, parent, &t.span, scope_id);
 
     for st in &t.supertraits {
         world.Supertrait.push((id, st.clone()));
     }
 
     for method in &t.methods {
-        insert_method_sig(world, ids, method, id)?;
+        insert_method_sig(world, ids, method, id, scope_id)?;
     }
 
     for constant in &t.constants {
-        insert_const(world, ids, constant, Some(id))?;
+        insert_const(world, ids, constant, Some(id), scope_id)?;
     }
 
     Ok(id)
@@ -231,9 +272,10 @@ fn insert_method_sig(
     ids: &mut IdGen,
     method: &MethodSig,
     parent_id: i64,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let id = ids.next();
-    insert_node(world, id, "method_sig", &method.name, Some(parent_id), &method.span);
+    insert_node(world, id, "method_sig", &method.name, Some(parent_id), &method.span, scope_id);
 
     for (ordinal, param) in method.params.iter().enumerate() {
         insert_param(world, id, ordinal, param);
@@ -250,31 +292,32 @@ fn insert_trait_impl(
     ids: &mut IdGen,
     ti: &TraitImplDecl,
     parent: Option<i64>,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let id = ids.next();
-    insert_node(world, id, "impl", &ti.trait_name, parent, &ti.span);
+    insert_node(world, id, "impl", &ti.trait_name, parent, &ti.span, scope_id);
 
     for type_impl in &ti.impls {
         let impl_id = ids.next();
-        insert_node(world, impl_id, "impl_body", &type_impl.target, Some(id), &type_impl.span);
+        insert_node(world, impl_id, "impl_body", &type_impl.target, Some(id), &type_impl.span, scope_id);
 
         world.TraitImpl.push((ti.trait_name.clone(), type_impl.target.clone(), impl_id));
 
         // Store associated types as assoc_type child nodes
         for assoc in &type_impl.associated_types {
             let assoc_id = ids.next();
-            insert_node(world, assoc_id, "assoc_type", &assoc.name, Some(impl_id), &assoc.span);
+            insert_node(world, assoc_id, "assoc_type", &assoc.name, Some(impl_id), &assoc.span, scope_id);
             let type_str = type_ref_to_string(&assoc.concrete_type);
             world.Returns.push((assoc_id, type_str));
         }
 
         // Store associated constants as const child nodes
         for constant in &type_impl.associated_constants {
-            insert_const(world, ids, constant, Some(impl_id))?;
+            insert_const(world, ids, constant, Some(impl_id), scope_id)?;
         }
 
         for method in &type_impl.methods {
-            insert_method_def(world, ids, method, impl_id)?;
+            insert_method_def(world, ids, method, impl_id, scope_id)?;
         }
     }
 
@@ -286,10 +329,11 @@ fn insert_method_def(
     ids: &mut IdGen,
     method: &MethodDef,
     parent_id: i64,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let id = ids.next();
     let kind = if matches!(method.body, Body::TailBlock(_)) { "tail_method" } else { "method" };
-    insert_node(world, id, kind, &method.name, Some(parent_id), &method.span);
+    insert_node(world, id, kind, &method.name, Some(parent_id), &method.span, scope_id);
 
     for (ordinal, param) in method.params.iter().enumerate() {
         insert_param(world, id, ordinal, param);
@@ -308,9 +352,10 @@ fn insert_const(
     ids: &mut IdGen,
     c: &ConstDecl,
     parent: Option<i64>,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let id = ids.next();
-    insert_node(world, id, "const", &c.name, parent, &c.span);
+    insert_node(world, id, "const", &c.name, parent, &c.span, scope_id);
 
     let tr = type_ref_to_string(&c.type_ref);
     let has_value = c.value.is_some();
@@ -329,9 +374,10 @@ fn insert_main(
     ids: &mut IdGen,
     m: &MainDecl,
     parent: Option<i64>,
+    scope_id: Option<i64>,
 ) -> Result<i64, String> {
     let id = ids.next();
-    insert_node(world, id, "main", "Main", parent, &m.span);
+    insert_node(world, id, "main", "Main", parent, &m.span, scope_id);
 
     insert_body(world, ids, &m.body, id)?;
 

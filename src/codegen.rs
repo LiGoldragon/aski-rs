@@ -329,10 +329,10 @@ fn gen_const_from_db(out: &mut String, db: &World, node_id: i64) -> Result<(), S
             let val = emit_expr_from_db(db, *child_id, &ctx)?;
             out.push_str(&format!("pub const {screaming}: {rust_type} = {val};\n\n"));
         } else {
-            out.push_str(&format!("pub const {screaming}: {rust_type} = todo!();\n\n"));
+            return Err(format!("constant {} has value flag but no value expression", name));
         }
     } else {
-        out.push_str(&format!("pub const {screaming}: {rust_type} = todo!();\n\n"));
+        return Err(format!("constant {} has no value", name));
     }
     Ok(())
 }
@@ -433,10 +433,10 @@ fn gen_trait_impl_from_db(
                             let val = emit_expr_from_db(db, *expr_id, &ctx)?;
                             out.push_str(&format!("    const {screaming}: {rust_type} = {val};\n"));
                         } else {
-                            out.push_str(&format!("    const {screaming}: {rust_type} = todo!();\n"));
+                            return Err(format!("impl constant {} has value flag but no value expression", cname));
                         }
                     } else {
-                        out.push_str(&format!("    const {screaming}: {rust_type} = todo!();\n"));
+                        return Err(format!("impl constant {} has no value", cname));
                     }
                 }
             }
@@ -770,12 +770,12 @@ fn gen_body_from_db(
     let children = ir::query_child_exprs(db, owner_id)?;
 
     if children.is_empty() {
-        let indent = "    ".repeat(ctx.indent);
-        out.push_str(&format!("{indent}todo!()\n"));
-        return Ok(());
+        return Err(format!("method body (node {}) has no expressions", owner_id));
     }
 
     if children.len() == 1 && children[0].1 == "stub" {
+        // ___ stub: placeholder for FFI or incomplete methods.
+        // Emits todo!() until FFI macro design is complete.
         let indent = "    ".repeat(ctx.indent);
         out.push_str(&format!("{indent}todo!()\n"));
         return Ok(());
@@ -1000,7 +1000,7 @@ fn gen_fused_tail_call_loop(
                     out.push_str(&format!("{arm_indent}{pat} => {{ return {body}; }}\n"));
                 }
             } else {
-                out.push_str(&format!("{arm_indent}{pat} => {{ todo!(); }}\n"));
+                return Err(format!("tail-call match arm for pattern {} has no body expression", pat));
             }
         }
     }
@@ -1053,7 +1053,7 @@ fn gen_matching_body_from_db(
             let body = if let Some(bid) = body_expr_id {
                 emit_expr_from_db(db, *bid, ctx)?
             } else {
-                "todo!()".to_string()
+                return Err("multi-value match arm has no body expression".to_string())
             };
             out.push_str(&format!("{arm_indent}({}) => {body},\n", tuple_pats.join(", ")));
         }
@@ -1218,7 +1218,7 @@ fn gen_matching_body_from_db(
                     let body = if let Some(bid) = body_expr_id {
                         emit_expr_from_db(db, *bid, &arm_ctx)?
                     } else {
-                        "todo!()".to_string()
+                        return Err(format!("match arm for pattern {} has no body expression", pat));
                     };
                     out.push_str(&format!("{arm_indent}{pat} => {body},\n"));
                 }
@@ -1487,7 +1487,7 @@ fn emit_expr_from_db(
                 let right = emit_expr_from_db(db, children[1].0, ctx)?;
                 Ok(format!("{left} {op} {right}"))
             } else {
-                Ok("todo!()".to_string())
+                Err(format!("binary operator '{}' requires two operands, found {}", op, children.len()))
             }
         }
         "group" => {
@@ -1537,7 +1537,7 @@ fn emit_expr_from_db(
                     Ok(format!("{base}.{f}"))
                 }
             } else {
-                Ok("todo!()".to_string())
+                Err(format!("field access '{}' has no receiver expression", field))
             }
         }
         "match" => {
@@ -1566,7 +1566,7 @@ fn emit_expr_from_db(
             if let Some((child_id, _kind, _ord, _val)) = children.first() {
                 emit_expr_from_db(db, *child_id, ctx)
             } else {
-                Ok("todo!()".to_string())
+                Err(format!("binding expression (kind '{}') has no child expression", kind))
             }
         }
         "error_prop" => {
@@ -1575,7 +1575,7 @@ fn emit_expr_from_db(
                 let val = emit_expr_from_db(db, *child_id, ctx)?;
                 Ok(format!("{val}?"))
             } else {
-                Ok("todo!()".to_string())
+                Err("error propagation (?) has no inner expression".to_string())
             }
         }
         "struct_construct" => {
@@ -1614,7 +1614,7 @@ fn emit_expr_from_db(
             let method = value.unwrap_or_default();
             let children = ir::query_child_exprs(db, expr_id)?;
             if children.is_empty() {
-                return Ok("todo!()".to_string());
+                return Err(format!("method call '{}' has no receiver expression", method));
             }
             let base = emit_expr_from_db(db, children[0].0, ctx)?;
             // Wrap inline_eval and binop bases in parens
@@ -1721,7 +1721,7 @@ fn emit_expr_from_db(
                 let end = emit_expr_from_db(db, children[1].0, ctx)?;
                 Ok(format!("{start}..{end}"))
             } else {
-                Ok("todo!()".to_string())
+                Err(format!("exclusive range requires two bounds, found {}", children.len()))
             }
         }
         "range_inclusive" => {
@@ -1731,9 +1731,12 @@ fn emit_expr_from_db(
                 let end = emit_expr_from_db(db, children[1].0, ctx)?;
                 Ok(format!("{start}..={end}"))
             } else {
-                Ok("todo!()".to_string())
+                Err(format!("inclusive range requires two bounds, found {}", children.len()))
             }
         }
+        // ___ stub: emits todo!() for FFI and incomplete methods.
+        // Stubs are the ONLY remaining source of todo!() in generated code.
+        // Once FFI macros are designed, stubs will be rejected at compile time.
         "stub" => Ok("todo!()".to_string()),
         "yield" => {
             let children = ir::query_child_exprs(db, expr_id)?;
@@ -1757,7 +1760,7 @@ fn emit_match_from_db(
     let arms = ir::query_match_arms(db, match_id)?;
 
     if children.is_empty() {
-        return Ok("todo!()".to_string());
+        return Err("match expression has no target expression".to_string());
     }
 
     let target = emit_expr_from_db(db, children[0].0, ctx)?;
@@ -1771,7 +1774,7 @@ fn emit_match_from_db(
             let body = if let Some(bid) = body_expr_id {
                 emit_expr_from_db(db, *bid, ctx)?
             } else {
-                "todo!()".to_string()
+                return Err(format!("match arm for pattern {} has no body expression", pat));
             };
             result.push_str(&format!("{arm_indent}{pat} => {body},\n"));
         }
