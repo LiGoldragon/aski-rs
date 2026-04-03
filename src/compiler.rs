@@ -6,7 +6,7 @@
 use crate::ast::SourceFile;
 use crate::codegen::{CodegenConfig, generate_rust_from_db_with_config};
 use crate::ir;
-use crate::parser::parse_source_file;
+use crate::grammar_engine_full::parse_source_file;
 
 /// Compile multiple .aski source files into a single Rust output.
 ///
@@ -82,14 +82,13 @@ fn expand_grammar_rules(world: &mut ir::World) -> Result<(), String> {
     Ok(())
 }
 
-/// Compile source files using the data-driven grammar engine.
+/// Compile source files using the data-driven grammar engine (low-level).
 ///
-/// This is an ALTERNATIVE code path — the chumsky parser remains the default.
 /// Grammar files are loaded first, then source files are parsed using the
-/// grammar engine instead of chumsky.
+/// grammar engine's MatchResult representation.
 ///
 /// Returns a list of `MatchResult` trees (one per top-level item) for
-/// inspection and testing.  Full codegen integration will come later.
+/// inspection and testing.
 pub fn parse_with_grammar(
     grammar_files: &[&str],
     source_files: &[(&str, &str)],

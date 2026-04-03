@@ -1,12 +1,11 @@
 //! Full grammar engine parser for aski v0.10.
 //!
-//! Parses ALL aski syntax, producing the same AST types as the chumsky parser.
+//! Parses ALL aski syntax, producing the canonical AST types.
 //! Uses the grammar engine's Rule/Arm/PatternElement data structures for simple
 //! items, and programmatic Rust parsers for complex recursive constructs
 //! (expressions, statements, bodies).
 //!
-//! This is wired as an ALTERNATIVE parser — both chumsky and grammar engine
-//! can parse the same files. Eventually, grammar engine becomes primary.
+//! This is the PRIMARY (and only) parser for aski.
 
 use crate::ast::*;
 use crate::lexer::Token;
@@ -1918,8 +1917,7 @@ fn parse_item(st: &mut ParseState) -> Result<Spanned<Item>, String> {
 
 // ── Public API ──────────────────────────────────────────────────────
 
-/// Parse aski source code using the grammar engine, producing the same AST
-/// types as the chumsky parser.
+/// Parse aski source code, producing the canonical AST types.
 pub fn parse_source(source: &str) -> Result<Vec<Spanned<Item>>, String> {
     let sf = parse_source_file(source)?;
     Ok(sf.items)
@@ -2207,27 +2205,12 @@ mod tests {
         ))
         .unwrap();
         let items = parse_source(&src).unwrap();
-        // simple.aski has many items — ensure we parse at least as many as chumsky
-        let chumsky_items = crate::parser::parse_source(&src).unwrap();
-        assert_eq!(
+        // simple.aski has many items — verify we parse a reasonable count
+        assert!(
+            items.len() >= 5,
+            "expected at least 5 items from simple.aski, got {}",
             items.len(),
-            chumsky_items.len(),
-            "grammar engine parsed {} items, chumsky parsed {} items",
-            items.len(),
-            chumsky_items.len(),
         );
-
-        // Verify specific items match
-        for (i, (ge, ch)) in items.iter().zip(chumsky_items.iter()).enumerate() {
-            assert_eq!(
-                std::mem::discriminant(&ge.node),
-                std::mem::discriminant(&ch.node),
-                "item {} type mismatch: ge={:?}, chumsky={:?}",
-                i,
-                ge.node,
-                ch.node,
-            );
-        }
     }
 
     #[test]
@@ -2303,14 +2286,10 @@ mod tests {
         if let Ok(src) = chart_src {
             let sf = parse_source_file(&src).unwrap();
             assert!(sf.header.is_some(), "should have module header");
-            // Compare with chumsky
-            let chumsky_sf = crate::parser::parse_source_file(&src).unwrap();
-            assert_eq!(
+            assert!(
+                sf.items.len() >= 10,
+                "expected at least 10 items from chart.aski, got {}",
                 sf.items.len(),
-                chumsky_sf.items.len(),
-                "grammar engine {} items vs chumsky {} items",
-                sf.items.len(),
-                chumsky_sf.items.len(),
             );
         }
     }

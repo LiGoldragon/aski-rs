@@ -1,7 +1,7 @@
 //! Data-driven grammar engine for aski.
 //!
 //! Reads `.aski` grammar files and applies PEG-style rules to token streams.
-//! Operates alongside (not replacing) the chumsky parser.
+//! Low-level grammar matching engine (MatchResult trees).
 
 use crate::lexer::Token;
 use std::collections::HashMap;
