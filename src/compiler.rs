@@ -44,11 +44,42 @@ pub fn compile_files(
         id_offset += count;
     }
 
-    // Phase 3: Run derived rules before codegen
+    // Phase 3: Expand grammar rules (Surface → Kernel)
+    expand_grammar_rules(&mut world)?;
+
+    // Phase 4: Run derived rules before codegen
     ir::run_rules(&mut world);
 
-    // Phase 4: Generate Rust from the combined World
+    // Phase 5: Generate Rust from the combined World
     generate_rust_from_db_with_config(&world, config)
+}
+
+/// Expand grammar rules — Surface Aski → Kernel Aski.
+///
+/// Reads all GrammarRule/GrammarArm relations from the World.
+/// For the first pass, grammar rules are stored but expansion is a no-op:
+/// the rules exist in the World for tooling to query, and kernel primitives
+/// (truncate, fromOrdinal, sin, cos, etc.) are handled directly by codegen.
+///
+/// Future passes will pattern-match expressions against grammar rules and
+/// replace them with expanded kernel forms.
+fn expand_grammar_rules(world: &mut ir::World) -> Result<(), String> {
+    // Collect grammar rules for validation
+    let rules: Vec<(i64, String)> = world.GrammarRule.iter()
+        .map(|(id, name)| (*id, name.clone()))
+        .collect();
+
+    // Log grammar rules found (useful for debugging)
+    for (_id, name) in &rules {
+        // Grammar rule registered: name
+        // Future: match expressions against rule patterns and expand
+        let _ = name;
+    }
+
+    // Validate: any stub expression in a method whose type has a grammar rule
+    // should eventually be expanded. For now, stubs remain as todo!().
+
+    Ok(())
 }
 
 /// Compile multiple .aski source files, reading from the filesystem.

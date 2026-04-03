@@ -379,11 +379,88 @@ pub(crate) fn type_alias() -> impl Parser<Token, Item, Error = Simple<Token>> + 
         })
 }
 
+// ═══════════════════════════════════════════════════════════════
+// Grammar rule parsing
+// ═══════════════════════════════════════════════════════════════
+
+/// Grammar element inside an arm pattern.
+/// - `<Name>` → NonTerminal
+/// - `@Name` → Binding
+/// - PascalIdent → Terminal
+fn grammar_element() -> impl Parser<Token, GrammarElement, Error = Simple<Token>> + Clone {
+    let non_terminal = tok(Token::Lt)
+        .ignore_then(pascal())
+        .then_ignore(tok(Token::Gt))
+        .map(GrammarElement::NonTerminal);
+
+    let binding = tok(Token::At)
+        .ignore_then(pascal())
+        .map(GrammarElement::Binding);
+
+    let terminal = pascal().map(GrammarElement::Terminal);
+
+    choice((non_terminal, binding, terminal))
+}
+
+/// Grammar arm: `[ elements ] result_expr` or `[ elements | @Rest ] result_expr`
+fn grammar_arm() -> impl Parser<Token, GrammarArm, Error = Simple<Token>> + Clone {
+    let rest_binding = tok(Token::Pipe)
+        .ignore_then(skip_newlines())
+        .ignore_then(tok(Token::At))
+        .ignore_then(pascal())
+        .map(GrammarElement::Rest);
+
+    let pattern = skip_newlines()
+        .ignore_then(grammar_element())
+        .separated_by(skip_newlines())
+        .at_least(1)
+        .then(skip_newlines().ignore_then(rest_binding).or_not())
+        .then_ignore(skip_newlines())
+        .delimited_by(tok(Token::LBracket), tok(Token::RBracket))
+        .map(|(mut elems, rest)| {
+            if let Some(r) = rest {
+                elems.push(r);
+            }
+            elems
+        });
+
+    let result_expr = skip_newlines()
+        .ignore_then(super::expressions::expr_parser());
+
+    pattern
+        .then(result_expr)
+        .map_with_span(|(pattern, result), span| {
+            GrammarArm { pattern, result: vec![result], span }
+        })
+}
+
+/// Grammar rule: `<Name> [ arms ]`
+pub(crate) fn grammar_rule() -> impl Parser<Token, Item, Error = Simple<Token>> + Clone {
+    tok(Token::Lt)
+        .ignore_then(pascal())
+        .then_ignore(tok(Token::Gt))
+        .then_ignore(skip_newlines())
+        .then(
+            skip_newlines()
+                .ignore_then(grammar_arm())
+                .separated_by(skip_newlines())
+                .at_least(1)
+                .allow_trailing()
+                .then_ignore(skip_newlines())
+                .delimited_by(tok(Token::LBracket), tok(Token::RBracket)),
+        )
+        .map_with_span(|(name, arms), span| {
+            Item::GrammarRule(GrammarRule { name, arms, span })
+        })
+}
+
 /// Top-level item parser.
 pub(crate) fn item() -> impl Parser<Token, Spanned<Item>, Error = Simple<Token>> {
     choice((
         const_decl(),
         main_decl(),
+        // Grammar rule before domain — starts with `<` which is unambiguous
+        grammar_rule(),
         // Domain must come before struct because both start with PascalCase
         domain_decl(),
         struct_decl(),

@@ -646,3 +646,92 @@ fn parse_trait_bound_compound() {
         other => panic!("expected Const, got {:?}", other),
     }
 }
+
+// === Grammar rule tests ===
+
+#[test]
+fn parse_grammar_rule_simple() {
+    let src = "<Truncate> [\n  [@Value] @Value.truncate\n]";
+    let items = parse_source(src).unwrap();
+    assert_eq!(items.len(), 1);
+    match &items[0].node {
+        Item::GrammarRule(gr) => {
+            assert_eq!(gr.name, "Truncate");
+            assert_eq!(gr.arms.len(), 1);
+            assert_eq!(gr.arms[0].pattern.len(), 1);
+            assert!(matches!(&gr.arms[0].pattern[0], GrammarElement::Binding(n) if n == "Value"));
+        }
+        other => panic!("expected GrammarRule, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_grammar_rule_with_terminal() {
+    let src = "<SignFromDegree> [\n  [Degree @Value] @Value.truncate\n]";
+    let items = parse_source(src).unwrap();
+    assert_eq!(items.len(), 1);
+    match &items[0].node {
+        Item::GrammarRule(gr) => {
+            assert_eq!(gr.name, "SignFromDegree");
+            assert_eq!(gr.arms.len(), 1);
+            assert_eq!(gr.arms[0].pattern.len(), 2);
+            assert!(matches!(&gr.arms[0].pattern[0], GrammarElement::Terminal(n) if n == "Degree"));
+            assert!(matches!(&gr.arms[0].pattern[1], GrammarElement::Binding(n) if n == "Value"));
+        }
+        other => panic!("expected GrammarRule, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_grammar_rule_with_nonterminal() {
+    let src = "<Apply> [\n  [<Expr> @Target] @Target\n]";
+    let items = parse_source(src).unwrap();
+    match &items[0].node {
+        Item::GrammarRule(gr) => {
+            assert_eq!(gr.name, "Apply");
+            assert_eq!(gr.arms[0].pattern.len(), 2);
+            assert!(matches!(&gr.arms[0].pattern[0], GrammarElement::NonTerminal(n) if n == "Expr"));
+            assert!(matches!(&gr.arms[0].pattern[1], GrammarElement::Binding(n) if n == "Target"));
+        }
+        other => panic!("expected GrammarRule, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_grammar_rule_with_rest() {
+    let src = "<Sequence> [\n  [@Head | @Rest] @Head\n]";
+    let items = parse_source(src).unwrap();
+    match &items[0].node {
+        Item::GrammarRule(gr) => {
+            assert_eq!(gr.name, "Sequence");
+            assert_eq!(gr.arms[0].pattern.len(), 2);
+            assert!(matches!(&gr.arms[0].pattern[0], GrammarElement::Binding(n) if n == "Head"));
+            assert!(matches!(&gr.arms[0].pattern[1], GrammarElement::Rest(n) if n == "Rest"));
+        }
+        other => panic!("expected GrammarRule, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_grammar_rule_multiple_arms() {
+    let src = "<Convert> [\n  [Truncate @Value] @Value.truncate\n  [ToFloat @Value] @Value.toF32\n]";
+    let items = parse_source(src).unwrap();
+    match &items[0].node {
+        Item::GrammarRule(gr) => {
+            assert_eq!(gr.name, "Convert");
+            assert_eq!(gr.arms.len(), 2);
+            assert_eq!(gr.arms[0].pattern.len(), 2);
+            assert_eq!(gr.arms[1].pattern.len(), 2);
+        }
+        other => panic!("expected GrammarRule, got {:?}", other),
+    }
+}
+
+#[test]
+fn parse_grammar_rule_coexists_with_domain() {
+    let src = "Element (Fire Earth Air Water)\n\n<Truncate> [\n  [@Value] @Value.truncate\n]";
+    let items = parse_source(src).unwrap();
+    assert_eq!(items.len(), 2);
+    assert!(matches!(&items[0].node, Item::Domain(_)));
+    assert!(matches!(&items[1].node, Item::GrammarRule(_)));
+}

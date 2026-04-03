@@ -55,6 +55,28 @@ fn pattern_to_string(pat: &Pattern) -> String {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Grammar rule serialization
+// ═══════════════════════════════════════════════════════════════
+
+/// Serialize grammar pattern elements to a JSON string for storage.
+fn serialize_grammar_pattern(elements: &[GrammarElement]) -> String {
+    let strs: Vec<String> = elements.iter().map(|e| match e {
+        GrammarElement::Terminal(name) => format!("T:{name}"),
+        GrammarElement::NonTerminal(name) => format!("NT:{name}"),
+        GrammarElement::Binding(name) => format!("B:{name}"),
+        GrammarElement::Rest(name) => format!("R:{name}"),
+    }).collect();
+    serde_json::to_string(&strs).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Serialize grammar result expressions to a JSON string for storage.
+/// For now, stores a simplified representation of the result expressions.
+fn serialize_grammar_result(exprs: &[Spanned<Expr>]) -> String {
+    let strs: Vec<String> = exprs.iter().map(|e| format!("{:?}", e.node)).collect();
+    serde_json::to_string(&strs).unwrap_or_else(|_| "[]".to_string())
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Insert functions (depend on aski-rs AST types)
 // ═══════════════════════════════════════════════════════════════
 
@@ -140,6 +162,17 @@ fn insert_item(
             insert_node(world, id, "type_alias", &ta.name, parent, span, scope_id);
             let aliased = type_ref_to_string(&ta.target);
             world.Returns.push((id, aliased));
+            Ok(id)
+        }
+        Item::GrammarRule(gr) => {
+            let id = ids.next();
+            insert_node(world, id, "grammar_rule", &gr.name, parent, &gr.span, scope_id);
+            world.GrammarRule.push((id, gr.name.clone()));
+            for (i, arm) in gr.arms.iter().enumerate() {
+                let pattern_json = serialize_grammar_pattern(&arm.pattern);
+                let result_json = serialize_grammar_result(&arm.result);
+                world.GrammarArm.push((id, i as i64, pattern_json, result_json));
+            }
             Ok(id)
         }
     }
@@ -720,13 +753,19 @@ pub fn query_supertraits(world: &World, trait_id: i64) -> Result<Vec<String>, St
     Ok(aski_core::query_supertraits(world, trait_id))
 }
 
+/// Kernel primitives — the fixed set of operations aski requires from Rust.
+/// Like Shen's KLambda. Adding a primitive = updating this list + codegen.
+pub const KERNEL_PRIMITIVES: &[&str] = &[
+    "sin", "cos", "sqrt", "abs",
+    "truncate", "toF32", "toU32", "toI64",
+    "fromOrdinal",
+    "len", "clone", "to_string", "is_empty", "unwrap",
+];
+
 /// Check if a name is a known method in the World.
-/// Extends aski-core's version with hardcoded stdlib methods.
+/// Extends aski-core's version with kernel primitives.
 pub fn is_known_method(name: &str, world: &World) -> bool {
-    if matches!(
-        name,
-        "sqrt" | "abs" | "len" | "clone" | "to_string" | "is_empty" | "unwrap"
-    ) {
+    if KERNEL_PRIMITIVES.contains(&name) {
         return true;
     }
     aski_core::is_known_method(name, world)
@@ -873,5 +912,27 @@ mod tests {
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].0, "BadStruct");
         assert_eq!(violations[0].1, "Name");
+    }
+
+    #[test]
+    fn ir_grammar_rule_stored() {
+        let world = setup_world("<Truncate> [\n  [@Value] @Value.truncate\n]");
+        // Check that grammar_rule node exists
+        let grammar_nodes = query_nodes_by_kind(&world, "grammar_rule").unwrap();
+        assert_eq!(grammar_nodes.len(), 1);
+        assert_eq!(grammar_nodes[0].1, "Truncate");
+        // Check that GrammarRule relation is populated
+        assert_eq!(world.GrammarRule.len(), 1);
+        assert_eq!(world.GrammarRule[0].1, "Truncate");
+        // Check that GrammarArm relation is populated
+        assert_eq!(world.GrammarArm.len(), 1);
+        assert_eq!(world.GrammarArm[0].1, 0); // ordinal 0
+    }
+
+    #[test]
+    fn ir_grammar_rule_multi_arm() {
+        let world = setup_world("<Convert> [\n  [Truncate @Value] @Value.truncate\n  [ToFloat @Value] @Value.toF32\n]");
+        assert_eq!(world.GrammarRule.len(), 1);
+        assert_eq!(world.GrammarArm.len(), 2);
     }
 }

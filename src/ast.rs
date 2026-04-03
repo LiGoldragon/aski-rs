@@ -31,6 +31,8 @@ pub enum Item {
     Main(MainDecl),
     /// Type alias: `ChartResult Result{NatalChart ChartError}`
     TypeAlias(TypeAliasDecl),
+    /// Grammar rule: `<Name> [ arms ]` — macro expansion
+    GrammarRule(GrammarRule),
 }
 
 /// Domain (enum) declaration.
@@ -359,6 +361,37 @@ pub enum Pattern {
     StringLit(String),
     /// Instance binding in pattern: `@Name` — binds the matched value
     InstanceBind(String),
+}
+
+/// Grammar rule declaration: `<Name> [ arms ]`
+/// Grammar rules are macros that transform Surface Aski to Kernel Aski.
+/// They fire during compilation, BEFORE codegen.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GrammarRule {
+    pub name: String,
+    pub arms: Vec<GrammarArm>,
+    pub span: Span,
+}
+
+/// A single arm of a grammar rule.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GrammarArm {
+    pub pattern: Vec<GrammarElement>,
+    pub result: Vec<Spanned<Expr>>,
+    pub span: Span,
+}
+
+/// An element in a grammar rule pattern.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GrammarElement {
+    /// PascalCase token name like LParen, Colon
+    Terminal(String),
+    /// `<Name>` reference to another rule
+    NonTerminal(String),
+    /// `@Name` — bind matched value
+    Binding(String),
+    /// `| @Rest` — tail binding
+    Rest(String),
 }
 
 /// Type alias declaration: `ChartResult Result{NatalChart ChartError}`

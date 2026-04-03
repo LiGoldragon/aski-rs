@@ -1526,12 +1526,19 @@ fn emit_expr_from_db(
                     || is_known_method_codegen(&f, db)
                     || is_known_method_codegen(&field, db);
                 if is_method {
-                    // Vec .len() returns usize — cast to u32 for aski's fixed-size types.
-                    // Ephemeral usize — see module doc for rationale.
-                    if f == "len" {
-                        Ok(format!("({base}.{f}() as u32)"))
-                    } else {
-                        Ok(format!("{base}.{f}()"))
+                    // Kernel primitives — emit Rust equivalents directly
+                    match field.as_str() {
+                        "truncate" => Ok(format!("({base} as u32)")),
+                        "toF32" => Ok(format!("({base} as f32)")),
+                        "toU32" => Ok(format!("({base} as u32)")),
+                        "toI64" => Ok(format!("({base} as i64)")),
+                        "sin" => Ok(format!("{base}.sin()")),
+                        "cos" => Ok(format!("{base}.cos()")),
+                        "sqrt" => Ok(format!("{base}.sqrt()")),
+                        "abs" => Ok(format!("{base}.abs()")),
+                        // Vec .len() returns usize — cast to u32 for aski's fixed-size types.
+                        "len" => Ok(format!("({base}.{f}() as u32)")),
+                        _ => Ok(format!("{base}.{f}()"))
                     }
                 } else {
                     Ok(format!("{base}.{f}"))
@@ -1623,6 +1630,29 @@ fn emit_expr_from_db(
             } else {
                 base
             };
+
+            // Kernel primitive: fromOrdinal — construct domain variant from ordinal
+            // `Type.fromOrdinal(n)` → unsafe { std::mem::transmute::<u8, Type>(n as u8) }
+            // Only valid for unit-variant-only domains (C-like enums).
+            if method == "fromOrdinal" {
+                let mut args = Vec::new();
+                for (child_id, _kind, _ord, _val) in children.iter().skip(1) {
+                    let arg = emit_expr_from_db(db, *child_id, ctx)?;
+                    args.push(arg);
+                }
+                let arg = args.first().cloned().unwrap_or_else(|| "0".to_string());
+                return Ok(format!("unsafe {{ std::mem::transmute::<u8, {base}>(({arg}) as u8) }}"));
+            }
+
+            // Kernel primitive: truncate with args — `expr.truncate()`
+            if method == "truncate" {
+                return Ok(format!("({base} as u32)"));
+            }
+
+            // Kernel primitive: toF32/toU32/toI64 with args
+            if method == "toF32" { return Ok(format!("({base} as f32)")); }
+            if method == "toU32" { return Ok(format!("({base} as u32)")); }
+            if method == "toI64" { return Ok(format!("({base} as i64)")); }
 
             // .with auto-Protocol — struct update syntax
             if method == "with" {
@@ -2171,5 +2201,53 @@ mod tests {
         assert!(code.contains("Rectangle {"), "should have struct variant: {code}");
         assert!(code.contains("width: f64"), "struct variant should have width field: {code}");
         assert!(code.contains("height: f64"), "struct variant should have height field: {code}");
+    }
+
+    // === Kernel primitive tests ===
+
+    #[test]
+    fn codegen_kernel_truncate() {
+        let db = setup("compute [Value [\n  truncated(:@Self) U32 [\n    ^@Self.Amount.truncate\n  ]\n]]");
+        let config = CodegenConfig { rkyv: false };
+        let code = generate_rust_from_db_with_config(&db, &config).unwrap();
+        eprintln!("=== Generated ===\n{code}");
+        assert!(code.contains("as u32"), "truncate should emit cast to u32: {code}");
+    }
+
+    #[test]
+    fn codegen_kernel_to_f32() {
+        let db = setup("compute [Counter [\n  asFloat(:@Self) F32 [\n    ^@Self.Count.toF32\n  ]\n]]");
+        let config = CodegenConfig { rkyv: false };
+        let code = generate_rust_from_db_with_config(&db, &config).unwrap();
+        eprintln!("=== Generated ===\n{code}");
+        assert!(code.contains("as f32"), "toF32 should emit cast to f32: {code}");
+    }
+
+    #[test]
+    fn codegen_kernel_sin_cos() {
+        let db = setup("compute [Angle [\n  sinValue(:@Self) F64 [\n    ^@Self.Radians.sin\n  ]\n]]");
+        let config = CodegenConfig { rkyv: false };
+        let code = generate_rust_from_db_with_config(&db, &config).unwrap();
+        eprintln!("=== Generated ===\n{code}");
+        assert!(code.contains(".sin()"), "sin should emit .sin(): {code}");
+    }
+
+    #[test]
+    fn codegen_kernel_from_ordinal() {
+        let db = setup("Sign (Aries Taurus Gemini)\ncompute [Degree [\n  toSign(:@Self) Sign [\n    ^Sign.fromOrdinal(@Self.Value)\n  ]\n]]");
+        let config = CodegenConfig { rkyv: false };
+        let code = generate_rust_from_db_with_config(&db, &config).unwrap();
+        eprintln!("=== Generated ===\n{code}");
+        assert!(code.contains("transmute"), "fromOrdinal should emit transmute: {code}");
+        assert!(code.contains("Sign"), "fromOrdinal should reference the domain type: {code}");
+    }
+
+    #[test]
+    fn codegen_grammar_rule_skipped() {
+        // Grammar rules should not produce any Rust output — they are macros
+        let db = setup("<Truncate> [\n  [@Value] @Value.truncate\n]");
+        let config = CodegenConfig { rkyv: false };
+        let code = generate_rust_from_db_with_config(&db, &config).unwrap();
+        assert!(code.is_empty() || !code.contains("Truncate"), "grammar rule should not appear in generated code: {code}");
     }
 }
