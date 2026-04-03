@@ -6,7 +6,7 @@
 use crate::ast::SourceFile;
 use crate::codegen::{CodegenConfig, generate_rust_from_db_with_config};
 use crate::ir;
-use crate::grammar_engine_full::parse_source_file;
+use crate::engine::parse_source_file;
 
 /// Compile multiple .aski source files into a single Rust output.
 ///
@@ -80,51 +80,6 @@ fn expand_grammar_rules(world: &mut ir::World) -> Result<(), String> {
     // should eventually be expanded. For now, stubs remain as todo!().
 
     Ok(())
-}
-
-/// Compile source files using the data-driven grammar engine (low-level).
-///
-/// Grammar files are loaded first, then source files are parsed using the
-/// grammar engine's MatchResult representation.
-///
-/// Returns a list of `MatchResult` trees (one per top-level item) for
-/// inspection and testing.
-pub fn parse_with_grammar(
-    grammar_files: &[&str],
-    source_files: &[(&str, &str)],
-) -> Result<Vec<crate::grammar_engine::MatchResult>, String> {
-    use crate::grammar_engine::{Grammar, parse_items};
-    use crate::lexer::Token;
-
-    // Phase 1: Load grammar rules from .aski grammar files
-    let mut grammar = Grammar::new();
-    for gf in grammar_files {
-        let source = std::fs::read_to_string(gf)
-            .map_err(|e| format!("failed to read grammar file {gf}: {e}"))?;
-        let count = grammar.load_grammar_source(&source)?;
-        if count == 0 {
-            return Err(format!("no grammar rules found in {gf}"));
-        }
-    }
-
-    // Phase 2: Parse source files using the grammar engine
-    let mut all_items = Vec::new();
-    for (filename, source) in source_files {
-        let spanned = crate::lexer::lex(source).map_err(|errs| {
-            format!(
-                "lex error in {filename}: {}",
-                errs.into_iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        })?;
-        let tokens: Vec<Token> = spanned.into_iter().map(|s| s.token).collect();
-        let items = parse_items(&grammar, &tokens);
-        all_items.extend(items);
-    }
-
-    Ok(all_items)
 }
 
 /// Compile multiple .aski source files, reading from the filesystem.

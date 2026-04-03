@@ -180,15 +180,12 @@ pub fn encode(db: &World, aski_expr: &str) -> Result<Vec<u8>, String> {
     let type_name = &tokens[0];
     let (world_ord, kind) = world_variant_ordinal(db, type_name)?;
     let mut bytes = vec![world_ord as u8];
-    let mut cursor = 0;
 
     match kind.as_str() {
         "domain" => {
             // Bare domain name or Domain.Variant
-            if tokens.len() == 1 {
-                // Just the domain name — no variant data
-            } else {
-                cursor = 1; // skip type name
+            if tokens.len() > 1 {
+                let mut cursor = 1; // skip type name
                 // Check for Variant(data) or just Variant
                 if cursor < tokens.len() && tokens[cursor] == "(" {
                     cursor += 1; // skip (
@@ -197,15 +194,11 @@ pub fn encode(db: &World, aski_expr: &str) -> Result<Vec<u8>, String> {
                     let variant = &tokens[cursor];
                     let ord = variant_ordinal(db, type_name, variant)?;
                     bytes.push(ord as u8);
-                    cursor += 1;
-                }
-                if cursor < tokens.len() && tokens[cursor] == ")" {
-                    cursor += 1;
                 }
             }
         }
         "struct" => {
-            cursor = 0; // start from beginning
+            let mut cursor = 0;
             let field_bytes = encode_struct(db, type_name, &tokens, &mut cursor)?;
             bytes.extend(field_bytes);
         }

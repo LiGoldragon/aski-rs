@@ -514,7 +514,7 @@ fn gen_operator_method_from_db(
     let ctx = ExprCtx {
         indent: base_indent + 1,
         variant_map,
-        struct_fields,
+        _struct_fields: struct_fields,
         bindings: param_bindings,
         binding_types: HashMap::new(),
         self_type: Some(self_type.to_string()),
@@ -551,7 +551,7 @@ fn gen_method_impl_from_db(
     let ctx = ExprCtx {
         indent: base_indent + 1,
         variant_map,
-        struct_fields,
+        _struct_fields: struct_fields,
         bindings: param_bindings,
         binding_types: HashMap::new(),
         self_type: Some(self_type.to_string()),
@@ -574,7 +574,7 @@ fn gen_main_from_db(
     let ctx = ExprCtx {
         indent: 1,
         variant_map,
-        struct_fields,
+        _struct_fields: struct_fields,
         bindings: HashMap::new(),
         binding_types: HashMap::new(),
         self_type: None,
@@ -699,7 +699,7 @@ fn build_method_param_bindings(params: &[(String, Option<String>, Option<String>
 struct ExprCtx<'a> {
     indent: usize,
     variant_map: &'a HashMap<String, String>,
-    struct_fields: &'a HashMap<String, Vec<(String, String)>>,
+    _struct_fields: &'a HashMap<String, Vec<(String, String)>>,
     /// @Name -> rust variable name
     bindings: HashMap<String, String>,
     /// @Name -> aski type name (for format decisions)
@@ -717,7 +717,7 @@ impl<'a> ExprCtx<'a> {
         Self {
             indent: 1,
             variant_map,
-            struct_fields,
+            _struct_fields: struct_fields,
             bindings: HashMap::new(),
             binding_types: HashMap::new(),
             self_type: None,
@@ -1591,7 +1591,7 @@ fn emit_expr_from_db(
 
             // Check if this is a variant construction (name is in variant_map)
             // If so, generate Domain::Variant(value) instead of Struct { field: value }
-            if let Some(domain) = ctx.variant_map.get(&name) {
+            if let Some(_domain) = ctx.variant_map.get(&name) {
                 // Check if it has a single _0 field (variant wrap)
                 if children.len() == 1 {
                     let fname = children[0].3.as_deref().unwrap_or("");

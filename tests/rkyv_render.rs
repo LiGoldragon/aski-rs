@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::process::Command;
 
 use aski_rs::codegen::{CodegenConfig, generate_rust_from_db_with_config};

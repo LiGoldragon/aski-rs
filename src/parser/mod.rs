@@ -5,7 +5,7 @@ use crate::ast::*;
 
 /// Parse a full aski source file with optional module header.
 pub fn parse_source_file(source: &str) -> Result<SourceFile, String> {
-    crate::grammar_engine_full::parse_source_file(source)
+    crate::engine::parse_source_file(source)
 }
 
 /// Convenience: lex + parse in one step (no header).
