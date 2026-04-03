@@ -2,6 +2,7 @@ pub mod lexer;
 pub mod ast;
 pub mod context;
 pub mod parser;
+pub mod grammar_engine;
 pub mod ir;
 pub mod codegen;
 pub mod codec;

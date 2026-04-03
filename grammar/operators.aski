@@ -1,0 +1,48 @@
+;; grammar/operators.aski — Operator binding power table
+;;
+;; This file defines operator precedence as data, not code.
+;; Format: each rule arm encodes one operator with its binding powers.
+;;
+;; The Pratt parser reads these at load time.  Binding powers:
+;;   Higher number = tighter binding.
+;;   lbp = left binding power, rbp = right binding power.
+;;   Left-associative:  rbp = lbp + 1
+;;   Right-associative: rbp = lbp
+
+;; Logical OR — lowest precedence
+;; lbp=5 rbp=6
+<opOr> [
+  ;; ||
+  [] => Op("Or" "5" "6")
+]
+
+;; Logical AND
+;; lbp=10 rbp=11
+<opAnd> [
+  ;; &&
+  [] => Op("And" "10" "11")
+]
+
+;; Equality: == !=
+;; lbp=20 rbp=21
+<opEq> [
+  [] => Op("Eq" "20" "21")
+]
+
+;; Comparison: < > <= >=
+;; lbp=25 rbp=26
+<opCmp> [
+  [] => Op("Cmp" "25" "26")
+]
+
+;; Additive: + -
+;; lbp=30 rbp=31
+<opAdd> [
+  [] => Op("Add" "30" "31")
+]
+
+;; Multiplicative: * / %
+;; lbp=40 rbp=41
+<opMul> [
+  [] => Op("Mul" "40" "41")
+]

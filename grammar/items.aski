@@ -1,0 +1,35 @@
+;; grammar/items.aski — Grammar rules for top-level items
+;;
+;; Bootstrap syntax:
+;;   <RuleName> [
+;;     [pattern elements] => ResultExpr
+;;   ]
+;;
+;; Pattern shorthands:
+;;   LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET — delimiters
+;;   BANG COLON DOT EQ AT CARET TILDE — symbols
+;;   PASCAL CAMEL INT FLOAT STRING — any-token matchers
+;;   @Name — bind   @Name* — repeat-bind   <Rule> — non-terminal
+;;
+;; Result constructors:
+;;   Name(children) — tree node   @Name — bound ref   @Name* — collect
+
+;; Domain declaration: Name (Variant1 Variant2 ...)
+<domain> [
+  [@Name LPAREN @Variants* RPAREN] => Domain(@Name @Variants*)
+]
+
+;; Struct declaration: Name { Field Type Field Type ... }
+<structDecl> [
+  [@Name LBRACE <field>* RBRACE] => Struct(@Name <field>*)
+]
+
+;; A struct field: FieldName Type
+<field> [
+  [@FieldName @FieldType] => Field(@FieldName @FieldType)
+]
+
+;; Constant declaration: !Name Type {value}
+<constDecl> [
+  [BANG @Name @Type LBRACE @Value RBRACE] => Const(@Name @Type @Value)
+]
