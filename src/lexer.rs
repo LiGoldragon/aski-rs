@@ -72,10 +72,10 @@ pub enum Token {
     Caret,
 
     #[token(">")]
-    Gt,
+    GreaterThan,
 
     #[token("<")]
-    Lt,
+    LessThan,
 
     #[token("&")]
     Ampersand,
@@ -118,25 +118,25 @@ pub enum Token {
     Percent,
 
     #[token("==")]
-    DoubleEq,
+    DoubleEquals,
 
     #[token("=")]
-    Eq,
+    Equals,
 
     #[token("!=")]
-    Neq,
+    NotEqual,
 
     #[token(">=")]
-    Gte,
+    GreaterThanOrEqual,
 
     #[token("<=")]
-    Lte,
+    LessThanOrEqual,
 
     #[token("&&")]
-    And,
+    LogicalAnd,
 
     #[token("||")]
-    Or,
+    LogicalOr,
 
     #[token(",")]
     Comma,
@@ -196,8 +196,8 @@ impl std::fmt::Display for Token {
             Token::At => write!(f, "@"),
             Token::Dollar => write!(f, "$"),
             Token::Caret => write!(f, "^"),
-            Token::Gt => write!(f, ">"),
-            Token::Lt => write!(f, "<"),
+            Token::GreaterThan => write!(f, ">"),
+            Token::LessThan => write!(f, "<"),
             Token::Ampersand => write!(f, "&"),
             Token::Tilde => write!(f, "~"),
             Token::Question => write!(f, "?"),
@@ -211,13 +211,13 @@ impl std::fmt::Display for Token {
             Token::Star => write!(f, "*"),
             Token::Slash => write!(f, "/"),
             Token::Percent => write!(f, "%"),
-            Token::DoubleEq => write!(f, "=="),
-            Token::Eq => write!(f, "="),
-            Token::Neq => write!(f, "!="),
-            Token::Gte => write!(f, ">="),
-            Token::Lte => write!(f, "<="),
-            Token::And => write!(f, "&&"),
-            Token::Or => write!(f, "||"),
+            Token::DoubleEquals => write!(f, "=="),
+            Token::Equals => write!(f, "="),
+            Token::NotEqual => write!(f, "!="),
+            Token::GreaterThanOrEqual => write!(f, ">="),
+            Token::LessThanOrEqual => write!(f, "<="),
+            Token::LogicalAnd => write!(f, "&&"),
+            Token::LogicalOr => write!(f, "||"),
             Token::Comma => write!(f, ","),
             Token::Underscore => write!(f, "_"),
             Token::OrdinalSuffix(n) => write!(f, "_{n}"),

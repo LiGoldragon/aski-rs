@@ -664,19 +664,19 @@ fn put_expr(
 
 fn binop_to_string(op: &BinOp) -> &'static str {
     match op {
-        BinOp::Add => "+",
-        BinOp::Sub => "-",
-        BinOp::Mul => "*",
-        BinOp::Div => "/",
-        BinOp::Rem => "%",
-        BinOp::Eq => "==",
-        BinOp::Neq => "!=",
-        BinOp::Lt => "<",
-        BinOp::Gt => ">",
-        BinOp::Lte => "<=",
-        BinOp::Gte => ">=",
-        BinOp::And => "&&",
-        BinOp::Or => "||",
+        BinOp::Addition => "+",
+        BinOp::Subtraction => "-",
+        BinOp::Multiplication => "*",
+        BinOp::Division => "/",
+        BinOp::Remainder => "%",
+        BinOp::Equal => "==",
+        BinOp::NotEqual => "!=",
+        BinOp::LessThan => "<",
+        BinOp::GreaterThan => ">",
+        BinOp::LessThanOrEqual => "<=",
+        BinOp::GreaterThanOrEqual => ">=",
+        BinOp::LogicalAnd => "&&",
+        BinOp::LogicalOr => "||",
     }
 }
 

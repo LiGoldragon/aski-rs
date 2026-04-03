@@ -8,7 +8,7 @@ use aski_rs::parser::parse_source;
 #[test]
 fn parser_aski_parses_and_generates() {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let path = format!("{manifest}/encoder/design/v0.9/examples/parser.aski");
+    let path = format!("{manifest}/examples/parser.aski");
     let source = std::fs::read_to_string(&path).expect("failed to read parser.aski");
 
     // 1. Parse

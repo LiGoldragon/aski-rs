@@ -443,10 +443,10 @@ pub(crate) fn parse_type_alias(st: &mut ParseState) -> Result<Item, String> {
 
 fn parse_grammar_element(st: &mut ParseState) -> Result<GrammarElement, String> {
     // <Name> — non-terminal
-    if st.peek() == Some(&Token::Lt) {
+    if st.peek() == Some(&Token::LessThan) {
         st.advance();
         let (name, _) = st.eat_pascal().ok_or("expected Pascal in non-terminal")?;
-        st.expect(&Token::Gt)?;
+        st.expect(&Token::GreaterThan)?;
         return Ok(GrammarElement::NonTerminal(name));
     }
     // @Name — binding
@@ -472,9 +472,9 @@ fn parse_grammar_element(st: &mut ParseState) -> Result<GrammarElement, String> 
 
 pub(crate) fn parse_grammar_rule(st: &mut ParseState) -> Result<Item, String> {
     let start = st.save();
-    st.expect(&Token::Lt)?;
+    st.expect(&Token::LessThan)?;
     let (name, _) = st.eat_pascal().ok_or("expected rule name")?;
-    st.expect(&Token::Gt)?;
+    st.expect(&Token::GreaterThan)?;
     st.skip_newlines();
     st.expect(&Token::LBracket)?;
     let mut arms = Vec::new();

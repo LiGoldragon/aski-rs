@@ -291,19 +291,19 @@ pub struct MatchExprData {
 /// Binary operator.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BinOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Rem,
-    Eq,
-    Neq,
-    Lt,
-    Gt,
-    Lte,
-    Gte,
-    And,
-    Or,
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
+    Remainder,
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
+    LogicalAnd,
+    LogicalOr,
 }
 
 /// Match arm in an inline `(| ... |)` expression.

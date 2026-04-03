@@ -1,10 +1,12 @@
 ;; kernel.aski — kernel primitive names
 ;; These are the fixed operations aski requires from Rust.
 ;; Like Shen's KLambda: adding a primitive = adding a line here + codegen.
+;; Variant names are PascalCase per aski syntax; the config loader maps to
+;; the original camelCase/snake_case Rust method names.
 
 KernelPrimitive (
-  sin cos sqrt abs
-  truncate toF32 toU32 toI64
-  fromOrdinal
-  len clone to_string is_empty unwrap
+  Sin Cos Sqrt Abs
+  Truncate ToF32 ToU32 ToI64
+  FromOrdinal
+  Len Clone ToString IsEmpty Unwrap
 )

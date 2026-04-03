@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::ast::BinOp;
+use crate::ast::{BinOp, Body, Expr, Item, Spanned};
 use crate::lexer::Token;
 
 /// Binding power pair for a binary operator.
@@ -72,19 +72,19 @@ impl GrammarConfig {
     pub fn bootstrap() -> Self {
         let mut operators = HashMap::new();
         let entries: Vec<(&str, BinOp, u8, u8)> = vec![
-            ("Or", BinOp::Or, 5, 6),
-            ("And", BinOp::And, 10, 11),
-            ("DoubleEq", BinOp::Eq, 20, 21),
-            ("Neq", BinOp::Neq, 20, 21),
-            ("Lt", BinOp::Lt, 25, 26),
-            ("Gt", BinOp::Gt, 25, 26),
-            ("Lte", BinOp::Lte, 25, 26),
-            ("Gte", BinOp::Gte, 25, 26),
-            ("Plus", BinOp::Add, 30, 31),
-            ("Minus", BinOp::Sub, 30, 31),
-            ("Star", BinOp::Mul, 40, 41),
-            ("Slash", BinOp::Div, 40, 41),
-            ("Percent", BinOp::Rem, 40, 41),
+            ("LogicalOr", BinOp::LogicalOr, 5, 6),
+            ("LogicalAnd", BinOp::LogicalAnd, 10, 11),
+            ("DoubleEquals", BinOp::Equal, 20, 21),
+            ("NotEqual", BinOp::NotEqual, 20, 21),
+            ("LessThan", BinOp::LessThan, 25, 26),
+            ("GreaterThan", BinOp::GreaterThan, 25, 26),
+            ("LessThanOrEqual", BinOp::LessThanOrEqual, 25, 26),
+            ("GreaterThanOrEqual", BinOp::GreaterThanOrEqual, 25, 26),
+            ("Plus", BinOp::Addition, 30, 31),
+            ("Minus", BinOp::Subtraction, 30, 31),
+            ("Star", BinOp::Multiplication, 40, 41),
+            ("Slash", BinOp::Division, 40, 41),
+            ("Percent", BinOp::Remainder, 40, 41),
         ];
         for (name, op, lbp, rbp) in entries {
             operators.insert(name.to_string(), (op, BindingPower { lbp, rbp }));
@@ -100,7 +100,7 @@ impl GrammarConfig {
         let mut token_classes = HashMap::new();
         let class_entries: Vec<(TokenClass, Vec<&str>)> = vec![
             (TokenClass::Delimiter, vec!["LParen", "RParen", "LBracket", "RBracket", "LBrace", "RBrace"]),
-            (TokenClass::Operator, vec!["Plus", "Minus", "Star", "Slash", "Percent", "DoubleEq", "Neq", "Lt", "Gt", "Lte", "Gte", "And", "Or"]),
+            (TokenClass::Operator, vec!["Plus", "Minus", "Star", "Slash", "Percent", "DoubleEquals", "NotEqual", "LessThan", "GreaterThan", "LessThanOrEqual", "GreaterThanOrEqual", "LogicalAnd", "LogicalOr"]),
             (TokenClass::Prefix, vec!["Caret", "Hash", "Bang", "At", "Colon", "Tilde"]),
             (TokenClass::Compound, vec!["CompositionOpen", "CompositionClose", "TraitBoundOpen", "TraitBoundClose", "IterOpen", "IterClose"]),
         ];
@@ -171,45 +171,76 @@ impl GrammarConfig {
 
     fn parse_operators(path: &Path) -> Result<HashMap<String, (BinOp, BindingPower)>, GrammarLoadError> {
         let content = read_grammar_file(path, "operators.aski")?;
+
+        // Parse with the aski parser — operators.aski uses constant syntax: !Name U8 {value}
+        let items = parse_grammar_source(&content).map_err(|e| GrammarLoadError {
+            file: "operators.aski".to_string(),
+            message: format!("aski parse failed: {}", e),
+        })?;
+
+        // Extract constants into a name->value map
+        let mut constants: HashMap<String, u8> = HashMap::new();
+        for item in &items {
+            if let Item::Const(c) = &item.node {
+                if let Some(Body::Block(stmts)) = &c.value {
+                    if let Some(spanned) = stmts.first() {
+                        if let Expr::IntLit(v) = &spanned.node {
+                            constants.insert(c.name.clone(), *v as u8);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Map constant name prefixes to (token_name, BinOp) entries.
+        // Constants are named e.g. LogicalOrLeft/LogicalOrRight, AdditionLeft/AdditionRight, etc.
+        let op_groups: Vec<(&str, &str, BinOp)> = vec![
+            ("LogicalOr",  "LogicalOr",        BinOp::LogicalOr),
+            ("LogicalAnd", "LogicalAnd",        BinOp::LogicalAnd),
+            ("Equal",      "DoubleEquals",      BinOp::Equal),
+            ("Comparison", "LessThan",          BinOp::LessThan),  // Comparison is shared for all comparison operators
+            ("Addition",   "Plus",              BinOp::Addition),
+            ("Multiplication", "Star",          BinOp::Multiplication),
+        ];
+
         let mut operators = HashMap::new();
 
-        for line in content.lines() {
-            let line = strip_comment(line).trim();
-            if line.is_empty() {
-                continue;
+        // Build the table from constant pairs
+        // Each group prefix has Left and Right constants
+        for (prefix, _token, _op) in &op_groups {
+            let left_key = format!("{}Left", prefix);
+            let right_key = format!("{}Right", prefix);
+            if let (Some(&lbp), Some(&rbp)) = (constants.get(&left_key), constants.get(&right_key)) {
+                // Map prefix to the correct set of token names and BinOps
+                match *prefix {
+                    "LogicalOr" => {
+                        operators.insert("LogicalOr".to_string(), (BinOp::LogicalOr, BindingPower { lbp, rbp }));
+                    }
+                    "LogicalAnd" => {
+                        operators.insert("LogicalAnd".to_string(), (BinOp::LogicalAnd, BindingPower { lbp, rbp }));
+                    }
+                    "Equal" => {
+                        operators.insert("DoubleEquals".to_string(), (BinOp::Equal, BindingPower { lbp, rbp }));
+                        operators.insert("NotEqual".to_string(), (BinOp::NotEqual, BindingPower { lbp, rbp }));
+                    }
+                    "Comparison" => {
+                        operators.insert("LessThan".to_string(), (BinOp::LessThan, BindingPower { lbp, rbp }));
+                        operators.insert("GreaterThan".to_string(), (BinOp::GreaterThan, BindingPower { lbp, rbp }));
+                        operators.insert("LessThanOrEqual".to_string(), (BinOp::LessThanOrEqual, BindingPower { lbp, rbp }));
+                        operators.insert("GreaterThanOrEqual".to_string(), (BinOp::GreaterThanOrEqual, BindingPower { lbp, rbp }));
+                    }
+                    "Addition" => {
+                        operators.insert("Plus".to_string(), (BinOp::Addition, BindingPower { lbp, rbp }));
+                        operators.insert("Minus".to_string(), (BinOp::Subtraction, BindingPower { lbp, rbp }));
+                    }
+                    "Multiplication" => {
+                        operators.insert("Star".to_string(), (BinOp::Multiplication, BindingPower { lbp, rbp }));
+                        operators.insert("Slash".to_string(), (BinOp::Division, BindingPower { lbp, rbp }));
+                        operators.insert("Percent".to_string(), (BinOp::Remainder, BindingPower { lbp, rbp }));
+                    }
+                    _ => {}
+                }
             }
-
-            // Format: TokenName BinOp (lbp rbp)
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() < 4 {
-                return Err(GrammarLoadError {
-                    file: "operators.aski".to_string(),
-                    message: format!("invalid operator line: {}", line),
-                });
-            }
-
-            let token_name = parts[0].to_string();
-            let binop_name = parts[1];
-
-            // Parse (lbp rbp) — strip parens
-            let lbp_str = parts[2].trim_start_matches('(');
-            let rbp_str = parts[3].trim_end_matches(')');
-
-            let lbp: u8 = lbp_str.parse().map_err(|_| GrammarLoadError {
-                file: "operators.aski".to_string(),
-                message: format!("invalid lbp '{}' in line: {}", lbp_str, line),
-            })?;
-            let rbp: u8 = rbp_str.parse().map_err(|_| GrammarLoadError {
-                file: "operators.aski".to_string(),
-                message: format!("invalid rbp '{}' in line: {}", rbp_str, line),
-            })?;
-
-            let binop = parse_binop_name(binop_name).ok_or_else(|| GrammarLoadError {
-                file: "operators.aski".to_string(),
-                message: format!("unknown BinOp '{}' in line: {}", binop_name, line),
-            })?;
-
-            operators.insert(token_name, (binop, BindingPower { lbp, rbp }));
         }
 
         if operators.is_empty() {
@@ -224,45 +255,33 @@ impl GrammarConfig {
 
     fn parse_kernel(path: &Path) -> Result<HashSet<String>, GrammarLoadError> {
         let content = read_grammar_file(path, "kernel.aski")?;
+
+        // Parse with the aski parser — kernel.aski uses domain syntax: Name (variant1 variant2 ...)
+        let items = parse_grammar_source(&content).map_err(|e| GrammarLoadError {
+            file: "kernel.aski".to_string(),
+            message: format!("aski parse failed: {}", e),
+        })?;
+
         let mut primitives = HashSet::new();
+        // Map PascalCase variant names (valid aski syntax) to original Rust method names
+        let pascal_to_method: HashMap<&str, &str> = [
+            ("Sin", "sin"), ("Cos", "cos"), ("Sqrt", "sqrt"), ("Abs", "abs"),
+            ("Truncate", "truncate"), ("ToF32", "toF32"), ("ToU32", "toU32"), ("ToI64", "toI64"),
+            ("FromOrdinal", "fromOrdinal"),
+            ("Len", "len"), ("Clone", "clone"), ("ToString", "to_string"),
+            ("IsEmpty", "is_empty"), ("Unwrap", "unwrap"),
+        ].iter().cloned().collect();
 
-        // Find the KernelPrimitive ( ... ) block
-        let mut in_block = false;
-        for line in content.lines() {
-            let line = strip_comment(line).trim().to_string();
-            if line.is_empty() {
-                continue;
-            }
-
-            if line.starts_with("KernelPrimitive") {
-                in_block = true;
-                // Handle inline: KernelPrimitive (name1 name2)
-                if let Some(rest) = line.strip_prefix("KernelPrimitive") {
-                    let rest = rest.trim();
-                    if let Some(inner) = rest.strip_prefix('(') {
-                        for word in inner.split_whitespace() {
-                            let word = word.trim_end_matches(')');
-                            if !word.is_empty() {
-                                primitives.insert(word.to_string());
-                            }
-                        }
-                        if rest.contains(')') {
-                            in_block = false;
-                        }
+        for item in &items {
+            if let Item::Domain(d) = &item.node {
+                if d.name == "KernelPrimitive" {
+                    for variant in &d.variants {
+                        let name = pascal_to_method
+                            .get(variant.name.as_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| variant.name.clone());
+                        primitives.insert(name);
                     }
-                }
-                continue;
-            }
-
-            if in_block {
-                for word in line.split_whitespace() {
-                    let word = word.trim_end_matches(')');
-                    if !word.is_empty() && word != "(" {
-                        primitives.insert(word.to_string());
-                    }
-                }
-                if line.contains(')') {
-                    in_block = false;
                 }
             }
         }
@@ -279,35 +298,29 @@ impl GrammarConfig {
 
     fn parse_tokens(path: &Path) -> Result<HashMap<String, HashSet<TokenClass>>, GrammarLoadError> {
         let content = read_grammar_file(path, "tokens.aski")?;
+
+        // Parse with the aski parser — tokens.aski uses domain syntax: ClassName (Token1 Token2 ...)
+        let items = parse_grammar_source(&content).map_err(|e| GrammarLoadError {
+            file: "tokens.aski".to_string(),
+            message: format!("aski parse failed: {}", e),
+        })?;
+
         let mut classes: HashMap<String, HashSet<TokenClass>> = HashMap::new();
-
-        for line in content.lines() {
-            let line = strip_comment(line).trim().to_string();
-            if line.is_empty() {
-                continue;
-            }
-
-            // Format: ClassName (Token1 Token2 ...)
-            let paren_pos = match line.find('(') {
-                Some(p) => p,
-                None => continue,
-            };
-            let class_name = line[..paren_pos].trim();
-            let class = match class_name {
-                "Delimiter" => TokenClass::Delimiter,
-                "Operator" => TokenClass::Operator,
-                "Prefix" => TokenClass::Prefix,
-                "Compound" => TokenClass::Compound,
-                _ => continue, // unknown class, skip
-            };
-
-            let inner = &line[paren_pos + 1..];
-            let inner = inner.trim_end_matches(')');
-            for token_name in inner.split_whitespace() {
-                classes
-                    .entry(token_name.to_string())
-                    .or_insert_with(HashSet::new)
-                    .insert(class);
+        for item in &items {
+            if let Item::Domain(d) = &item.node {
+                let class = match d.name.as_str() {
+                    "Delimiter" => TokenClass::Delimiter,
+                    "Operator" => TokenClass::Operator,
+                    "Prefix" => TokenClass::Prefix,
+                    "Compound" => TokenClass::Compound,
+                    _ => continue,
+                };
+                for variant in &d.variants {
+                    classes
+                        .entry(variant.name.clone())
+                        .or_insert_with(HashSet::new)
+                        .insert(class);
+                }
             }
         }
 
@@ -324,31 +337,16 @@ fn read_grammar_file(path: &Path, name: &str) -> Result<String, GrammarLoadError
     })
 }
 
-fn strip_comment(line: &str) -> &str {
-    match line.find(";;") {
-        Some(pos) => &line[..pos],
-        None => line,
-    }
+/// Parse aski source using bootstrap config to avoid infinite recursion.
+/// Grammar files are parsed by the parser they configure, so we use bootstrap
+/// values for the initial parse. The .aski files then provide the authoritative
+/// overrides.
+fn parse_grammar_source(source: &str) -> Result<Vec<Spanned<Item>>, String> {
+    let config = GrammarConfig::bootstrap();
+    let sf = super::parse_source_file_with_config(source, &config)?;
+    Ok(sf.items)
 }
 
-fn parse_binop_name(name: &str) -> Option<BinOp> {
-    match name {
-        "Add" => Some(BinOp::Add),
-        "Sub" => Some(BinOp::Sub),
-        "Mul" => Some(BinOp::Mul),
-        "Div" => Some(BinOp::Div),
-        "Rem" => Some(BinOp::Rem),
-        "Eq" => Some(BinOp::Eq),
-        "Neq" => Some(BinOp::Neq),
-        "Lt" => Some(BinOp::Lt),
-        "Gt" => Some(BinOp::Gt),
-        "Lte" => Some(BinOp::Lte),
-        "Gte" => Some(BinOp::Gte),
-        "And" => Some(BinOp::And),
-        "Or" => Some(BinOp::Or),
-        _ => None,
-    }
-}
 
 /// Map a Token variant to its grammar name string.
 /// This is the bridge between lexer tokens and grammar data tables.
@@ -359,14 +357,14 @@ fn token_variant_name(token: &Token) -> &'static str {
         Token::Star => "Star",
         Token::Slash => "Slash",
         Token::Percent => "Percent",
-        Token::DoubleEq => "DoubleEq",
-        Token::Neq => "Neq",
-        Token::Lt => "Lt",
-        Token::Gt => "Gt",
-        Token::Lte => "Lte",
-        Token::Gte => "Gte",
-        Token::And => "And",
-        Token::Or => "Or",
+        Token::DoubleEquals => "DoubleEquals",
+        Token::NotEqual => "NotEqual",
+        Token::LessThan => "LessThan",
+        Token::GreaterThan => "GreaterThan",
+        Token::LessThanOrEqual => "LessThanOrEqual",
+        Token::GreaterThanOrEqual => "GreaterThanOrEqual",
+        Token::LogicalAnd => "LogicalAnd",
+        Token::LogicalOr => "LogicalOr",
         Token::LParen => "LParen",
         Token::RParen => "RParen",
         Token::LBracket => "LBracket",
@@ -444,23 +442,23 @@ mod tests {
         assert!(config.operator_bp(&Token::Star).is_some());
         assert!(config.operator_bp(&Token::Slash).is_some());
         assert!(config.operator_bp(&Token::Percent).is_some());
-        assert!(config.operator_bp(&Token::DoubleEq).is_some());
-        assert!(config.operator_bp(&Token::Neq).is_some());
-        assert!(config.operator_bp(&Token::Lt).is_some());
-        assert!(config.operator_bp(&Token::Gt).is_some());
-        assert!(config.operator_bp(&Token::Lte).is_some());
-        assert!(config.operator_bp(&Token::Gte).is_some());
-        assert!(config.operator_bp(&Token::And).is_some());
-        assert!(config.operator_bp(&Token::Or).is_some());
+        assert!(config.operator_bp(&Token::DoubleEquals).is_some());
+        assert!(config.operator_bp(&Token::NotEqual).is_some());
+        assert!(config.operator_bp(&Token::LessThan).is_some());
+        assert!(config.operator_bp(&Token::GreaterThan).is_some());
+        assert!(config.operator_bp(&Token::LessThanOrEqual).is_some());
+        assert!(config.operator_bp(&Token::GreaterThanOrEqual).is_some());
+        assert!(config.operator_bp(&Token::LogicalAnd).is_some());
+        assert!(config.operator_bp(&Token::LogicalOr).is_some());
     }
 
     #[test]
     fn config_bootstrap_precedence_order() {
         let config = GrammarConfig::bootstrap();
-        let (_, or_bp) = config.operator_bp(&Token::Or).unwrap();
-        let (_, and_bp) = config.operator_bp(&Token::And).unwrap();
-        let (_, eq_bp) = config.operator_bp(&Token::DoubleEq).unwrap();
-        let (_, lt_bp) = config.operator_bp(&Token::Lt).unwrap();
+        let (_, or_bp) = config.operator_bp(&Token::LogicalOr).unwrap();
+        let (_, and_bp) = config.operator_bp(&Token::LogicalAnd).unwrap();
+        let (_, eq_bp) = config.operator_bp(&Token::DoubleEquals).unwrap();
+        let (_, lt_bp) = config.operator_bp(&Token::LessThan).unwrap();
         let (_, add_bp) = config.operator_bp(&Token::Plus).unwrap();
         let (_, mul_bp) = config.operator_bp(&Token::Star).unwrap();
 
@@ -490,7 +488,7 @@ mod tests {
         assert!(config.operator_bp(&Token::Plus).is_some());
         assert!(config.operator_bp(&Token::Star).is_some());
         let (op, bp) = config.operator_bp(&Token::Plus).unwrap();
-        assert_eq!(op, BinOp::Add);
+        assert_eq!(op, BinOp::Addition);
         assert_eq!(bp.lbp, 30);
         assert_eq!(bp.rbp, 31);
 
@@ -513,8 +511,8 @@ mod tests {
         // Every operator in bootstrap should be in file config with same values
         let test_tokens = [
             Token::Plus, Token::Minus, Token::Star, Token::Slash, Token::Percent,
-            Token::DoubleEq, Token::Neq, Token::Lt, Token::Gt, Token::Lte, Token::Gte,
-            Token::And, Token::Or,
+            Token::DoubleEquals, Token::NotEqual, Token::LessThan, Token::GreaterThan, Token::LessThanOrEqual, Token::GreaterThanOrEqual,
+            Token::LogicalAnd, Token::LogicalOr,
         ];
         for token in &test_tokens {
             let file_entry = file_config.operator_bp(token);
@@ -541,8 +539,8 @@ mod tests {
         // Create a config where + has HIGHER precedence than *
         let mut config = GrammarConfig::bootstrap();
         // Swap: make Plus have mul's bp (40,41) and Star have add's bp (30,31)
-        config.operators.insert("Plus".to_string(), (BinOp::Add, BindingPower { lbp: 40, rbp: 41 }));
-        config.operators.insert("Star".to_string(), (BinOp::Mul, BindingPower { lbp: 30, rbp: 31 }));
+        config.operators.insert("Plus".to_string(), (BinOp::Addition, BindingPower { lbp: 40, rbp: 41 }));
+        config.operators.insert("Star".to_string(), (BinOp::Multiplication, BindingPower { lbp: 30, rbp: 31 }));
 
         let (_, add_bp) = config.operator_bp(&Token::Plus).unwrap();
         let (_, mul_bp) = config.operator_bp(&Token::Star).unwrap();

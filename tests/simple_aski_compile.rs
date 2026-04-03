@@ -9,7 +9,7 @@ use aski_rs::parser::parse_source;
 fn simple_aski_parses_stores_generates_compiles() {
     // 1. Read simple.aski
     let manifest = env!("CARGO_MANIFEST_DIR");
-    let path = format!("{manifest}/encoder/design/v0.9/examples/simple.aski");
+    let path = format!("{manifest}/examples/simple.aski");
     let source = std::fs::read_to_string(&path)
         .expect(&format!("failed to read {path}"));
 

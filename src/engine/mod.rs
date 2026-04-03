@@ -40,7 +40,7 @@ fn parse_item(st: &mut ParseState) -> Result<Spanned<Item>, String> {
     }
 
     // Grammar rule: <Name> [...]
-    if st.peek() == Some(&Token::Lt) {
+    if st.peek() == Some(&Token::LessThan) {
         let item = parse_grammar_rule(st)?;
         let span = st.span_from(start);
         return Ok(Spanned::new(item, span));
@@ -408,7 +408,7 @@ mod tests {
     fn ge_parse_simple_aski_file() {
         let src = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/encoder/design/v0.9/examples/simple.aski"
+            "/examples/simple.aski"
         ))
         .unwrap();
         let items = parse_source(&src).unwrap();
@@ -516,9 +516,9 @@ mod tests {
                                 match &inner.node {
                                     Expr::Group(g) => {
                                         match &g.node {
-                                            Expr::BinOp(left, BinOp::Add, right) => {
+                                            Expr::BinOp(left, BinOp::Addition, right) => {
                                                 assert!(matches!(&left.node, Expr::IntLit(1)));
-                                                assert!(matches!(&right.node, Expr::BinOp(_, BinOp::Mul, _)));
+                                                assert!(matches!(&right.node, Expr::BinOp(_, BinOp::Multiplication, _)));
                                             }
                                             other => panic!("expected Add at top, got {:?}", other),
                                         }
@@ -541,8 +541,8 @@ mod tests {
         // Create a config where + binds tighter than *
         let mut config = GrammarConfig::bootstrap();
         use config::BindingPower;
-        config.set_operator("Plus", BinOp::Add, BindingPower { lbp: 40, rbp: 41 });
-        config.set_operator("Star", BinOp::Mul, BindingPower { lbp: 30, rbp: 31 });
+        config.set_operator("Plus", BinOp::Addition, BindingPower { lbp: 40, rbp: 41 });
+        config.set_operator("Star", BinOp::Multiplication, BindingPower { lbp: 30, rbp: 31 });
 
         let items = parse_source_with_config("Main [ ^(1 * 2 + 3) ]", &config).unwrap();
         match &items[0].node {
@@ -556,8 +556,8 @@ mod tests {
                                         // With swapped precedence: 1 * 2 + 3 = 1 * (2 + 3)
                                         // because + now binds tighter
                                         match &g.node {
-                                            Expr::BinOp(_, BinOp::Mul, right) => {
-                                                assert!(matches!(&right.node, Expr::BinOp(_, BinOp::Add, _)),
+                                            Expr::BinOp(_, BinOp::Multiplication, right) => {
+                                                assert!(matches!(&right.node, Expr::BinOp(_, BinOp::Addition, _)),
                                                     "expected Add inside Mul, got {:?}", right.node);
                                             }
                                             other => panic!("expected Mul at top with swapped prec, got {:?}", other),
