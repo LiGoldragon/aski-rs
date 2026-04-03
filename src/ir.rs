@@ -116,7 +116,7 @@ fn insert_node(
     parent: Option<i64>,
     span: &Span,
 ) {
-    world.Node.push((id, kind.to_string(), name.to_string(), parent, span.start, span.end));
+    world.Node.push((id, kind.to_string(), name.to_string(), parent, span.start, span.end, None));
 }
 
 fn insert_domain(
@@ -210,6 +210,10 @@ fn insert_trait(
 ) -> Result<i64, String> {
     let id = ids.next();
     insert_node(world, id, "trait", &t.name, parent, &t.span);
+
+    for st in &t.supertraits {
+        world.Supertrait.push((id, st.clone()));
+    }
 
     for method in &t.methods {
         insert_method_sig(world, ids, method, id)?;
@@ -537,16 +541,6 @@ fn insert_expr(
             put_expr(world, id, parent_id, "error_prop", ordinal, None);
             insert_expr(world, ids, &inner.node, id, 0)?;
         }
-        Expr::Comprehension { source, output, guard } => {
-            put_expr(world, id, parent_id, "comprehension", ordinal, None);
-            insert_expr(world, ids, &source.node, id, 0)?;
-            if let Some(out) = output {
-                insert_expr(world, ids, &out.node, id, 1)?;
-            }
-            if let Some(g) = guard {
-                insert_expr(world, ids, &g.node, id, 2)?;
-            }
-        }
         Expr::StructConstruct(name, fields) => {
             put_expr(world, id, parent_id, "struct_construct", ordinal, Some(name));
             for (i, (fname, val)) in fields.iter().enumerate() {
@@ -676,6 +670,10 @@ pub fn query_node_kind(world: &World, node_id: i64) -> Result<Option<String>, St
     Ok(aski_core::query_node_kind(world, node_id))
 }
 
+pub fn query_supertraits(world: &World, trait_id: i64) -> Result<Vec<String>, String> {
+    Ok(aski_core::query_supertraits(world, trait_id))
+}
+
 /// Check if a name is a known method in the World.
 /// Extends aski-core's version with hardcoded stdlib methods.
 pub fn is_known_method(name: &str, world: &World) -> bool {
@@ -694,7 +692,7 @@ pub fn is_known_method(name: &str, world: &World) -> bool {
 pub fn query_recursive_fields(world: &World) -> Result<Vec<(String, String, String)>, String> {
     let mut fields = Vec::new();
 
-    for (owner_id, kind, owner_name, _, _, _) in &world.Node {
+    for (owner_id, kind, owner_name, _, _, _, _) in &world.Node {
         if kind != "struct" {
             continue;
         }
@@ -718,16 +716,16 @@ pub fn query_recursive_fields(world: &World) -> Result<Vec<(String, String, Stri
 /// Validate that no method return type references a body-scoped type.
 pub fn validate_return_type_scope(world: &World) -> Result<Vec<(String, String)>, String> {
     let body_scoped: HashSet<String> = world.Node.iter()
-        .filter(|(_, kind, _, parent, _, _)| {
+        .filter(|(_, kind, _, parent, _, _, _)| {
             parent.is_some() && (kind == "struct" || kind == "domain")
         })
-        .map(|(_, _, name, _, _, _)| name.clone())
+        .map(|(_, _, name, _, _, _, _)| name.clone())
         .collect();
 
     let mut violations = Vec::new();
     for (node_id, type_name) in &world.Returns {
         if body_scoped.contains(type_name) {
-            if let Some((_, _, method_name, _, _, _)) = world.Node.iter().find(|(id, _, _, _, _, _)| id == node_id) {
+            if let Some((_, _, method_name, _, _, _, _)) = world.Node.iter().find(|(id, _, _, _, _, _, _)| id == node_id) {
                 violations.push((method_name.clone(), type_name.clone()));
             }
         }
@@ -738,7 +736,7 @@ pub fn validate_return_type_scope(world: &World) -> Result<Vec<(String, String)>
 /// Validate that no struct-domain has String fields.
 pub fn validate_no_string_fields(world: &World) -> Result<Vec<(String, String)>, String> {
     let mut violations = Vec::new();
-    for (struct_id, kind, struct_name, _, _, _) in &world.Node {
+    for (struct_id, kind, struct_name, _, _, _, _) in &world.Node {
         if kind != "struct" {
             continue;
         }

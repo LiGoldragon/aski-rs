@@ -265,13 +265,6 @@ pub enum Expr {
     StructConstruct(String, Vec<(String, Spanned<Expr>)>),
     /// Method call with arguments: `expr.method(args...)`
     MethodCall(Box<Spanned<Expr>>, String, Vec<Spanned<Expr>>),
-    /// Comprehension: `[| @Source expr {guard} |]`
-    /// ;; STATUS: removed from spec, kept for backward compat (codegen + db tests)
-    Comprehension {
-        source: Box<Spanned<Expr>>,
-        output: Option<Box<Spanned<Expr>>>,
-        guard: Option<Box<Spanned<Expr>>>,
-    },
     /// Error propagation: `expr?`
     ErrorProp(Box<Spanned<Expr>>),
     /// Range: `start..end` or `start..=end`

@@ -28,6 +28,11 @@ pub fn compile_files(
 
     // Phase 2: Insert all items into a single World
     // Use increasing ID offsets to avoid collisions between files
+    //
+    // TODO: Module headers (sf.header) are parsed but not yet stored in the World.
+    // When stored, each header should create a Scope node and populate the
+    // Export and Import relations. This requires designing the scope_id linkage
+    // between Scope nodes and the items they contain.
     let mut world = ir::create_world();
     let mut id_offset: i64 = 0;
     for sf in &all_files {

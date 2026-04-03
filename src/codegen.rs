@@ -345,7 +345,13 @@ fn gen_trait_from_db(
     name: &str,
 ) -> Result<(), String> {
     let rust_name = aski_trait_to_rust(name);
-    out.push_str(&format!("pub trait {rust_name} {{\n"));
+    let supers = ir::query_supertraits(db, node_id)?;
+    if supers.is_empty() {
+        out.push_str(&format!("pub trait {rust_name} {{\n"));
+    } else {
+        let super_list: Vec<String> = supers.iter().map(|s| aski_trait_to_rust(s)).collect();
+        out.push_str(&format!("pub trait {rust_name}: {} {{\n", super_list.join(" + ")));
+    }
 
     let children = ir::query_child_nodes(db, node_id)?;
     for (child_id, kind, child_name) in &children {
@@ -809,8 +815,8 @@ fn gen_body_from_db(
                         if let Some(continuation_method) = rv.as_ref() {
                             // Find method nodes with this name
                             let method_nodes: Vec<(i64, String)> = db.Node.iter()
-                                .filter(|(_, kind, name, _, _, _)| kind == "method" && name == continuation_method)
-                                .map(|(id, _, _, _, _, _)| (*id, continuation_method.clone()))
+                                .filter(|(_, kind, name, _, _, _, _)| kind == "method" && name == continuation_method)
+                                .map(|(id, _, _, _, _, _, _)| (*id, continuation_method.clone()))
                                 .collect();
                             {
                                 for (cont_method_id, _) in &method_nodes {
@@ -1708,40 +1714,6 @@ fn emit_expr_from_db(
             }
             Ok(format!("{base}.{snake}({})", args.join(", ")))
         }
-        // ;; STATUS: removed from spec, kept for backward compat (DB may still contain comprehension nodes)
-        "comprehension" => {
-            let children = ir::query_child_exprs(db, expr_id)?;
-            // child 0 = source, child 1 = output (optional), child 2 = guard (optional)
-            let source = if let Some((child_id, _, _, _)) = children.first() {
-                emit_expr_from_db(db, *child_id, ctx)?
-            } else {
-                return Ok("todo!()".to_string());
-            };
-            let output_expr = children.iter().find(|(_, _, ord, _)| *ord == 1);
-            let guard_expr = children.iter().find(|(_, _, ord, _)| *ord == 2);
-            match (output_expr, guard_expr) {
-                (None, None) => {
-                    // Source-only comprehension: identity
-                    Ok(format!("{source}.clone()"))
-                }
-                (Some((out_id, _, _, _)), None) => {
-                    // Map only
-                    let output = emit_expr_from_db(db, *out_id, ctx)?;
-                    Ok(format!("{source}.iter().map(|item| {output}).collect::<Vec<_>>()"))
-                }
-                (None, Some((guard_id, _, _, _))) => {
-                    // Filter only
-                    let guard = emit_expr_from_db(db, *guard_id, ctx)?;
-                    Ok(format!("{source}.iter().filter(|item| {guard}).cloned().collect::<Vec<_>>()"))
-                }
-                (Some((out_id, _, _, _)), Some((guard_id, _, _, _))) => {
-                    // Filter + map
-                    let output = emit_expr_from_db(db, *out_id, ctx)?;
-                    let guard = emit_expr_from_db(db, *guard_id, ctx)?;
-                    Ok(format!("{source}.iter().filter(|item| {guard}).map(|item| {output}).collect::<Vec<_>>()"))
-                }
-            }
-        }
         "range_exclusive" => {
             let children = ir::query_child_exprs(db, expr_id)?;
             if children.len() >= 2 {
@@ -1763,7 +1735,16 @@ fn emit_expr_from_db(
             }
         }
         "stub" => Ok("todo!()".to_string()),
-        _ => Ok("todo!()".to_string()),
+        "yield" => {
+            let children = ir::query_child_exprs(db, expr_id)?;
+            if let Some((child_id, _, _, _)) = children.first() {
+                let val = emit_expr_from_db(db, *child_id, ctx)?;
+                Ok(format!("yield {val}"))
+            } else {
+                Err("yield requires an expression".to_string())
+            }
+        }
+        other => Err(format!("unrecognized expression kind: {}", other)),
     }
 }
 
@@ -2174,20 +2155,6 @@ mod tests {
         eprintln!("=== Generated ===\n{code}");
         assert!(code.contains("pub struct Person"));
         assert!(!code.contains("Copy"), "struct with String field should not derive Copy: {code}");
-    }
-
-    // ;; STATUS: removed from spec — comprehension parser deleted, test will fail until removed
-    #[test]
-    #[ignore]
-    fn codegen_comprehension() {
-        let db = setup("Main [ [| @AllSigns @Sign.element {@Sign.modality == Cardinal} |] ]");
-        let config = CodegenConfig { rkyv: false };
-        let code = generate_rust_from_db_with_config(&db, &config).unwrap();
-        eprintln!("=== Generated ===\n{code}");
-        assert!(code.contains("iter()"), "comprehension should generate iterator chain: {code}");
-        assert!(code.contains("filter("), "comprehension with guard should use filter: {code}");
-        assert!(code.contains("map("), "comprehension with output should use map: {code}");
-        assert!(code.contains("collect"), "comprehension should collect: {code}");
     }
 
     #[test]
