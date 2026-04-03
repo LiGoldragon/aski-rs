@@ -4,4 +4,4 @@
 //! so that `crate::grammar_engine_full::parse_source_file` and
 //! `parse_source` continue to resolve for any external callers.
 
-pub use crate::engine::{parse_source, parse_source_file};
+pub use crate::engine::{parse_source, parse_source_file, parse_source_with_config, parse_source_file_with_config};

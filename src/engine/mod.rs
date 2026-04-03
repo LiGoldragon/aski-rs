@@ -2,6 +2,9 @@
 //!
 //! Parses ALL aski syntax, producing the canonical AST types.
 //! This is the PRIMARY (and only) parser for aski.
+//!
+//! Parser decisions (operator precedence, kernel primitives, token
+//! classification) are DATA-DRIVEN: loaded from grammar/*.aski files.
 
 mod state;
 mod types;
@@ -10,12 +13,14 @@ mod pattern;
 mod stmt;
 mod items;
 mod header;
+pub mod config;
 
 use crate::ast::*;
 use crate::lexer::Token;
 use state::{SpannedToken, ParseState};
 use items::*;
 use header::parse_module_header;
+use config::GrammarConfig;
 
 // ── Top-level item dispatcher ───────────────────────────────────────
 
@@ -113,8 +118,20 @@ pub fn parse_source(source: &str) -> Result<Vec<Spanned<Item>>, String> {
     Ok(sf.items)
 }
 
+/// Parse aski source code with a specific grammar configuration.
+pub fn parse_source_with_config(source: &str, config: &GrammarConfig) -> Result<Vec<Spanned<Item>>, String> {
+    let sf = parse_source_file_with_config(source, config)?;
+    Ok(sf.items)
+}
+
 /// Parse a full source file (with optional module header).
 pub fn parse_source_file(source: &str) -> Result<SourceFile, String> {
+    let config = config::load_or_bootstrap();
+    parse_source_file_with_config(source, &config)
+}
+
+/// Parse a full source file with a specific grammar configuration.
+pub fn parse_source_file_with_config(source: &str, config: &GrammarConfig) -> Result<SourceFile, String> {
     let spanned_tokens = crate::lexer::lex(source).map_err(|errs| {
         errs.into_iter()
             .map(|e| e.to_string())
@@ -130,7 +147,7 @@ pub fn parse_source_file(source: &str) -> Result<SourceFile, String> {
         })
         .collect();
 
-    let st = &mut ParseState::new(&tokens);
+    let st = &mut ParseState::new(&tokens, config);
     st.skip_newlines();
 
     // Try parsing with module header first
@@ -481,6 +498,81 @@ mod tests {
                 "expected at least 10 items from chart.aski, got {}",
                 sf.items.len(),
             );
+        }
+    }
+
+    #[test]
+    fn ge_data_driven_precedence() {
+        // Verify the Pratt parser respects data-driven operator precedence.
+        // With normal precedence: 1 + 2 * 3 = 1 + (2 * 3)
+        let items = parse_source("Main [ ^(1 + 2 * 3) ]").unwrap();
+        match &items[0].node {
+            Item::Main(m) => {
+                match &m.body {
+                    Body::Block(stmts) => {
+                        // The return expr should be: Add(1, Mul(2, 3))
+                        match &stmts[0].node {
+                            Expr::Return(inner) => {
+                                match &inner.node {
+                                    Expr::Group(g) => {
+                                        match &g.node {
+                                            Expr::BinOp(left, BinOp::Add, right) => {
+                                                assert!(matches!(&left.node, Expr::IntLit(1)));
+                                                assert!(matches!(&right.node, Expr::BinOp(_, BinOp::Mul, _)));
+                                            }
+                                            other => panic!("expected Add at top, got {:?}", other),
+                                        }
+                                    }
+                                    other => panic!("expected Group, got {:?}", other),
+                                }
+                            }
+                            other => panic!("expected Return, got {:?}", other),
+                        }
+                    }
+                    other => panic!("expected Block, got {:?}", other),
+                }
+            }
+            other => panic!("expected Main, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn ge_swapped_precedence_changes_parse() {
+        // Create a config where + binds tighter than *
+        let mut config = GrammarConfig::bootstrap();
+        use config::BindingPower;
+        config.set_operator("Plus", BinOp::Add, BindingPower { lbp: 40, rbp: 41 });
+        config.set_operator("Star", BinOp::Mul, BindingPower { lbp: 30, rbp: 31 });
+
+        let items = parse_source_with_config("Main [ ^(1 * 2 + 3) ]", &config).unwrap();
+        match &items[0].node {
+            Item::Main(m) => {
+                match &m.body {
+                    Body::Block(stmts) => {
+                        match &stmts[0].node {
+                            Expr::Return(inner) => {
+                                match &inner.node {
+                                    Expr::Group(g) => {
+                                        // With swapped precedence: 1 * 2 + 3 = 1 * (2 + 3)
+                                        // because + now binds tighter
+                                        match &g.node {
+                                            Expr::BinOp(_, BinOp::Mul, right) => {
+                                                assert!(matches!(&right.node, Expr::BinOp(_, BinOp::Add, _)),
+                                                    "expected Add inside Mul, got {:?}", right.node);
+                                            }
+                                            other => panic!("expected Mul at top with swapped prec, got {:?}", other),
+                                        }
+                                    }
+                                    other => panic!("expected Group, got {:?}", other),
+                                }
+                            }
+                            other => panic!("expected Return, got {:?}", other),
+                        }
+                    }
+                    other => panic!("expected Block, got {:?}", other),
+                }
+            }
+            other => panic!("expected Main, got {:?}", other),
         }
     }
 }

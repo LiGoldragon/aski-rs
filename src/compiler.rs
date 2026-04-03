@@ -2,26 +2,34 @@
 //!
 //! Compiles multiple .aski source files together, resolving imports
 //! across module boundaries.
+//!
+//! Grammar configuration (operators, kernel primitives, token classes)
+//! is loaded from grammar/*.aski files before parsing begins.
 
 use crate::ast::SourceFile;
 use crate::codegen::{CodegenConfig, generate_rust_from_db_with_config};
 use crate::ir;
-use crate::engine::parse_source_file;
+use crate::engine::{parse_source_file_with_config, config as grammar_config};
 
 /// Compile multiple .aski source files into a single Rust output.
 ///
 /// Each entry is `(filename, source_text)`.
 /// Files may have module headers with imports/exports.
 /// All items from all files are compiled together.
+///
+/// Grammar configuration is loaded from grammar/*.aski files before parsing.
 pub fn compile_files(
     sources: &[(&str, &str)],
     config: &CodegenConfig,
 ) -> Result<String, String> {
+    // Phase 0: Load grammar configuration from .aski data files
+    let grammar = grammar_config::load_or_bootstrap();
+
     let mut all_files: Vec<SourceFile> = Vec::new();
 
-    // Phase 1: Parse all files
+    // Phase 1: Parse all files using data-driven grammar config
     for (filename, source) in sources {
-        let sf = parse_source_file(source)
+        let sf = parse_source_file_with_config(source, &grammar)
             .map_err(|e| format!("error in {filename}: {e}"))?;
         all_files.push(sf);
     }
@@ -44,7 +52,7 @@ pub fn compile_files(
         id_offset += count;
     }
 
-    // Phase 3: Expand grammar rules (Surface → Kernel)
+    // Phase 3: Expand grammar rules (Surface -> Kernel)
     expand_grammar_rules(&mut world)?;
 
     // Phase 4: Run derived rules before codegen
@@ -54,7 +62,7 @@ pub fn compile_files(
     generate_rust_from_db_with_config(&world, config)
 }
 
-/// Expand grammar rules — Surface Aski → Kernel Aski.
+/// Expand grammar rules -- Surface Aski -> Kernel Aski.
 ///
 /// Reads all GrammarRule/GrammarArm relations from the World.
 /// For the first pass, grammar rules are stored but expansion is a no-op:

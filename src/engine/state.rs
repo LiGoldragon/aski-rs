@@ -2,6 +2,7 @@
 
 use crate::ast::Span;
 use crate::lexer::Token;
+use super::config::GrammarConfig;
 
 /// A token with its span (byte range in source).
 #[derive(Debug, Clone)]
@@ -10,15 +11,21 @@ pub(crate) struct SpannedToken {
     pub span: Span,
 }
 
-/// Parser state: a position in the token stream.
+/// Parser state: a position in the token stream, with grammar configuration.
 pub(crate) struct ParseState<'a> {
     pub tokens: &'a [SpannedToken],
     pub pos: usize,
+    config: &'a GrammarConfig,
 }
 
 impl<'a> ParseState<'a> {
-    pub fn new(tokens: &'a [SpannedToken]) -> Self {
-        Self { tokens, pos: 0 }
+    pub fn new(tokens: &'a [SpannedToken], config: &'a GrammarConfig) -> Self {
+        Self { tokens, pos: 0, config }
+    }
+
+    /// Access the grammar configuration.
+    pub fn config(&self) -> &GrammarConfig {
+        self.config
     }
 
     pub fn peek(&self) -> Option<&Token> {

@@ -1,88 +1,49 @@
 //! Expression parsers: atoms, operators, Pratt precedence, method calls, access.
+//!
+//! Operator precedence is DATA-DRIVEN: the Pratt parser reads binding powers
+//! from the GrammarConfig (loaded from grammar/operators.aski).
 
 use crate::ast::*;
 use crate::lexer::Token;
 use super::state::ParseState;
 use super::pattern::parse_simple_pattern;
-
 // ── Expression parser ───────────────────────────────────────────────
 
 pub(crate) fn parse_expr(st: &mut ParseState) -> Result<Spanned<Expr>, String> {
-    parse_or_expr(st)
+    parse_expr_bp(st, 0)
 }
 
-fn parse_or_expr(st: &mut ParseState) -> Result<Spanned<Expr>, String> {
-    let mut left = parse_and_expr(st)?;
-    while st.peek() == Some(&Token::Or) {
-        st.advance();
-        let right = parse_and_expr(st)?;
-        let span = left.span.start..right.span.end;
-        left = Spanned::new(Expr::BinOp(Box::new(left), BinOp::Or, Box::new(right)), span);
-    }
-    Ok(left)
-}
-
-fn parse_and_expr(st: &mut ParseState) -> Result<Spanned<Expr>, String> {
-    let mut left = parse_cmp_expr(st)?;
-    while st.peek() == Some(&Token::And) {
-        st.advance();
-        let right = parse_cmp_expr(st)?;
-        let span = left.span.start..right.span.end;
-        left = Spanned::new(Expr::BinOp(Box::new(left), BinOp::And, Box::new(right)), span);
-    }
-    Ok(left)
-}
-
-fn parse_cmp_expr(st: &mut ParseState) -> Result<Spanned<Expr>, String> {
-    let mut left = parse_add_expr(st)?;
-    loop {
-        let op = match st.peek() {
-            Some(Token::DoubleEq) => BinOp::Eq,
-            Some(Token::Neq) => BinOp::Neq,
-            Some(Token::Gte) => BinOp::Gte,
-            Some(Token::Lte) => BinOp::Lte,
-            Some(Token::Gt) => BinOp::Gt,
-            Some(Token::Lt) => BinOp::Lt,
-            _ => break,
-        };
-        st.advance();
-        let right = parse_add_expr(st)?;
-        let span = left.span.start..right.span.end;
-        left = Spanned::new(Expr::BinOp(Box::new(left), op, Box::new(right)), span);
-    }
-    Ok(left)
-}
-
-fn parse_add_expr(st: &mut ParseState) -> Result<Spanned<Expr>, String> {
-    let mut left = parse_mul_expr(st)?;
-    loop {
-        let op = match st.peek() {
-            Some(Token::Plus) => BinOp::Add,
-            Some(Token::Minus) => BinOp::Sub,
-            _ => break,
-        };
-        st.advance();
-        let right = parse_mul_expr(st)?;
-        let span = left.span.start..right.span.end;
-        left = Spanned::new(Expr::BinOp(Box::new(left), op, Box::new(right)), span);
-    }
-    Ok(left)
-}
-
-fn parse_mul_expr(st: &mut ParseState) -> Result<Spanned<Expr>, String> {
+/// Pratt parser: parse expression with minimum binding power.
+/// Reads operator precedence from the GrammarConfig instead of hardcoding.
+fn parse_expr_bp(st: &mut ParseState, min_bp: u8) -> Result<Spanned<Expr>, String> {
     let mut left = parse_postfix_expr(st)?;
+
     loop {
-        let op = match st.peek() {
-            Some(Token::Star) => BinOp::Mul,
-            Some(Token::Slash) => BinOp::Div,
-            Some(Token::Percent) => BinOp::Rem,
-            _ => break,
+        // Check if current token is an operator with sufficient binding power.
+        // Clone the token to avoid holding a borrow on st.
+        let token = match st.peek() {
+            Some(t) => t.clone(),
+            None => break,
         };
+
+        // Look up operator info from the grammar config.
+        // We access config, extract what we need, then drop the borrow.
+        let (op, lbp, rbp) = match st.config().operator_bp(&token) {
+            Some((op, bp)) => (op, bp.lbp, bp.rbp),
+            None => break, // not an operator — stop
+        };
+
+        // Left binding power must meet minimum
+        if lbp < min_bp {
+            break;
+        }
+
         st.advance();
-        let right = parse_postfix_expr(st)?;
+        let right = parse_expr_bp(st, rbp)?;
         let span = left.span.start..right.span.end;
         left = Spanned::new(Expr::BinOp(Box::new(left), op, Box::new(right)), span);
     }
+
     Ok(left)
 }
 

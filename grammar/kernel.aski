@@ -1,0 +1,10 @@
+;; kernel.aski — kernel primitive names
+;; These are the fixed operations aski requires from Rust.
+;; Like Shen's KLambda: adding a primitive = adding a line here + codegen.
+
+KernelPrimitive (
+  sin cos sqrt abs
+  truncate toF32 toU32 toI64
+  fromOrdinal
+  len clone to_string is_empty unwrap
+)

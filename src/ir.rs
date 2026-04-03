@@ -753,19 +753,24 @@ pub fn query_supertraits(world: &World, trait_id: i64) -> Result<Vec<String>, St
     Ok(aski_core::query_supertraits(world, trait_id))
 }
 
-/// Kernel primitives — the fixed set of operations aski requires from Rust.
-/// Like Shen's KLambda. Adding a primitive = updating this list + codegen.
-pub const KERNEL_PRIMITIVES: &[&str] = &[
-    "sin", "cos", "sqrt", "abs",
-    "truncate", "toF32", "toU32", "toI64",
-    "fromOrdinal",
-    "len", "clone", "to_string", "is_empty", "unwrap",
-];
+/// Kernel primitives — loaded from grammar/kernel.aski at runtime.
+/// This function provides the authoritative list by reading the grammar config.
+/// Like Shen's KLambda: adding a primitive = adding a line to kernel.aski + codegen.
+pub fn kernel_primitives() -> Vec<String> {
+    let config = crate::engine::config::load_or_bootstrap();
+    config.kernel_primitives().iter().map(|s| s.to_string()).collect()
+}
+
+/// Check if a name is a kernel primitive (reads from grammar config).
+pub fn is_kernel_primitive(name: &str) -> bool {
+    let config = crate::engine::config::load_or_bootstrap();
+    config.is_kernel_primitive(name)
+}
 
 /// Check if a name is a known method in the World.
-/// Extends aski-core's version with kernel primitives.
+/// Extends aski-core's version with kernel primitives from grammar/kernel.aski.
 pub fn is_known_method(name: &str, world: &World) -> bool {
-    if KERNEL_PRIMITIVES.contains(&name) {
+    if is_kernel_primitive(name) {
         return true;
     }
     aski_core::is_known_method(name, world)
