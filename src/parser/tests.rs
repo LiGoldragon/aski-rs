@@ -18,14 +18,14 @@ fn parse_simple_domain() {
 
 #[test]
 fn parse_simple_struct() {
-    let items = parse_source("Point { X F64 Y F64 }").unwrap();
+    let items = parse_source("Point { Horizontal F64 Vertical F64 }").unwrap();
     assert_eq!(items.len(), 1);
     match &items[0].node {
         Item::Struct(s) => {
             assert_eq!(s.name, "Point");
             assert_eq!(s.fields.len(), 2);
-            assert_eq!(s.fields[0].name, "X");
-            assert_eq!(s.fields[1].name, "Y");
+            assert_eq!(s.fields[0].name, "Horizontal");
+            assert_eq!(s.fields[1].name, "Vertical");
         }
         other => panic!("expected Struct, got {:?}", other),
     }
@@ -514,7 +514,7 @@ fn parse_associated_type_in_impl() {
     let src = r#"add [Point [
   Output Point
   add(:@Self @Rhs Point) Point [
-    ^Point(X([@Self.X + @Rhs.X]) Y([@Self.Y + @Rhs.Y]))
+    ^Point(Horizontal([@Self.Horizontal + @Rhs.Horizontal]) Vertical([@Self.Vertical + @Rhs.Vertical]))
   ]
 ]]"#;
     let items = parse_source(src).unwrap();
@@ -680,7 +680,7 @@ fn debug_no_header_inline_match() {
 
 #[test]
 fn debug_inline_match_simple_return() {
-    let src = "Tokens { Pos U32 }\n\ncheck [Tokens [\n  test(@Self) Bool [\n    @Done Bool.new(@Self.Pos >= 10)\n    ^(| @Done\n      (True) True\n      (False) False\n    |)\n  ]\n]]\n";
+    let src = "Tokens { Position U32 }\n\ncheck [Tokens [\n  test(@Self) Bool [\n    @Done Bool.new(@Self.Position >= 10)\n    ^(| @Done\n      (True) True\n      (False) False\n    |)\n  ]\n]]\n";
     let items = crate::parser::parse_source(src);
     match items {
         Ok(items) => eprintln!("OK: {} items", items.len()),

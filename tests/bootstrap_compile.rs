@@ -33,7 +33,7 @@ fn bootstrap_parser_compiles() {
         Token::PascalIdent("Water".to_string()),
         Token::RParen,
     ];
-    let t = Tokens { stream: tokens, pos: 0 };
+    let t = Tokens { stream: tokens, position: 0 };
 
     assert!(!t.at_end());
     assert!(t.peek_is_pascal());
@@ -44,17 +44,17 @@ fn bootstrap_parser_compiles() {
         ParseResult::Failed => panic!("  parseDomain: FAILED"),
     }
 
-    // Test struct: Point { X F64 Y F64 }
+    // Test struct: Point { Horizontal F64 Vertical F64 }
     let struct_tokens = vec![
         Token::PascalIdent("Point".to_string()),
         Token::LBrace,
-        Token::PascalIdent("X".to_string()),
+        Token::PascalIdent("Horizontal".to_string()),
         Token::PascalIdent("F64".to_string()),
-        Token::PascalIdent("Y".to_string()),
+        Token::PascalIdent("Vertical".to_string()),
         Token::PascalIdent("F64".to_string()),
         Token::RBrace,
     ];
-    let st = Tokens { stream: struct_tokens, pos: 0 };
+    let st = Tokens { stream: struct_tokens, position: 0 };
     let sresult = st.parse_struct();
     match &sresult {
         ParseResult::Parsed => println!("  parseStruct: OK"),

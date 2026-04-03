@@ -290,8 +290,7 @@ fn impl_member() -> impl Parser<Token, ImplMember, Error = Simple<Token>> + Clon
     choice((assoc_const, assoc_type, method))
 }
 
-/// Trait impl: `TraitName [TypeName [methods...]]`
-/// Or inherent impl: `TypeName [methods...]`
+/// Trait impl: `traitName [TypeName [methods...]]`
 pub(crate) fn impl_block() -> impl Parser<Token, Item, Error = Simple<Token>> + Clone {
     // Inner impl block for one type: `TypeName [method1 method2 ...]`
     // Members can be method defs or associated type defs (which are discarded).

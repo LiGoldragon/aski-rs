@@ -5,7 +5,7 @@
         peekIsUnderscore peekIsStub peekIsPipe)
 [Token (Token)]
 
-Tokens { Stream Vec{Token} Pos U32 }
+Tokens { Stream Vec{Token} Position U32 }
 
 observe ([
   atEnd(:@Self) Bool
@@ -31,8 +31,8 @@ observe ([
 ])
 
 observe [Tokens [
-  atEnd(:@Self) Bool [ ^(@Self.Pos >= @Self.Stream.len) ]
-  peek(:@Self) Token [ ^@Self.Stream.get(@Self.Pos) ]
+  atEnd(:@Self) Bool [ ^(@Self.Position >= @Self.Stream.len) ]
+  peek(:@Self) Token [ ^@Self.Stream.get(@Self.Position) ]
 
   peekIsNewline(:@Self) Bool [ ^@Self.peek.checkNewline ]
   peekIsLParen(:@Self) Bool [ ^@Self.peek.isLParen ]
@@ -61,7 +61,7 @@ transform ([
 ])
 
 transform [Tokens [
-  advance(@Self) Tokens [ ^@Self.with(Pos([@Self.Pos + 1])) ]
+  advance(@Self) Tokens [ ^@Self.with(Position([@Self.Position + 1])) ]
 
   skipNewlines(@Self) Tokens [
     @Done Bool.new(@Self.atEnd)

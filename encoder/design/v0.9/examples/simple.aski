@@ -9,7 +9,7 @@ Element (Fire Earth Air Water)
 Modality (Cardinal Fixed Mutable)
 
 ;; Struct-domain
-Point { X F64 Y F64 }
+Point { Horizontal F64 Vertical F64 }
 
 ;; Constant
 !Pi F64 {3.14159265358979}
@@ -58,7 +58,7 @@ classify ([element(:@Self) Element])
 
 ;; Trait impl with match inside computed body
 classify [Point [element(:@Self) Element [
-  @IsPositive Bool.new([@Self.X > 0.0])
+  @IsPositive Bool.new([@Self.Horizontal > 0.0])
   ^(| @IsPositive
     (True)  Fire
     (False) Water
@@ -71,8 +71,8 @@ navigate ([distance(:@Self @Other Point) F64])
 ;; Distance between two points
 navigate [Point [
   distance(:@Self @Other Point) F64 [
-    @DeltaX F64.new([(@Self.X - @Other.X) * (@Self.X - @Other.X)])
-    @DeltaY F64.new([(@Self.Y - @Other.Y) * (@Self.Y - @Other.Y)])
+    @DeltaX F64.new([(@Self.Horizontal - @Other.Horizontal) * (@Self.Horizontal - @Other.Horizontal)])
+    @DeltaY F64.new([(@Self.Vertical - @Other.Vertical) * (@Self.Vertical - @Other.Vertical)])
     ^[@DeltaX + @DeltaY].sqrt
   ]
 ]]
@@ -81,13 +81,13 @@ navigate [Point [
 ;; (Associated type Output handled by codegen — maps to Rust's type Output)
 add [Point [
   add(:@Self @Rhs Point) Point [
-    ^Point(X([@Self.X + @Rhs.X]) Y([@Self.Y + @Rhs.Y]))
+    ^Point(Horizontal([@Self.Horizontal + @Rhs.Horizontal]) Vertical([@Self.Vertical + @Rhs.Vertical]))
   ]
 ]]
 
 ;; v0.9: Struct update — .with
-;; @Origin Point.new(X(0.0) Y(0.0))
-;; @Shifted Point.new(@Origin.with(X(5.0)))
+;; @Origin Point.new(Horizontal(0.0) Vertical(0.0))
+;; @Shifted Point.new(@Origin.with(Horizontal(5.0)))
 
 ;; Entry point
 Main [
@@ -105,12 +105,12 @@ Main [
   StdOut @Area
 
   ;; Struct construction and trait method
-  @Point.new(X(3.0) Y(4.0))
+  @Point.new(Horizontal(3.0) Vertical(4.0))
   @PointElement Element.new(@Point.element)
   StdOut @PointElement
 
   ;; Trait method (navigate)
-  @Origin Point.new(X(0.0) Y(0.0))
+  @Origin Point.new(Horizontal(0.0) Vertical(0.0))
   @Distance F64.new(@Point.distance(@Origin))
   StdOut @Distance
 ]

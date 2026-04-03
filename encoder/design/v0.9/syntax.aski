@@ -106,13 +106,13 @@
 ;; 5. CORE TYPES (always available)
 ;; =============================================================
 
-;; Pair{T} { First T Second T }
-;; Triple{T} { First T Second T Third T }
-;; Option{T} (Some(T) None)
-;; Result{T E} (Ok(T) Err(E))
-;; Vec{T} — growable collection
-;; Map{K V} — key-value collection
-;; Iterator{T} — lazy sequence
+;; Pair{element} { First element Second element }
+;; Triple{element} { First element Second element Third element }
+;; Option{element} (Some(element) None)
+;; Result{value error} (Ok(value) Err(error))
+;; Vec{element} — growable collection
+;; Map{key value} — key-value collection
+;; Iterator{element} — lazy sequence
 
 
 ;; =============================================================
@@ -156,7 +156,7 @@ Sign (Aries Taurus Gemini Cancer Leo Virgo
       Libra Scorpio Sagittarius Capricorn Aquarius Pisces)
 
 ;; Struct-domains
-Point { X F64 Y F64 }
+Point { Horizontal F64 Vertical F64 }
 NatalChart { SunSign Sign MoonSign Sign Rising Sign }
 
 ;; Data-carrying variants — space before delimiter = declaration
@@ -192,8 +192,8 @@ User {
 ;; Every struct declaration auto-generates a solar () Protocol.
 ;; Sub-types are named — order-independent.
 
-Point(X(1.0) Y(2.0))
-Point(Y(2.0) X(1.0))           ;; same thing — names resolve
+Point(Horizontal(1.0) Vertical(2.0))
+Point(Vertical(2.0) Horizontal(1.0))           ;; same thing — names resolve
 
 NatalChart(SunSign(Aries) MoonSign(Cancer) Rising(Libra))
 
@@ -311,8 +311,8 @@ Point [
     ;; DistSquared is body-scoped — only used locally
     DistSquared { Dx F64 Dy F64 }
     @DistSquared.new(
-      Dx([(@Self.X - @Other.X) * (@Self.X - @Other.X)])
-      Dy([(@Self.Y - @Other.Y) * (@Self.Y - @Other.Y)])
+      Dx([(@Self.Horizontal - @Other.Horizontal) * (@Self.Horizontal - @Other.Horizontal)])
+      Dy([(@Self.Vertical - @Other.Vertical) * (@Self.Vertical - @Other.Vertical)])
     )
     ^[@DistSquared.Dx + @DistSquared.Dy].sqrt
   ]
@@ -783,7 +783,7 @@ render (display debug print [])
 ;; traitName [Type [methods]]
 
 classify [Point [element(:@Self) Element [
-  @IsPositive Bool.new([@Self.X > 0.0])
+  @IsPositive Bool.new([@Self.Horizontal > 0.0])
   ^(| @IsPositive
     (True)  Fire
     (False) Water
@@ -819,16 +819,16 @@ describe [{display&classify} [describe(:@Self) String [
 
 Point [
   translate(:@Self @DX F64 @DY F64) Self [
-    ^Point(X([@Self.X + @DX]) Y([@Self.Y + @DY]))
+    ^Point(Horizontal([@Self.Horizontal + @DX]) Vertical([@Self.Vertical + @DY]))
   ]
 
   scale(:@Self @Factor F64) Self [
-    ^Point(X([@Self.X * @Factor]) Y([@Self.Y * @Factor]))
+    ^Point(Horizontal([@Self.Horizontal * @Factor]) Vertical([@Self.Vertical * @Factor]))
   ]
 
   distance(:@Self @Other Point) F64 [
-    @DeltaX F64.new([(@Self.X - @Other.X) * (@Self.X - @Other.X)])
-    @DeltaY F64.new([(@Self.Y - @Other.Y) * (@Self.Y - @Other.Y)])
+    @DeltaX F64.new([(@Self.Horizontal - @Other.Horizontal) * (@Self.Horizontal - @Other.Horizontal)])
+    @DeltaY F64.new([(@Self.Vertical - @Other.Vertical) * (@Self.Vertical - @Other.Vertical)])
     ^[@DeltaX + @DeltaY].sqrt
   ]
 ]
@@ -1287,7 +1287,7 @@ Planet [
 ;; This is safe: Rust rejects incorrect derives at compile time.
 ;;
 ;; Examples:
-;;   Point { X F64 Y F64 }     → Copy, Clone (F64 is Copy)
+;;   Point { Horizontal F64 Vertical F64 }     → Copy, Clone (F64 is Copy)
 ;;   Element (Fire Earth Air)   → Copy, Clone (unit enum)
 ;;   Buffer { Data Vec{U8} }   → Clone only (Vec is not Copy)
 
@@ -1330,7 +1330,7 @@ Planet [
 ;; User impl:
 add [Point [Output Point
   add(:@Self @Rhs) Point [
-    ^Point(X([@Self.X + @Rhs.X]) Y([@Self.Y + @Rhs.Y]))
+    ^Point(Horizontal([@Self.Horizontal + @Rhs.Horizontal]) Vertical([@Self.Vertical + @Rhs.Vertical]))
   ]
 ]]
 
@@ -1367,13 +1367,13 @@ add [Point [Output Point
 ;; Construction syntax and pattern syntax are the same form
 ;; read in opposite directions. Patterns nest to arbitrary depth.
 ;;
-;; Construction: Point(X(3.0) Y(4.0))
-;; Destructure:  (X(@Xv) Y(@Yv))
+;; Construction: Point(Horizontal(3.0) Vertical(4.0))
+;; Destructure:  (Horizontal(@Hv) Vertical(@Vv))
 
 ;; Nested domain destructuring:
 ;; Result{Result{Point Error} Error} [
-;;   extractX(:@Self) Option{F64} (|
-;;     (Ok (Ok (X(@Value) _)))    Some(@Value)
+;;   extractHorizontal(:@Self) Option{F64} (|
+;;     (Ok (Ok (Horizontal(@Value) _)))    Some(@Value)
 ;;     (_ _)                      None
 ;;   |)
 ;; ]
@@ -1412,8 +1412,8 @@ Point [
 ;; Borrows @Self, returns new instance with specified fields changed.
 ;; Unspecified fields copied from @Self.
 
-;; @Origin Point.new(X(0.0) Y(0.0))
-;; @Shifted Point.new(@Origin.with(X(5.0)))     ;; Y stays 0.0
+;; @Origin Point.new(Horizontal(0.0) Vertical(0.0))
+;; @Shifted Point.new(@Origin.with(Horizontal(5.0)))     ;; Vertical stays 0.0
 ;;
 ;; Multiple field override:
 ;; @Updated NatalChart.new(@Chart.with(SunSign(Taurus) Rising(Scorpio)))
