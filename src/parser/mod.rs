@@ -159,3 +159,34 @@ pub fn parse_source(source: &str) -> Result<Vec<Spanned<Item>>, String> {
     let sf = parse_source_file(source)?;
     Ok(sf.items)
 }
+
+/// Parser backend selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParserBackend {
+    /// Chumsky parser (original, default).
+    Chumsky,
+    /// Data-driven grammar engine (new, full v0.10 coverage).
+    GrammarEngine,
+}
+
+/// Parse a source file with the specified backend.
+pub fn parse_source_file_with(
+    source: &str,
+    backend: ParserBackend,
+) -> Result<SourceFile, String> {
+    match backend {
+        ParserBackend::Chumsky => parse_source_file(source),
+        ParserBackend::GrammarEngine => {
+            crate::grammar_engine_full::parse_source_file(source)
+        }
+    }
+}
+
+/// Parse items with the specified backend.
+pub fn parse_source_with(
+    source: &str,
+    backend: ParserBackend,
+) -> Result<Vec<Spanned<Item>>, String> {
+    let sf = parse_source_file_with(source, backend)?;
+    Ok(sf.items)
+}

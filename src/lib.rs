@@ -3,6 +3,7 @@ pub mod ast;
 pub mod context;
 pub mod parser;
 pub mod grammar_engine;
+pub mod grammar_engine_full;
 pub mod ir;
 pub mod codegen;
 pub mod codec;
