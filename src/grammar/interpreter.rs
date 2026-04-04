@@ -686,11 +686,14 @@ impl GrammarParser {
         let (mut expr, mut cur) = self.parse_atom(tokens, pos)?;
 
         loop {
-            // No newline skipping for postfix — must be on same line
-            if cur >= tokens.len() { break; }
+            // Skip newlines before checking for postfix operators.
+            // A leading `.` on the next line continues the expression (method chain).
+            let peek = skip_newlines(tokens, cur);
+            if peek >= tokens.len() { break; }
 
-            match &tokens[cur].token {
+            match &tokens[peek].token {
                 Token::Dot => {
+                    cur = peek;
                     cur += 1;
                     let member_pos = skip_newlines(tokens, cur);
                     if member_pos >= tokens.len() { break; }
@@ -729,12 +732,13 @@ impl GrammarParser {
                     }
                 }
                 Token::Question => {
+                    cur = peek;
                     let span = expr.span.start..tokens[cur].span.end;
                     expr = Spanned::new(Expr::ErrorProp(Box::new(expr)), span);
                     cur += 1;
                 }
                 Token::RangeExclusive => {
-                    cur += 1;
+                    cur = peek + 1;
                     let (end_expr, new_pos) = self.parse_atom(tokens, cur)?;
                     let span = expr.span.start..end_expr.span.end;
                     expr = Spanned::new(Expr::Range {
@@ -745,7 +749,7 @@ impl GrammarParser {
                     cur = new_pos;
                 }
                 Token::RangeInclusive => {
-                    cur += 1;
+                    cur = peek + 1;
                     let (end_expr, new_pos) = self.parse_atom(tokens, cur)?;
                     let span = expr.span.start..end_expr.span.end;
                     expr = Spanned::new(Expr::Range {
@@ -1092,19 +1096,63 @@ impl GrammarParser {
                 if cur + 1 < tokens.len() && tokens[cur + 1].token == Token::At {
                     let name = expect_ident(tokens, cur + 2)?;
                     let after_name = cur + 3;
-                    // ~@Name.set(expr)
+                    // ~@Name.field...method(expr) — walk dot chain to find terminal method call
                     if after_name < tokens.len() && tokens[after_name].token == Token::Dot {
-                        if let Token::CamelIdent(method) = &tokens.get(after_name + 1).map(|t| &t.token).unwrap_or(&Token::Newline) {
-                            if method == "set" && after_name + 2 < tokens.len() && tokens[after_name + 2].token == Token::LParen {
-                                let (val, new_pos) = self.parse_expression(tokens, after_name + 3)?;
+                        // Collect the dot-chain: ~@Self.Field1.Field2.method(expr)
+                        // The whole thing is a MutableSet with the dot-chain as the name
+                        let mut chain_pos = after_name;
+                        let mut chain_parts: Vec<String> = vec![name.clone()];
+                        while chain_pos < tokens.len() && tokens[chain_pos].token == Token::Dot {
+                            let next = chain_pos + 1;
+                            if next >= tokens.len() { break; }
+                            match &tokens[next].token {
+                                Token::CamelIdent(part) | Token::PascalIdent(part) => {
+                                    chain_parts.push(part.clone());
+                                    chain_pos = next + 1;
+                                }
+                                _ => break,
+                            }
+                        }
+                        // Check if this ends with a call: last part followed by (
+                        let last = chain_parts.last().cloned().unwrap_or_default();
+                        if chain_pos < tokens.len() && tokens[chain_pos].token == Token::LParen {
+                            // ~@Self.Field.method(expr) → MutableSet
+                            let set_name = chain_parts[..chain_parts.len()-1].join(".");
+                            if last == "set" || last == "extend" {
+                                let (val, new_pos) = self.parse_expression(tokens, chain_pos + 1)?;
                                 let val_expr = val.as_expr()?;
                                 let close = skip_newlines(tokens, new_pos);
                                 expect_token(tokens, close, &Token::RParen)?;
                                 let span = start..tokens[close].span.end;
                                 return Ok((Value::Expr(Spanned::new(
-                                    Expr::MutableSet(name, Box::new(val_expr)), span,
+                                    Expr::MutableSet(set_name, Box::new(val_expr)), span,
                                 )), close + 1));
                             }
+                            // Other method calls on mutable ref: ~@Self.deriveX → method call
+                            let (args, new_pos) = self.parse_call_args(tokens, chain_pos + 1)?;
+                            let span = start..tokens[new_pos - 1].span.end;
+                            let base = Spanned::new(Expr::InstanceRef(name.clone()), span.clone());
+                            // Build access chain: @Self.field1.field2...
+                            let mut expr = base;
+                            for part in &chain_parts[1..chain_parts.len()-1] {
+                                let sp = expr.span.clone();
+                                expr = Spanned::new(Expr::Access(Box::new(expr), part.clone()), sp);
+                            }
+                            return Ok((Value::Expr(Spanned::new(
+                                Expr::MethodCall(Box::new(expr), last, args), span,
+                            )), new_pos));
+                        }
+                        // No call — just ~@Self.method with no parens (statement-like)
+                        if chain_parts.len() >= 2 {
+                            let set_name = chain_parts.join(".");
+                            let span = start..tokens[chain_pos.saturating_sub(1)].span.end;
+                            let base = Spanned::new(Expr::InstanceRef(name.clone()), span.clone());
+                            let mut expr = base;
+                            for part in &chain_parts[1..] {
+                                let sp = expr.span.clone();
+                                expr = Spanned::new(Expr::MethodCall(Box::new(expr), part.clone(), vec![]), sp);
+                            }
+                            return Ok((Value::Expr(expr), chain_pos));
                         }
                     }
                     // ~@Name Type/new(args)
@@ -1173,16 +1221,19 @@ impl GrammarParser {
                     )), new_pos));
                 }
                 // @Name Type/... — sub-type new or type-path call
+                // Parse the type ref (handles Vec{Foo}, plain Name, etc.)
                 if after_name < tokens.len() {
-                    if let Token::PascalIdent(type_name) = &tokens[after_name].token {
-                        let type_ref = TypeRef::Named(type_name.clone());
+                    if let Token::PascalIdent(_) = &tokens[after_name].token {
+                        let (type_val, type_end) = self.try_rule("typeRef", tokens, after_name)?;
+                        let type_ref = type_val.as_type_ref()?;
                         // Check for Type/ (type path)
-                        if after_name + 1 < tokens.len() && tokens[after_name + 1].token == Token::Slash {
-                            if after_name + 2 < tokens.len() {
-                                if let Token::CamelIdent(method) = &tokens[after_name + 2].token {
+                        if type_end < tokens.len() && tokens[type_end].token == Token::Slash {
+                            let after_name = type_end; // after_name now points at /
+                            if after_name + 1 < tokens.len() {
+                                if let Token::CamelIdent(method) = &tokens[after_name + 1].token {
                                     if method == "new" {
                                         // @Name Type/new(args) — sub-type new
-                                        let (args, new_pos) = self.parse_new_call(tokens, after_name + 1)?;
+                                        let (args, new_pos) = self.parse_new_call(tokens, after_name)?;
                                         let span = start..tokens[new_pos - 1].span.end;
                                         return Ok((Value::Expr(Spanned::new(
                                             Expr::SubTypeNew(name, type_ref, args), span,
@@ -1200,10 +1251,10 @@ impl GrammarParser {
                             }
                         }
                         // @Name Type (no /) — deferred new / subtype decl
-                        let span = start..tokens[after_name].span.end;
+                        let span = start..tokens[type_end.saturating_sub(1)].span.end;
                         return Ok((Value::Expr(Spanned::new(
                             Expr::SubTypeDecl(name, type_ref), span,
-                        )), after_name + 1));
+                        )), type_end));
                     }
                 }
             }
@@ -1392,6 +1443,7 @@ impl GrammarParser {
         match &tokens[cur].token {
             Token::Underscore => Ok((Pattern::Wildcard, cur + 1)),
             Token::StringLit(s) => Ok((Pattern::StringLit(s.clone()), cur + 1)),
+            Token::Integer(n) => Ok((Pattern::Variant(n.to_string()), cur + 1)),
             Token::At => {
                 let name = expect_ident(tokens, cur + 1)?;
                 Ok((Pattern::InstanceBind(name), cur + 2))
