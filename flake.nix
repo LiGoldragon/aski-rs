@@ -81,74 +81,75 @@
         '';
       });
       # ── Bootstrap update script ──
-      update-bootstrap = pkgs.writeShellApplication {
-        name = "update-bootstrap";
-        runtimeInputs = with pkgs; [ gh jujutsu nix gnused coreutils ];
-        text = ''
-          set -euo pipefail
+      update-bootstrap = pkgs.writeShellScriptBin "update-bootstrap" ''
+        set -euo pipefail
+        export PATH="$PATH:${pkgs.lib.makeBinPath (with pkgs; [ gnused coreutils gnugrep ])}"
 
-          ASKI_RS="''${ASKI_RS_DIR:-$(pwd)}"
-          ASKI_CORE="''${ASKI_CORE_DIR:-$ASKI_RS/../aski-core}"
-          REPO="LiGoldragon/aski-rs"
+        ASKI_RS="''${ASKI_RS_DIR:-$(pwd)}"
+        ASKI_CORE="''${ASKI_CORE_DIR:-$ASKI_RS/../aski-core}"
+        REPO="LiGoldragon/aski-rs"
 
-          # 1. Build static askic
-          echo ":: Building askic-static..."
-          nix build "$ASKI_RS#askic-static"
+        # 1. Build static askic
+        echo ":: Building askic-static..."
+        nix build "$ASKI_RS#askic-static"
 
-          # 2. Determine next version (subversion: v0.4.0 -> v0.4.0.1 -> v0.4.0.2)
-          CURRENT=$(gh release list -R "$REPO" --limit 1 --json tagName -q '.[0].tagName')
-          BASE=$(echo "$CURRENT" | sed 's/^v//')
-          PARTS=$(echo "$BASE" | tr '.' '\n' | wc -l)
-          if [ "$PARTS" -le 3 ]; then
-            NEXT="v''${BASE}.1"
-          else
-            PREFIX=$(echo "$BASE" | sed 's/\.[^.]*$//')
-            SUB=$(echo "$BASE" | sed 's/.*\.//')
-            NEXT="v''${PREFIX}.$((SUB + 1))"
-          fi
-          echo ":: Version: $CURRENT -> $NEXT"
+        # 2. Determine next version (subversion: v0.4.0 -> v0.4.0.1 -> v0.4.0.2)
+        CURRENT=$(gh release list -R "$REPO" --limit 1 --json tagName -q '.[0].tagName')
+        BASE="''${CURRENT#v}"
+        IFS='.' read -ra SEGMENTS <<< "$BASE"
+        if [ "''${#SEGMENTS[@]}" -le 3 ]; then
+          NEXT="v''${BASE}.1"
+        else
+          SUB="''${SEGMENTS[-1]}"
+          PREFIX="''${BASE%."$SUB"}"
+          NEXT="v''${PREFIX}.$((SUB + 1))"
+        fi
+        echo ":: Version: $CURRENT -> $NEXT"
 
-          # 3. Upload to GitHub release (never reuse tags)
-          TMPBIN=$(mktemp)
-          cp "$ASKI_RS/result/bin/askic" "$TMPBIN"
-          chmod +x "$TMPBIN"
-          gh release create "$NEXT" "$TMPBIN#askic-x86_64-linux" \
-            -R "$REPO" \
-            --title "$NEXT — bootstrap askic" \
-            --notes "Static musl askic bootstrap binary."
-          echo ":: Release $NEXT created"
+        # 3. Upload to GitHub release (never reuse tags)
+        TMPDIR=$(mktemp -d)
+        cp "$ASKI_RS/result/bin/askic" "$TMPDIR/askic-x86_64-linux"
+        chmod +x "$TMPDIR/askic-x86_64-linux"
+        gh release create "$NEXT" "$TMPDIR/askic-x86_64-linux" \
+          -R "$REPO" \
+          --title "$NEXT — bootstrap askic" \
+          --notes "Static musl askic bootstrap binary."
+        echo ":: Release $NEXT created"
 
-          # 4. Prefetch to get the exact hash fetchurl will compute
-          URL="https://github.com/$REPO/releases/download/$NEXT/askic-x86_64-linux"
-          echo ":: Prefetching $URL ..."
-          HASH=$(nix store prefetch-file "$URL" 2>&1 | grep -oP "hash 'sha256-[^']+'" | grep -oP "sha256-[^']+")
-          echo ":: Hash: $HASH"
+        # 4. Prefetch with --executable to get the NAR hash (fetchurl uses
+        #    outputHashMode=recursive when executable=true)
+        URL="https://github.com/$REPO/releases/download/$NEXT/askic-x86_64-linux"
+        echo ":: Waiting for GitHub CDN propagation..."
+        sleep 15
+        echo ":: Prefetching $URL ..."
+        BASE32=$(nix-prefetch-url --executable --type sha256 "$URL" 2>/dev/null)
+        HASH=$(nix hash convert --hash-algo sha256 --to sri "$BASE32")
+        echo ":: Hash: $HASH"
 
-          # 5. Update aski-core flake.nix
-          sed -i "s|releases/download/v[^/]*/askic|releases/download/$NEXT/askic|" "$ASKI_CORE/flake.nix"
-          sed -i "s|hash = \"sha256-[^\"]*\"|hash = \"$HASH\"|" "$ASKI_CORE/flake.nix"
-          echo ":: Updated aski-core/flake.nix"
+        # 5. Update aski-core flake.nix
+        sed -i "s|releases/download/v[^/]*/askic|releases/download/$NEXT/askic|" "$ASKI_CORE/flake.nix"
+        sed -i "s|hash = \"sha256-[^\"]*\"|hash = \"$HASH\"|" "$ASKI_CORE/flake.nix"
+        echo ":: Updated aski-core/flake.nix"
 
-          # 6. Update aski-core flake.lock (pin new aski-rs rev)
-          (cd "$ASKI_CORE" && nix flake update aski-rs-src)
-          echo ":: Updated aski-core/flake.lock"
+        # 6. Update aski-core flake.lock (pin new aski-rs rev)
+        (cd "$ASKI_CORE" && nix flake update aski-rs-src)
+        echo ":: Updated aski-core/flake.lock"
 
-          # 7. Verify build
-          echo ":: Verifying aski-core build..."
-          (cd "$ASKI_CORE" && nix build)
-          echo ":: Build verified"
+        # 7. Verify build
+        echo ":: Verifying aski-core build..."
+        (cd "$ASKI_CORE" && nix build)
+        echo ":: Build verified"
 
-          # 8. Commit and push aski-core
-          (cd "$ASKI_CORE" && \
-            jj commit -m "((\"nix\", \"aski-core\"), (\"update\", \"bootstrap askic $NEXT\"), (\"pipeline\", \"automated via update-bootstrap\"))" && \
-            jj bookmark set main -r @- && \
-            jj git push)
-          echo ":: aski-core committed and pushed"
+        # 8. Commit and push aski-core
+        (cd "$ASKI_CORE" && \
+          jj commit -m "((\"nix\", \"aski-core\"), (\"update\", \"bootstrap askic $NEXT\"), (\"pipeline\", \"automated via update-bootstrap\"))" && \
+          jj bookmark set main -r @- && \
+          jj git push)
+        echo ":: aski-core committed and pushed"
 
-          rm -f "$TMPBIN"
-          echo ":: Done. Bootstrap updated to $NEXT"
-        '';
-      };
+        rm -rf "$TMPDIR"
+        echo ":: Done. Bootstrap updated to $NEXT"
+      '';
     in {
       packages.${system} = {
         default = aski-rs;
