@@ -4,8 +4,12 @@ pub mod context;
 pub mod parser;
 pub mod engine;
 pub mod grammar_engine_full;
+pub mod grammar;
 pub mod ir;
 pub mod codegen;
+pub mod codegen_v2;
+pub mod codegen_v3;
+pub mod codegen_kernel;
 pub mod codec;
 pub mod compiler;
 

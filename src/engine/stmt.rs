@@ -39,10 +39,10 @@ pub(crate) fn parse_statement(st: &mut ParseState) -> Result<Spanned<Expr>, Stri
                     st.restore(save2);
                 }
 
-                // Try mutable new: Type.new(args)
+                // Try mutable new: Type/new(args)
                 let save2 = st.save();
                 if let Ok(tr) = parse_type_ref(st) {
-                    if st.eat(&Token::Dot) {
+                    if st.eat(&Token::Slash) || st.eat(&Token::Dot) {
                         if let Some(Token::CamelIdent(m)) = st.peek() {
                             if m == "new" {
                                 st.advance();
@@ -62,16 +62,16 @@ pub(crate) fn parse_statement(st: &mut ParseState) -> Result<Spanned<Expr>, Stri
         st.restore(save);
     }
 
-    // Sub-type new: @Name Type.new(args)
-    // Same-type new: @Name.new(args)
+    // Sub-type new: @Name Type/new(args)
+    // Same-type new: @Name/new(args)
     if st.peek() == Some(&Token::At) {
         let save = st.save();
         st.advance();
         if let Some((name, _)) = st.eat_pascal() {
-            // Try sub-type: Type.new(args)
+            // Try sub-type: Type/new(args)
             let save2 = st.save();
             if let Ok(tr) = parse_type_ref(st) {
-                if st.eat(&Token::Dot) {
+                if st.eat(&Token::Slash) || st.eat(&Token::Dot) {
                     if let Some(Token::CamelIdent(m)) = st.peek() {
                         if m == "new" {
                             st.advance();
@@ -89,8 +89,8 @@ pub(crate) fn parse_statement(st: &mut ParseState) -> Result<Spanned<Expr>, Stri
                 st.restore(save2);
             }
 
-            // Try same-type: .new(args)
-            if st.eat(&Token::Dot) {
+            // Try same-type: /new(args)
+            if st.eat(&Token::Slash) || st.eat(&Token::Dot) {
                 if let Some(Token::CamelIdent(m)) = st.peek() {
                     if m == "new" {
                         st.advance();

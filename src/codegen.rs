@@ -103,6 +103,7 @@ pub fn generate_rust_from_db_with_config(db: &World, config: &CodegenConfig) -> 
     // Generate in dependency order: types first, then impls, then main
     let kind_order = |kind: &str| -> u8 {
         match kind {
+            "foreign_block" => 0,                 // extern declarations first
             "domain" | "struct" | "const" | "type_alias" => 0,  // type definitions first
             "trait" => 1,                         // trait declarations
             "impl" => 2,                          // implementations
@@ -122,6 +123,7 @@ pub fn generate_rust_from_db_with_config(db: &World, config: &CodegenConfig) -> 
             "trait" => gen_trait_from_db(&mut out, db, *node_id, name)?,
             "impl" => gen_trait_impl_from_db(&mut out, db, *node_id, name, &variant_map, &struct_fields)?,
             "main" => gen_main_from_db(&mut out, db, *node_id, &variant_map, &struct_fields)?,
+            "foreign_block" => gen_foreign_block_from_db(&mut out, db, *node_id, name)?,
             _ => {}
         }
     }
@@ -311,6 +313,52 @@ fn gen_type_alias_from_db(out: &mut String, db: &World, node_id: i64, name: &str
         .ok_or_else(|| format!("type alias {} has no aliased type", name))?;
     let rust_type = aski_type_to_rust(&type_ref);
     out.push_str(&format!("type {name} = {rust_type};\n\n"));
+    Ok(())
+}
+
+fn gen_foreign_block_from_db(out: &mut String, db: &World, node_id: i64, library: &str) -> Result<(), String> {
+    let children = ir::query_child_nodes(db, node_id)?;
+    if children.is_empty() {
+        return Ok(());
+    }
+
+    // Wrapper functions that delegate to the Rust crate
+    let crate_name = to_snake_case(library);
+    for (child_id, _kind, child_name) in &children {
+        let ret_type = ir::query_return_type(db, *child_id)?
+            .unwrap_or_else(|| "()".to_string());
+        let rust_ret = aski_type_to_rust(&ret_type);
+        let params = ir::query_params(db, *child_id)?;
+
+        let exprs = ir::query_child_exprs(db, *child_id)?;
+        let extern_name = exprs.iter()
+            .find(|(_, kind, _, _)| kind == "extern_name")
+            .and_then(|(_, _, _, val)| val.clone())
+            .unwrap_or_else(|| child_name.clone());
+
+        let snake_name = to_snake_case(child_name);
+
+        // params: (kind, name, type_ref)
+        let mut param_strs = Vec::new();
+        let mut arg_names = Vec::new();
+        for (kind, name_opt, type_opt) in &params {
+            if let Some(pt) = type_opt {
+                let rust_type = aski_type_to_rust(pt);
+                // For Named params, use the name; otherwise use the kind
+                let param_name = name_opt.as_deref().unwrap_or(kind);
+                let snake = to_snake_case(param_name);
+                param_strs.push(format!("{snake}: {rust_type}"));
+                arg_names.push(snake);
+            }
+        }
+
+        out.push_str(&format!("pub fn {snake_name}({}) -> {rust_ret} {{\n",
+            param_strs.join(", ")));
+        out.push_str(&format!("    {crate_name}::{extern_name}({})\n",
+            arg_names.join(", ")));
+        out.push_str("}\n\n");
+    }
+
     Ok(())
 }
 
@@ -569,7 +617,7 @@ fn gen_main_from_db(
     variant_map: &HashMap<String, String>,
     struct_fields: &HashMap<String, Vec<(String, String)>>,
 ) -> Result<(), String> {
-    out.push_str("fn main() {\n");
+    out.push_str("pub fn main() {\n");
 
     let ctx = ExprCtx {
         indent: 1,
@@ -1525,6 +1573,12 @@ fn emit_expr_from_db(
                 let is_method = field.starts_with(|c: char| c.is_lowercase())
                     || is_known_method_codegen(&f, db)
                     || is_known_method_codegen(&field, db);
+                // Simple PascalCase name = type → use :: for associated access
+                // Complex expressions (struct constructions, etc.) always use .
+                let is_simple_type = base.chars().next().map_or(false, |c| c.is_uppercase())
+                    && base.chars().all(|c| c.is_alphanumeric());
+                let sep = if is_simple_type { "::" } else { "." };
+
                 if is_method {
                     // Kernel primitives — emit Rust equivalents directly
                     match field.as_str() {
@@ -1538,10 +1592,10 @@ fn emit_expr_from_db(
                         "abs" => Ok(format!("{base}.abs()")),
                         // Vec .len() returns usize — cast to u32 for aski's fixed-size types.
                         "len" => Ok(format!("({base}.{f}() as u32)")),
-                        _ => Ok(format!("{base}.{f}()"))
+                        _ => Ok(format!("{base}{sep}{f}()"))
                     }
                 } else {
-                    Ok(format!("{base}.{f}"))
+                    Ok(format!("{base}{sep}{f}"))
                 }
             } else {
                 Err(format!("field access '{}' has no receiver expression", field))
@@ -1563,7 +1617,7 @@ fn emit_expr_from_db(
             let mut args = Vec::new();
             for (child_id, _kind, _ord, _val) in &children {
                 let arg = emit_expr_from_db(db, *child_id, ctx)?;
-                args.push(format!("&{arg}"));
+                args.push(arg);
             }
             Ok(format!("{snake}({})", args.join(", ")))
         }
@@ -1742,7 +1796,11 @@ fn emit_expr_from_db(
                     args.push(format!("&{arg}"));
                 }
             }
-            Ok(format!("{base}.{snake}({})", args.join(", ")))
+            // Simple PascalCase name = type, use :: (associated function)
+            let is_simple_type = base.chars().next().map_or(false, |c| c.is_uppercase())
+                && base.chars().all(|c| c.is_alphanumeric());
+            let sep = if is_simple_type { "::" } else { "." };
+            Ok(format!("{base}{sep}{snake}({})", args.join(", ")))
         }
         "range_exclusive" => {
             let children = ir::query_child_exprs(db, expr_id)?;
@@ -2118,7 +2176,7 @@ mod tests {
 
     #[test]
     fn codegen_same_type_binding() {
-        let db = setup("Main [ @Radius.new(5.0) ]");
+        let db = setup("Main [ @Radius/new(5.0) ]");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.contains("fn main()"));
@@ -2127,7 +2185,7 @@ mod tests {
 
     #[test]
     fn codegen_subtype_binding() {
-        let db = setup("Main [ @Area F64.new(42.0) ]");
+        let db = setup("Main [ @Area F64/new(42.0) ]");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.contains("fn main()"));

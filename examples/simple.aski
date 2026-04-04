@@ -48,7 +48,7 @@ measure ([area(:@Self) F64])
 
 measure [Radius [
   area(:@Self) F64 [
-    @Area F64.new([@Self.Value * @Self.Value * !Pi])
+    @Area F64/new([@Self.Value * @Self.Value * !Pi])
     ^@Area
   ]
 ]]
@@ -58,7 +58,7 @@ classify ([element(:@Self) Element])
 
 ;; Trait impl with match inside computed body
 classify [Point [element(:@Self) Element [
-  @IsPositive Bool.new([@Self.Horizontal > 0.0])
+  @IsPositive Bool/new([@Self.Horizontal > 0.0])
   ^(| @IsPositive
     (True)  Fire
     (False) Water
@@ -71,8 +71,8 @@ navigate ([distance(:@Self @Other Point) F64])
 ;; Distance between two points
 navigate [Point [
   distance(:@Self @Other Point) F64 [
-    @DeltaX F64.new([(@Self.Horizontal - @Other.Horizontal) * (@Self.Horizontal - @Other.Horizontal)])
-    @DeltaY F64.new([(@Self.Vertical - @Other.Vertical) * (@Self.Vertical - @Other.Vertical)])
+    @DeltaX F64/new([(@Self.Horizontal - @Other.Horizontal) * (@Self.Horizontal - @Other.Horizontal)])
+    @DeltaY F64/new([(@Self.Vertical - @Other.Vertical) * (@Self.Vertical - @Other.Vertical)])
     ^[@DeltaX + @DeltaY].sqrt
   ]
 ]]
@@ -86,31 +86,31 @@ add [Point [
 ]]
 
 ;; v0.9: Struct update — .with
-;; @Origin Point.new(Horizontal(0.0) Vertical(0.0))
-;; @Shifted Point.new(@Origin.with(Horizontal(5.0)))
+;; @Origin Point/new(Horizontal(0.0) Vertical(0.0))
+;; @Shifted Point/new(@Origin.with(Horizontal(5.0)))
 
 ;; Entry point
 Main [
   ;; Method call
-  @Sum U32.new(Addition(Left(3) Right(7)).add)
+  @Sum U32/new(Addition(Left(3) Right(7)).add)
   StdOut @Sum
 
   ;; Matching method
-  @Element Element.new(Fire)
+  @Element Element/new(Fire)
   StdOut @Element.describe
 
   ;; Binding with constant
-  @Radius.new(Value(5.0))
-  @Area F64.new(@Radius.area)
+  @Radius/new(Value(5.0))
+  @Area F64/new(@Radius.area)
   StdOut @Area
 
   ;; Struct construction and trait method
-  @Point.new(Horizontal(3.0) Vertical(4.0))
-  @PointElement Element.new(@Point.element)
+  @Point/new(Horizontal(3.0) Vertical(4.0))
+  @PointElement Element/new(@Point.element)
   StdOut @PointElement
 
   ;; Trait method (navigate)
-  @Origin Point.new(Horizontal(0.0) Vertical(0.0))
-  @Distance F64.new(@Point.distance(@Origin))
+  @Origin Point/new(Horizontal(0.0) Vertical(0.0))
+  @Distance F64/new(@Point.distance(@Origin))
   StdOut @Distance
 ]

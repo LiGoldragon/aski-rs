@@ -1,0 +1,20 @@
+Element (Fire Earth Air Water)
+
+Color { R F64 G F64 B F64 }
+
+colorize ([bright(:@Self) Color])
+
+colorize [Element [
+  bright(:@Self) Color (|
+    (Fire)  Color(R(0.9) G(0.3) B(0.2))
+    (Earth) Color(R(0.4) G(0.7) B(0.3))
+    (Air)   Color(R(0.3) G(0.6) B(0.9))
+    (Water) Color(R(0.2) G(0.4) B(0.8))
+  |)
+]]
+
+Main [
+  @Element Element/new(Fire)
+  @BrightColor Color/new(@Element.bright)
+  StdOut @BrightColor.R
+]

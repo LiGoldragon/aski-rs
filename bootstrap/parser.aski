@@ -27,8 +27,8 @@ parse ([
 
 parse [Tokens [
   parseDomain(@Self) ParseResult [
-    @Toks Tokens.new(@Self.skipNewlines)
-    @HasName Bool.new(@Toks.peekIsPascal)
+    @Toks Tokens/new(@Self.skipNewlines)
+    @HasName Bool/new(@Toks.peekIsPascal)
     ^(| @HasName
       (True) @Toks.advance.skipNewlines.tryDomainOpen
       (False) Failed
@@ -36,7 +36,7 @@ parse [Tokens [
   ]
 
   tryDomainOpen(@Self) ParseResult [
-    @IsOpen Bool.new(@Self.peekIsLParen)
+    @IsOpen Bool/new(@Self.peekIsLParen)
     ^(| @IsOpen
       (True) @Self.advance.countVariants
       (False) Failed
@@ -44,8 +44,8 @@ parse [Tokens [
   ]
 
   countVariants(@Self) ParseResult [
-    @Toks Tokens.new(@Self.skipNewlines)
-    @Done Bool.new(@Toks.atEnd)
+    @Toks Tokens/new(@Self.skipNewlines)
+    @Done Bool/new(@Toks.atEnd)
     ^(| @Done
       (True)  Failed
       (False) @Toks.checkCloseOrVariant
@@ -53,7 +53,7 @@ parse [Tokens [
   ]
 
   checkCloseOrVariant(@Self) ParseResult [
-    @IsClose Bool.new(@Self.peekIsRParen)
+    @IsClose Bool/new(@Self.peekIsRParen)
     ^(| @IsClose
       (True)  Parsed
       (False) @Self.skipVariantAndContinue
@@ -61,7 +61,7 @@ parse [Tokens [
   ]
 
   skipVariantAndContinue(@Self) ParseResult [
-    @IsPascal Bool.new(@Self.peekIsPascal)
+    @IsPascal Bool/new(@Self.peekIsPascal)
     ^(| @IsPascal
       (True)  @Self.advance.countVariants
       (False) @Self.advance.countVariants
@@ -70,8 +70,8 @@ parse [Tokens [
 
   ;; Struct parser — parses PascalName { Field Type ... }
   parseStruct(@Self) ParseResult [
-    @Toks Tokens.new(@Self.skipNewlines)
-    @HasName Bool.new(@Toks.peekIsPascal)
+    @Toks Tokens/new(@Self.skipNewlines)
+    @HasName Bool/new(@Toks.peekIsPascal)
     ^(| @HasName
       (True) @Toks.advance.skipNewlines.tryStructOpen
       (False) Failed
@@ -79,7 +79,7 @@ parse [Tokens [
   ]
 
   tryStructOpen(@Self) ParseResult [
-    @IsOpen Bool.new(@Self.peekIsLBrace)
+    @IsOpen Bool/new(@Self.peekIsLBrace)
     ^(| @IsOpen
       (True) @Self.advance.skipToCloseBrace
       (False) Failed
@@ -87,8 +87,8 @@ parse [Tokens [
   ]
 
   skipToCloseBrace(@Self) ParseResult [
-    @Toks Tokens.new(@Self.skipNewlines)
-    @Done Bool.new(@Toks.atEnd)
+    @Toks Tokens/new(@Self.skipNewlines)
+    @Done Bool/new(@Toks.atEnd)
     ^(| @Done
       (True) Failed
       (False) @Toks.checkCloseBrace
@@ -96,7 +96,7 @@ parse [Tokens [
   ]
 
   checkCloseBrace(@Self) ParseResult [
-    @IsClose Bool.new(@Self.peekIsRBrace)
+    @IsClose Bool/new(@Self.peekIsRBrace)
     ^(| @IsClose
       (True)  Parsed
       (False) @Self.advance.skipToCloseBrace

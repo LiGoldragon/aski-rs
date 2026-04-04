@@ -1,0 +1,19 @@
+;; grammar/param.aski — parameter forms
+;;
+;; Seven parameter variants, ordered most-specific first.
+;; PEG ordered choice: first match wins.
+
+<param> [
+  [Colon At "Self" | @Rest]            BorrowSelf @Rest
+  [Tilde At "Self" | @Rest]            MutBorrowSelf @Rest
+  [Colon At @Name | @Rest]             Borrow(@Name) @Rest
+  [Tilde At @Name | @Rest]             MutBorrow(@Name) @Rest
+  [At "Self" | @Rest]                  OwnedSelf @Rest
+  [At @Name <typeRef> | @Rest]         Named(@Name <typeRef>) @Rest
+  [At @Name | @Rest]                   Owned(@Name) @Rest
+]
+
+<params> [
+  [<param> <params> | @Rest]   Cons(<param> <params>) @Rest
+  [| @Rest]                    Nil @Rest
+]

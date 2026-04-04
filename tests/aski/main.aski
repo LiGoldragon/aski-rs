@@ -1,0 +1,7 @@
+(Main)
+[Chart (Sign Element)]
+
+Main [
+  @Sign Sign/new(Aries)
+  StdOut @Sign.element
+]

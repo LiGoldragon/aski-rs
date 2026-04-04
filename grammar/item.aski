@@ -1,0 +1,12 @@
+;; grammar/item.aski — top-level item dispatch
+;;
+;; Eight item forms. Order matters: more specific patterns first.
+;; Const, grammar rule, Main, domain, struct, type alias, trait decl, trait impl.
+;;
+;; NOTE: Most item parsing is handled by built-in functions in the interpreter
+;; because items require complex multi-step parsing (method bodies, type impls, etc.)
+;; These rules serve as the DISPATCH — they identify which item form, then
+;; the interpreter handles the details.
+;;
+;; The interpreter uses this rule table to know what exists.
+;; Actual item parsing is done in interpreter.rs built-in functions.

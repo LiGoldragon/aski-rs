@@ -126,7 +126,7 @@ fn parse_matching_method() {
 
 #[test]
 fn parse_same_type_binding() {
-    let src = "Main [ @Radius.new(Value(5.0)) ]";
+    let src = "Main [ @Radius/new(Value(5.0)) ]";
     let items = parse_source(src).unwrap();
     assert_eq!(items.len(), 1);
     match &items[0].node {
@@ -145,7 +145,7 @@ fn parse_same_type_binding() {
 
 #[test]
 fn parse_subtype_binding() {
-    let src = "Main [ @Area F64.new(42.0) ]";
+    let src = "Main [ @Area F64/new(42.0) ]";
     let items = parse_source(src).unwrap();
     assert_eq!(items.len(), 1);
     match &items[0].node {
@@ -275,7 +275,7 @@ fn parse_subtype_decl_in_body() {
 
 #[test]
 fn parse_mutable_binding() {
-    let src = "Main [ ~@Counter U32.new(0) ]";
+    let src = "Main [ ~@Counter U32/new(0) ]";
     let items = parse_source(src).unwrap();
     match &items[0].node {
         Item::Main(m) => {
@@ -576,7 +576,7 @@ fn parse_destructure_arm() {
 
 #[test]
 fn debug_header_inline_match() {
-    let src = "(Parser ItemResult)\n[Token (Token)\n Tokens (_)]\n\nItemResult (Parsed (Tokens) Failed (Tokens))\n\nparse [Tokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool.new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]]\n";
+    let src = "(Parser ItemResult)\n[Token (Token)\n Tokens (_)]\n\nItemResult (Parsed (Tokens) Failed (Tokens))\n\nparse [Tokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool/new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]]\n";
     let sf = crate::parser::parse_source_file(src);
     match sf {
         Ok(sf) => {
@@ -589,7 +589,7 @@ fn debug_header_inline_match() {
 
 #[test]
 fn debug_no_header_inline_match() {
-    let src = "ItemResult (Parsed (Tokens) Failed (Tokens))\n\nparse [Tokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool.new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]]\n";
+    let src = "ItemResult (Parsed (Tokens) Failed (Tokens))\n\nparse [Tokens [\n  parseItem(@Self) ItemResult [\n    @Done Bool/new(@Self.atEnd)\n    ^(| @Done\n      (True) Failed(@Self)\n      (False) Parsed(@Self.advance)\n    |)\n  ]\n]]\n";
     let items = crate::parser::parse_source(src);
     match items {
         Ok(items) => eprintln!("OK: {} items", items.len()),
@@ -599,7 +599,7 @@ fn debug_no_header_inline_match() {
 
 #[test]
 fn debug_inline_match_simple_return() {
-    let src = "Tokens { Position U32 }\n\ncheck [Tokens [\n  test(@Self) Bool [\n    @Done Bool.new(@Self.Position >= 10)\n    ^(| @Done\n      (True) True\n      (False) False\n    |)\n  ]\n]]\n";
+    let src = "Tokens { Position U32 }\n\ncheck [Tokens [\n  test(@Self) Bool [\n    @Done Bool/new(@Self.Position >= 10)\n    ^(| @Done\n      (True) True\n      (False) False\n    |)\n  ]\n]]\n";
     let items = crate::parser::parse_source(src);
     match items {
         Ok(items) => eprintln!("OK: {} items", items.len()),

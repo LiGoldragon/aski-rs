@@ -92,6 +92,17 @@ pub fn insert_ast(
     Ok(())
 }
 
+/// Insert a single item (public for testing).
+pub fn insert_item_pub(
+    world: &mut World,
+    ids: &mut IdGen,
+    item: &Item,
+    parent: Option<i64>,
+    scope_id: Option<i64>,
+) -> Result<i64, String> {
+    insert_item(world, ids, item, parent, scope_id)
+}
+
 /// Insert AST items with an ID offset to avoid collisions in multi-file compilation.
 /// Returns the number of IDs used.
 pub fn insert_ast_with_offset(
@@ -172,6 +183,25 @@ fn insert_item(
                 let pattern_json = serialize_grammar_pattern(&arm.pattern);
                 let result_json = serialize_grammar_result(&arm.result);
                 world.GrammarArm.push((id, i as i64, pattern_json, result_json));
+            }
+            Ok(id)
+        }
+        Item::ForeignBlock(fb) => {
+            let id = ids.next();
+            insert_node(world, id, "foreign_block", &fb.library, parent, &fb.span, scope_id);
+            for func in &fb.functions {
+                let fid = ids.next();
+                insert_node(world, fid, "foreign_function", &func.name, Some(id), &func.span, scope_id);
+                // Store extern name as a constant expression
+                let ret = type_ref_to_string(&func.return_type);
+                world.Returns.push((fid, ret));
+                // Store params
+                for (i, param) in func.params.iter().enumerate() {
+                    insert_param(world, fid, i, param);
+                }
+                // Store extern name in Expr relation
+                let eid = ids.next();
+                put_expr(world, eid, fid, "extern_name", 0, Some(&func.extern_name));
             }
             Ok(id)
         }
@@ -644,6 +674,12 @@ fn insert_expr(
         Expr::Yield(inner) => {
             put_expr(world, id, parent_id, "yield", ordinal, None);
             insert_expr(world, ids, &inner.node, id, 0)?;
+        }
+        Expr::FnCall(name, args) => {
+            put_expr(world, id, parent_id, "fn_call", ordinal, Some(name));
+            for (i, arg) in args.iter().enumerate() {
+                insert_expr(world, ids, &arg.node, id, i as i64)?;
+            }
         }
     }
 

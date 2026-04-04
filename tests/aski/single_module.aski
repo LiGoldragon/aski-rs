@@ -1,0 +1,17 @@
+Element (Fire Earth Air Water)
+
+describe ([name(:@Self) Element])
+
+describe [Element [
+  name(:@Self) Element (|
+    (Fire)  Fire
+    (Earth) Earth
+    (Air)   Air
+    (Water) Water
+  |)
+]]
+
+Main [
+  @Element Element/new(Fire)
+  StdOut @Element.name
+]

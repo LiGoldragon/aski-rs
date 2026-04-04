@@ -4,8 +4,9 @@ mod tests;
 use crate::ast::*;
 
 /// Parse a full aski source file with optional module header.
+/// Uses the grammar engine — grammar rules from .aski files drive parsing.
 pub fn parse_source_file(source: &str) -> Result<SourceFile, String> {
-    crate::engine::parse_source_file(source)
+    crate::grammar::parse_source_file(source)
 }
 
 /// Convenience: lex + parse in one step (no header).

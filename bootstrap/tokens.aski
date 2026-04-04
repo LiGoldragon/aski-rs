@@ -64,7 +64,7 @@ transform [Tokens [
   advance(@Self) Tokens [ ^@Self.with(Position([@Self.Position + 1])) ]
 
   skipNewlines(@Self) Tokens [
-    @Done Bool.new(@Self.atEnd)
+    @Done Bool/new(@Self.atEnd)
     ^(| @Done
       (True) @Self
       (False) @Self.skipOneNewline
@@ -72,7 +72,7 @@ transform [Tokens [
   ]
 
   skipOneNewline(@Self) Tokens [
-    @IsNl Bool.new(@Self.peekIsNewline)
+    @IsNl Bool/new(@Self.peekIsNewline)
     ^(| @IsNl
       (True)  @Self.advance.skipNewlines
       (False) @Self

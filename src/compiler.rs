@@ -9,7 +9,7 @@
 use crate::ast::SourceFile;
 use crate::codegen::{CodegenConfig, generate_rust_from_db_with_config};
 use crate::ir;
-use crate::engine::{parse_source_file_with_config, config as grammar_config};
+use crate::engine::config as grammar_config;
 
 /// Compile multiple .aski source files into a single Rust output.
 ///
@@ -27,9 +27,9 @@ pub fn compile_files(
 
     let mut all_files: Vec<SourceFile> = Vec::new();
 
-    // Phase 1: Parse all files using data-driven grammar config
+    // Phase 1: Parse all files using grammar engine
     for (filename, source) in sources {
-        let sf = parse_source_file_with_config(source, &grammar)
+        let sf = crate::grammar::parse_source_file_with_config(source, &grammar)
             .map_err(|e| format!("error in {filename}: {e}"))?;
         all_files.push(sf);
     }
@@ -88,6 +88,41 @@ fn expand_grammar_rules(world: &mut ir::World) -> Result<(), String> {
     // should eventually be expanded. For now, stubs remain as todo!().
 
     Ok(())
+}
+
+/// Compile .aski source files and return the populated IR World (no codegen).
+///
+/// Used by kernel codegen mode: parse → insert → derive rules → return World.
+pub fn compile_files_to_world(
+    sources: &[(&str, &str)],
+) -> Result<ir::World, String> {
+    let grammar = grammar_config::load_or_bootstrap();
+
+    let mut all_files: Vec<crate::ast::SourceFile> = Vec::new();
+    for (filename, source) in sources {
+        let sf = crate::grammar::parse_source_file_with_config(source, &grammar)
+            .map_err(|e| format!("error in {filename}: {e}"))?;
+        all_files.push(sf);
+    }
+
+    let mut world = ir::create_world();
+    let mut id_offset: i64 = 0;
+    for sf in &all_files {
+        let mut ids = ir::IdGen { next: id_offset + 1 };
+        let scope_id = if let Some(ref header) = sf.header {
+            Some(ir::insert_module_header(&mut world, &mut ids, header))
+        } else {
+            None
+        };
+        id_offset = ids.next - 1;
+        let count = ir::insert_ast_with_offset(&mut world, &sf.items, id_offset, scope_id)?;
+        id_offset += count;
+    }
+
+    expand_grammar_rules(&mut world)?;
+    ir::run_rules(&mut world);
+
+    Ok(world)
 }
 
 /// Compile multiple .aski source files, reading from the filesystem.

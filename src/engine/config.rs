@@ -387,8 +387,11 @@ fn token_variant_name(token: &Token) -> &'static str {
     }
 }
 
-/// Resolve the grammar directory, searching standard locations.
-/// Order: ASKI_GRAMMAR_DIR env var, then ./grammar/, then CARGO_MANIFEST_DIR/grammar/.
+/// aski-rs's own grammar directory, resolved at compile time.
+const ASKI_RS_GRAMMAR_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/grammar");
+
+/// Resolve the grammar directory, searching multiple locations.
+/// The grammar is always available — aski-rs embeds its own path as a fallback.
 pub fn find_grammar_dir() -> Option<PathBuf> {
     // 1. Env var override
     if let Ok(dir) = std::env::var("ASKI_GRAMMAR_DIR") {
@@ -404,12 +407,18 @@ pub fn find_grammar_dir() -> Option<PathBuf> {
         return Some(cwd);
     }
 
-    // 3. Relative to CARGO_MANIFEST_DIR (for tests and cargo builds)
+    // 3. Relative to CARGO_MANIFEST_DIR of the calling crate
     if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
         let p = PathBuf::from(manifest).join("grammar");
         if p.is_dir() {
             return Some(p);
         }
+    }
+
+    // 4. aski-rs's own grammar directory (always exists)
+    let aski_rs = PathBuf::from(ASKI_RS_GRAMMAR_DIR);
+    if aski_rs.is_dir() {
+        return Some(aski_rs);
     }
 
     None

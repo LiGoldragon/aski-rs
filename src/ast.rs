@@ -33,6 +33,26 @@ pub enum Item {
     TypeAlias(TypeAliasDecl),
     /// Grammar rule: `<Name> [ arms ]` — macro expansion
     GrammarRule(GrammarRule),
+    /// Foreign function block: `{| Library func(...) Type "c_name" |}`
+    ForeignBlock(ForeignBlockDecl),
+}
+
+/// Foreign function block — FFI declarations.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForeignBlockDecl {
+    pub library: String,
+    pub functions: Vec<ForeignFunction>,
+    pub span: Span,
+}
+
+/// A single foreign function declaration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForeignFunction {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: TypeRef,
+    pub extern_name: String,
+    pub span: Span,
 }
 
 /// Domain (enum) declaration.
@@ -277,6 +297,8 @@ pub enum Expr {
     },
     /// Yield: `>expr`
     Yield(Box<Spanned<Expr>>),
+    /// Free function call: `funcName(args)`
+    FnCall(String, Vec<Spanned<Expr>>),
 }
 
 /// Data for an inline match expression: `(| targets (pattern) result ... |)`
