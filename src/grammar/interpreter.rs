@@ -180,7 +180,7 @@ impl GrammarParser {
             }
         }
 
-        // Built-in fallbacks for rules the grammar doesn't fully cover yet
+        // Built-in fallbacks — being eliminated as grammar rules mature
         match name {
             "item" => self.parse_item(tokens, pos),
             "stmts" => self.parse_stmt_list(tokens, pos),
@@ -188,18 +188,7 @@ impl GrammarParser {
             "matchExprArms" | "matchExpr" => self.parse_match_expr_arm_list(tokens, pos),
             "methodSigs" => self.parse_method_sig_list(tokens, pos),
             "typeImpls" => self.parse_type_impl_list(tokens, pos),
-            _ => {
-                let rule = self.rules.get(name)
-                    .ok_or_else(|| format!("unknown grammar rule: <{}>", name))?;
-                let mut last_err = String::new();
-                for arm in &rule.arms {
-                    match self.try_arm(arm, tokens, pos) {
-                        Ok(result) => return Ok(result),
-                        Err(e) => last_err = e,
-                    }
-                }
-                Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err))
-            }
+            _ => Err(format!("unknown grammar rule: <{}>", name)),
         }
     }
 

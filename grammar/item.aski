@@ -69,12 +69,34 @@
 ;; ── Type implementations ──
 
 <typeImpl> {
-  [@Type <body> | @Rest]   TypeImpl(@Type <body>) @Rest
+  [@Type LBracket <implMembers> RBracket | @Rest]   TypeImpl(@Type <implMembers>) @Rest
 }
 
 <typeImpls> {
   [<typeImpl> <typeImpls> | @Rest]   Cons(<typeImpl> <typeImpls>) @Rest
   [| @Rest]                           Nil @Rest
+}
+
+;; ── Impl members: methods, associated types, associated constants ──
+
+<implMember> {
+  ;; !Name Type {value} — associated constant
+  [Bang @Name <typeRef> LBrace <expr> RBrace | @Rest]
+    Const(@Name <typeRef> <expr>) @Rest
+  ;; Name(params) Type body — method with return type
+  [@Name LParen <params> RParen <typeRef> <body> | @Rest]
+    MethodDef(@Name <params> <typeRef> <body>) @Rest
+  ;; Name(params) body — method without return type
+  [@Name LParen <params> RParen <body> | @Rest]
+    MethodDef(@Name <params> <body>) @Rest
+  ;; Name TypeRef — associated type
+  [@Name <typeRef> | @Rest]
+    AssociatedType(@Name <typeRef>) @Rest
+}
+
+<implMembers> {
+  [<implMember> <implMembers> | @Rest]   Cons(<implMember> <implMembers>) @Rest
+  [| @Rest]                               Nil @Rest
 }
 
 ;; ── Body forms ──

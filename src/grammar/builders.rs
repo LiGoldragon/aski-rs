@@ -217,7 +217,13 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
         "Const" => {
             let name = args[0].as_str()?;
             let type_ref = args[1].as_type_ref()?;
-            let body = if args.len() > 2 { Some(args[2].as_body()?) } else { None };
+            let body = if args.len() > 2 {
+                match &args[2] {
+                    Value::Body(_) => Some(args[2].as_body()?),
+                    Value::Expr(e) => Some(Body::Block(vec![e.clone()])),
+                    _ => None,
+                }
+            } else { None };
             Ok(Value::Item(Spanned::new(
                 Item::Const(ConstDecl { name, type_ref, value: body, span: span.clone() }),
                 span,
@@ -645,8 +651,46 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
             Ok(Value::MethodSig(MethodSig { name, params, output, span }))
         }
 
-        // TypeImpl — needs <methodDef> grammar rule (not yet implemented)
-        // Falls through to built-in parser until method definitions are grammar-driven
+        // ── Type implementation ──────────────────────────────
+
+        "TypeImpl" => {
+            let target = args[0].as_str()?;
+            let members = if args.len() > 1 { args[1].clone().into_list()? } else { vec![] };
+            let mut methods = Vec::new();
+            let mut associated_types = Vec::new();
+            let mut associated_constants = Vec::new();
+            for m in members {
+                match m {
+                    Value::MethodDef(d) => methods.push(d),
+                    Value::AssociatedTypeDef(t) => associated_types.push(t),
+                    Value::ConstDecl(c) => associated_constants.push(c),
+                    _ => {}
+                }
+            }
+            Ok(Value::TypeImpl(TypeImpl { target, methods, associated_types, associated_constants, span }))
+        }
+
+        // ── Method definition ────────────────────────────────
+
+        "MethodDef" => {
+            let name = args[0].as_str()?;
+            let params = args[1].clone().into_list()?
+                .into_iter().map(|v| v.as_param()).collect::<Result<Vec<_>, _>>()?;
+            let (output, body) = if args.len() == 4 {
+                (Some(args[2].as_type_ref()?), args[3].as_body()?)
+            } else {
+                (None, args[2].as_body()?)
+            };
+            Ok(Value::MethodDef(MethodDef { name, params, output, body, span }))
+        }
+
+        // ── Associated type ──────────────────────────────────
+
+        "AssociatedType" => {
+            let name = args[0].as_str()?;
+            let concrete_type = args[1].as_type_ref()?;
+            Ok(Value::AssociatedTypeDef(AssociatedTypeDef { name, concrete_type, span }))
+        }
 
         // ── Destructure arm ──────────────────────────────────
 
