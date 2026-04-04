@@ -3,93 +3,93 @@
 ;; Precedence via rule nesting. Left-associativity via FoldLeft:
 ;; parse one operand, then collect (op, operand) pairs, fold left.
 ;;
-;; expr → orExpr → andExpr → eqExpr → cmpExpr → addExpr → mulExpr → postfix → atom
+;; expr → or → and → equality → comparison → additive → multiplicative → postfix → atom
 
 ;; ── Top-level ──
 
 <expr> [
-  [<orExpr> | @Rest]  <orExpr> @Rest
+  [<or> | @Rest]  <or> @Rest
 ]
 
 ;; ── Logical Or ──
 
-<orExpr> [
-  [<andExpr> <orOps> | @Rest]  FoldLeft(<andExpr> <orOps>) @Rest
+<or> [
+  [<and> <orOps> | @Rest]  FoldLeft(<and> <orOps>) @Rest
 ]
 <orOps> [
-  [LogicalOr <andExpr> <orOps> | @Rest]   Cons(Op("||" <andExpr>) <orOps>) @Rest
+  [LogicalOr <and> <orOps> | @Rest]   Cons(Op("||" <and>) <orOps>) @Rest
   [| @Rest]                                 Nil @Rest
 ]
 
 ;; ── Logical And ──
 
-<andExpr> [
-  [<eqExpr> <andOps> | @Rest]  FoldLeft(<eqExpr> <andOps>) @Rest
+<and> [
+  [<equality> <andOps> | @Rest]  FoldLeft(<equality> <andOps>) @Rest
 ]
 <andOps> [
-  [LogicalAnd <eqExpr> <andOps> | @Rest]   Cons(Op("&&" <eqExpr>) <andOps>) @Rest
+  [LogicalAnd <equality> <andOps> | @Rest]   Cons(Op("&&" <equality>) <andOps>) @Rest
   [| @Rest]                                  Nil @Rest
 ]
 
 ;; ── Equality ──
 
-<eqExpr> [
-  [<cmpExpr> <eqOps> | @Rest]  FoldLeft(<cmpExpr> <eqOps>) @Rest
+<equality> [
+  [<comparison> <equalityOps> | @Rest]  FoldLeft(<comparison> <equalityOps>) @Rest
 ]
-<eqOps> [
-  [DoubleEquals <cmpExpr> <eqOps> | @Rest]   Cons(Op("==" <cmpExpr>) <eqOps>) @Rest
-  [NotEqual <cmpExpr> <eqOps> | @Rest]        Cons(Op("!=" <cmpExpr>) <eqOps>) @Rest
+<equalityOps> [
+  [DoubleEquals <comparison> <equalityOps> | @Rest]   Cons(Op("==" <comparison>) <equalityOps>) @Rest
+  [NotEqual <comparison> <equalityOps> | @Rest]        Cons(Op("!=" <comparison>) <equalityOps>) @Rest
   [| @Rest]                                    Nil @Rest
 ]
 
 ;; ── Comparison ──
 
-<cmpExpr> [
-  [<addExpr> <cmpOps> | @Rest]  FoldLeft(<addExpr> <cmpOps>) @Rest
+<comparison> [
+  [<additive> <comparisonOps> | @Rest]  FoldLeft(<additive> <comparisonOps>) @Rest
 ]
-<cmpOps> [
-  [LessThan <addExpr> <cmpOps> | @Rest]              Cons(Op("<" <addExpr>) <cmpOps>) @Rest
-  [GreaterThan <addExpr> <cmpOps> | @Rest]            Cons(Op(">" <addExpr>) <cmpOps>) @Rest
-  [LessThanOrEqual <addExpr> <cmpOps> | @Rest]        Cons(Op("<=" <addExpr>) <cmpOps>) @Rest
-  [GreaterThanOrEqual <addExpr> <cmpOps> | @Rest]     Cons(Op(">=" <addExpr>) <cmpOps>) @Rest
+<comparisonOps> [
+  [LessThan <additive> <comparisonOps> | @Rest]              Cons(Op("<" <additive>) <comparisonOps>) @Rest
+  [GreaterThan <additive> <comparisonOps> | @Rest]            Cons(Op(">" <additive>) <comparisonOps>) @Rest
+  [LessThanOrEqual <additive> <comparisonOps> | @Rest]        Cons(Op("<=" <additive>) <comparisonOps>) @Rest
+  [GreaterThanOrEqual <additive> <comparisonOps> | @Rest]     Cons(Op(">=" <additive>) <comparisonOps>) @Rest
   [| @Rest]                                            Nil @Rest
 ]
 
 ;; ── Additive ──
 
-<addExpr> [
-  [<mulExpr> <addOps> | @Rest]  FoldLeft(<mulExpr> <addOps>) @Rest
+<additive> [
+  [<multiplicative> <additiveOps> | @Rest]  FoldLeft(<multiplicative> <additiveOps>) @Rest
 ]
-<addOps> [
-  [Plus <mulExpr> <addOps> | @Rest]    Cons(Op("+" <mulExpr>) <addOps>) @Rest
-  [Minus <mulExpr> <addOps> | @Rest]   Cons(Op("-" <mulExpr>) <addOps>) @Rest
+<additiveOps> [
+  [Plus <multiplicative> <additiveOps> | @Rest]    Cons(Op("+" <multiplicative>) <additiveOps>) @Rest
+  [Minus <multiplicative> <additiveOps> | @Rest]   Cons(Op("-" <multiplicative>) <additiveOps>) @Rest
   [| @Rest]                             Nil @Rest
 ]
 
 ;; ── Multiplicative ──
 
-<mulExpr> [
-  [<postfix> <mulOps> | @Rest]  FoldLeft(<postfix> <mulOps>) @Rest
+<multiplicative> [
+  [<postfix> <multiplicativeOps> | @Rest]  FoldLeft(<postfix> <multiplicativeOps>) @Rest
 ]
-<mulOps> [
-  [Star <postfix> <mulOps> | @Rest]      Cons(Op("*" <postfix>) <mulOps>) @Rest
-  [Slash <postfix> <mulOps> | @Rest]     Cons(Op("/" <postfix>) <mulOps>) @Rest
-  [Percent <postfix> <mulOps> | @Rest]   Cons(Op("%" <postfix>) <mulOps>) @Rest
+<multiplicativeOps> [
+  [Star <postfix> <multiplicativeOps> | @Rest]      Cons(Op("*" <postfix>) <multiplicativeOps>) @Rest
+  [Slash <postfix> <multiplicativeOps> | @Rest]     Cons(Op("/" <postfix>) <multiplicativeOps>) @Rest
+  [Percent <postfix> <multiplicativeOps> | @Rest]   Cons(Op("%" <postfix>) <multiplicativeOps>) @Rest
   [| @Rest]                               Nil @Rest
 ]
 
 ;; ── Postfix: dot chains, error prop, ranges ──
 
 <postfix> [
-  [<atom> <postOps> | @Rest]  FoldPost(<atom> <postOps>) @Rest
+  [<atom> <postfixOps> | @Rest]  FoldPost(<atom> <postfixOps>) @Rest
 ]
-<postOps> [
-  [Dot @Name LParen <callArgs> RParen <postOps> | @Rest]
-    Cons(MethodOp(@Name <callArgs>) <postOps>) @Rest
-  [Dot @Name <postOps> | @Rest]
-    Cons(AccessOp(@Name) <postOps>) @Rest
-  [Question <postOps> | @Rest]
-    Cons(ErrorPropOp <postOps>) @Rest
+<postfixOps> [
+  [Dot @Name LParen <callArgs> RParen <postfixOps> | @Rest]
+    Cons(MethodOp(@Name <callArgs>) <postfixOps>) @Rest
+  [Dot @Name <postfixOps> | @Rest]
+    Cons(AccessOp(@Name) <postfixOps>) @Rest
+  [Question <postfixOps> | @Rest]
+    Cons(ErrorPropOp <postfixOps>) @Rest
   [RangeExclusive <atom> | @Rest]
     Cons(RangeExclOp(<atom>) Nil) @Rest
   [RangeInclusive <atom> | @Rest]
