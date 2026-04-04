@@ -651,7 +651,7 @@ fn parse_trait_bound_compound() {
 
 #[test]
 fn parse_grammar_rule_simple() {
-    let src = "<Truncate> [\n  [@Value] @Value.truncate\n]";
+    let src = "<Truncate> {\n  [@Value] @Value.truncate\n}";
     let items = parse_source(src).unwrap();
     assert_eq!(items.len(), 1);
     match &items[0].node {
@@ -667,7 +667,7 @@ fn parse_grammar_rule_simple() {
 
 #[test]
 fn parse_grammar_rule_with_terminal() {
-    let src = "<SignFromDegree> [\n  [Degree @Value] @Value.truncate\n]";
+    let src = "<SignFromDegree> {\n  [Degree @Value] @Value.truncate\n}";
     let items = parse_source(src).unwrap();
     assert_eq!(items.len(), 1);
     match &items[0].node {
@@ -684,7 +684,7 @@ fn parse_grammar_rule_with_terminal() {
 
 #[test]
 fn parse_grammar_rule_with_nonterminal() {
-    let src = "<Apply> [\n  [<Expr> @Target] @Target\n]";
+    let src = "<Apply> {\n  [<Expr> @Target] @Target\n}";
     let items = parse_source(src).unwrap();
     match &items[0].node {
         Item::GrammarRule(gr) => {
@@ -699,7 +699,7 @@ fn parse_grammar_rule_with_nonterminal() {
 
 #[test]
 fn parse_grammar_rule_with_rest() {
-    let src = "<Sequence> [\n  [@Head | @Rest] @Head\n]";
+    let src = "<Sequence> {\n  [@Head | @Rest] @Head\n}";
     let items = parse_source(src).unwrap();
     match &items[0].node {
         Item::GrammarRule(gr) => {
@@ -714,7 +714,7 @@ fn parse_grammar_rule_with_rest() {
 
 #[test]
 fn parse_grammar_rule_multiple_arms() {
-    let src = "<Convert> [\n  [Truncate @Value] @Value.truncate\n  [ToFloat @Value] @Value.toF32\n]";
+    let src = "<Convert> {\n  [Truncate @Value] @Value.truncate\n  [ToFloat @Value] @Value.toF32\n}";
     let items = parse_source(src).unwrap();
     match &items[0].node {
         Item::GrammarRule(gr) => {
@@ -729,7 +729,7 @@ fn parse_grammar_rule_multiple_arms() {
 
 #[test]
 fn parse_grammar_rule_coexists_with_domain() {
-    let src = "Element (Fire Earth Air Water)\n\n<Truncate> [\n  [@Value] @Value.truncate\n]";
+    let src = "Element (Fire Earth Air Water)\n\n<Truncate> {\n  [@Value] @Value.truncate\n}";
     let items = parse_source(src).unwrap();
     assert_eq!(items.len(), 2);
     assert!(matches!(&items[0].node, Item::Domain(_)));

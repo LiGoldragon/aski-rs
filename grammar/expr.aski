@@ -7,83 +7,83 @@
 
 ;; ── Top-level ──
 
-<expr> [
+<expr> {
   [<or> | @Rest]  <or> @Rest
-]
+}
 
 ;; ── Logical Or ──
 
-<or> [
+<or> {
   [<and> <orOps> | @Rest]  FoldLeft(<and> <orOps>) @Rest
-]
-<orOps> [
+}
+<orOps> {
   [LogicalOr <and> <orOps> | @Rest]   Cons(Op("||" <and>) <orOps>) @Rest
   [| @Rest]                                 Nil @Rest
-]
+}
 
 ;; ── Logical And ──
 
-<and> [
+<and> {
   [<equality> <andOps> | @Rest]  FoldLeft(<equality> <andOps>) @Rest
-]
-<andOps> [
+}
+<andOps> {
   [LogicalAnd <equality> <andOps> | @Rest]   Cons(Op("&&" <equality>) <andOps>) @Rest
   [| @Rest]                                  Nil @Rest
-]
+}
 
 ;; ── Equality ──
 
-<equality> [
+<equality> {
   [<comparison> <equalityOps> | @Rest]  FoldLeft(<comparison> <equalityOps>) @Rest
-]
-<equalityOps> [
+}
+<equalityOps> {
   [DoubleEquals <comparison> <equalityOps> | @Rest]   Cons(Op("==" <comparison>) <equalityOps>) @Rest
   [NotEqual <comparison> <equalityOps> | @Rest]        Cons(Op("!=" <comparison>) <equalityOps>) @Rest
   [| @Rest]                                    Nil @Rest
-]
+}
 
 ;; ── Comparison ──
 
-<comparison> [
+<comparison> {
   [<additive> <comparisonOps> | @Rest]  FoldLeft(<additive> <comparisonOps>) @Rest
-]
-<comparisonOps> [
+}
+<comparisonOps> {
   [LessThan <additive> <comparisonOps> | @Rest]              Cons(Op("<" <additive>) <comparisonOps>) @Rest
   [GreaterThan <additive> <comparisonOps> | @Rest]            Cons(Op(">" <additive>) <comparisonOps>) @Rest
   [LessThanOrEqual <additive> <comparisonOps> | @Rest]        Cons(Op("<=" <additive>) <comparisonOps>) @Rest
   [GreaterThanOrEqual <additive> <comparisonOps> | @Rest]     Cons(Op(">=" <additive>) <comparisonOps>) @Rest
   [| @Rest]                                            Nil @Rest
-]
+}
 
 ;; ── Additive ──
 
-<additive> [
+<additive> {
   [<multiplicative> <additiveOps> | @Rest]  FoldLeft(<multiplicative> <additiveOps>) @Rest
-]
-<additiveOps> [
+}
+<additiveOps> {
   [Plus <multiplicative> <additiveOps> | @Rest]    Cons(Op("+" <multiplicative>) <additiveOps>) @Rest
   [Minus <multiplicative> <additiveOps> | @Rest]   Cons(Op("-" <multiplicative>) <additiveOps>) @Rest
   [| @Rest]                             Nil @Rest
-]
+}
 
 ;; ── Multiplicative ──
 
-<multiplicative> [
+<multiplicative> {
   [<postfix> <multiplicativeOps> | @Rest]  FoldLeft(<postfix> <multiplicativeOps>) @Rest
-]
-<multiplicativeOps> [
+}
+<multiplicativeOps> {
   [Star <postfix> <multiplicativeOps> | @Rest]      Cons(Op("*" <postfix>) <multiplicativeOps>) @Rest
   [Slash <postfix> <multiplicativeOps> | @Rest]     Cons(Op("/" <postfix>) <multiplicativeOps>) @Rest
   [Percent <postfix> <multiplicativeOps> | @Rest]   Cons(Op("%" <postfix>) <multiplicativeOps>) @Rest
   [| @Rest]                               Nil @Rest
-]
+}
 
 ;; ── Postfix: dot chains, error prop, ranges ──
 
-<postfix> [
+<postfix> {
   [<atom> <postfixOps> | @Rest]  FoldPost(<atom> <postfixOps>) @Rest
-]
-<postfixOps> [
+}
+<postfixOps> {
   [Dot @Name LParen <callArgs> RParen <postfixOps> | @Rest]
     Cons(MethodOp(@Name <callArgs>) <postfixOps>) @Rest
   [Dot @Name <postfixOps> | @Rest]
@@ -96,18 +96,18 @@
     Cons(RangeInclOp(<atom>) Nil) @Rest
   [| @Rest]
     Nil @Rest
-]
+}
 
 ;; ── Call arguments ──
 
-<callArgs> [
+<callArgs> {
   [<expr> <callArgs> | @Rest]   Cons(<expr> <callArgs>) @Rest
   [| @Rest]                     Nil @Rest
-]
+}
 
 ;; ── Atoms ──
 
-<atom> [
+<atom> {
   [Stub | @Rest]                                     ExprStub @Rest
   [Bang @Name | @Rest]                               ConstRef(@Name) @Rest
   [Caret <expr> | @Rest]                             Return(<expr>) @Rest
@@ -129,15 +129,15 @@
   [@Name LParen <structFields> RParen | @Rest]       StructConstruct(@Name <structFields>) @Rest
   [@Name | @Rest]                                    BareName(@Name) @Rest
   [@Lit | @Rest]                                     Literal(@Lit) @Rest
-]
+}
 
 ;; ── Struct field arguments in construction ──
 
-<structFields> [
+<structFields> {
   [@Name LParen <expr> RParen <structFields> | @Rest]
     Cons(StructField(@Name <expr>) <structFields>) @Rest
   [<expr> <structFields> | @Rest]
     Cons(<expr> <structFields>) @Rest
   [| @Rest]
     Nil @Rest
-]
+}

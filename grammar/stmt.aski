@@ -3,7 +3,7 @@
 ;; Statements are expressions with optional binding/allocation prefixes.
 ;; Order matters: more specific patterns first (PEG ordered choice).
 
-<stmt> [
+<stmt> {
   ;; ~@Name Type/new(args) — mutable allocation
   [Tilde At @Name <typeRef> Slash "new" LParen <callArgs> RParen | @Rest]
     MutableNew(@Name <typeRef> <callArgs>) @Rest
@@ -31,21 +31,21 @@
   ;; Fallthrough: any expression
   [<expr> | @Rest]
     ExprStmt(<expr>) @Rest
-]
+}
 
 ;; ── Statement list (newline-separated) ──
 
-<stmts> [
+<stmts> {
   [<stmt> <stmts> | @Rest]   Cons(<stmt> <stmts>) @Rest
   [| @Rest]                   Nil @Rest
-]
+}
 
 ;; ── Set chain: Field.set(expr) or Field1.Field2.set(expr) ──
 
-<setChain> [
+<setChain> {
   [@Name Dot <setChain> | @Rest]                          Chain(@Name <setChain>) @Rest
   ["set" LParen <expr> RParen | @Rest]                     Set(<expr>) @Rest
   ["extend" LParen <expr> RParen | @Rest]                  Extend(<expr>) @Rest
   [@Name LParen <callArgs> RParen | @Rest]                 MethodCall(@Name <callArgs>) @Rest
   [@Name | @Rest]                                          MethodCall(@Name) @Rest
-]
+}

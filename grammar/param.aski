@@ -3,7 +3,7 @@
 ;; Seven parameter variants, ordered most-specific first.
 ;; PEG ordered choice: first match wins.
 
-<param> [
+<param> {
   [Colon At "Self" | @Rest]            BorrowSelf @Rest
   [Tilde At "Self" | @Rest]            MutBorrowSelf @Rest
   [Colon At @Name | @Rest]             Borrow(@Name) @Rest
@@ -11,9 +11,9 @@
   [At "Self" | @Rest]                  OwnedSelf @Rest
   [At @Name <typeRef> | @Rest]         Named(@Name <typeRef>) @Rest
   [At @Name | @Rest]                   Owned(@Name) @Rest
-]
+}
 
-<params> [
+<params> {
   [<param> <params> | @Rest]   Cons(<param> <params>) @Rest
   [| @Rest]                    Nil @Rest
-]
+}

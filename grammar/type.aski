@@ -2,20 +2,20 @@
 ;;
 ;; Type references: Self, Named, Parameterized, Borrowed, Bound.
 
-<typeRef> [
+<typeRef> {
   ["Self" | @Rest]                                            SelfType @Rest
   [TraitBoundOpen <traitBound> TraitBoundClose | @Rest]       BoundType(<traitBound>) @Rest
   [Colon @Name | @Rest]                                       BorrowedType(NamedType(@Name)) @Rest
   [@Name LBrace <typeParams> RBrace | @Rest]                  ParameterizedType(@Name <typeParams>) @Rest
   [@Name | @Rest]                                             NamedType(@Name) @Rest
-]
+}
 
-<traitBound> [
+<traitBound> {
   [@Name Ampersand <traitBound> | @Rest]   CompoundBound(@Name <traitBound>) @Rest
   [@Name | @Rest]                           SingleBound(@Name) @Rest
-]
+}
 
-<typeParams> [
+<typeParams> {
   [<typeRef> <typeParams> | @Rest]   Cons(<typeRef> <typeParams>) @Rest
   [| @Rest]                          Nil @Rest
-]
+}

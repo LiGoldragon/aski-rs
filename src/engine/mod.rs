@@ -434,7 +434,7 @@ mod tests {
 
     #[test]
     fn ge_parse_grammar_rule() {
-        let src = "<Truncate> [\n  [@Value] @Value.truncate\n]";
+        let src = "<Truncate> {\n  [@Value] @Value.truncate\n}";
         let items = parse_source(src).unwrap();
         assert!(matches!(&items[0].node, Item::GrammarRule(gr) if gr.name == "Truncate"));
     }

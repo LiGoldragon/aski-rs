@@ -9,12 +9,12 @@
 ;;     calculate(@JulDay F64 @Planet I32 @Flag I64) F64 swe_calc_ut
 ;;   |}
 
-<ffiFunction> [
+<ffiFunction> {
   [@Name LParen <params> RParen <typeRef> @ExternName | @Rest]
     ForeignFunc(@Name <params> <typeRef> @ExternName) @Rest
-]
+}
 
-<ffiFunctions> [
+<ffiFunctions> {
   [<ffiFunction> <ffiFunctions> | @Rest]  Cons(<ffiFunction> <ffiFunctions>) @Rest
   [| @Rest]                                Nil @Rest
-]
+}

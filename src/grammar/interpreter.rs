@@ -292,7 +292,7 @@ impl GrammarParser {
                 let span = start..tokens[new_pos.saturating_sub(1)].span.end;
                 Ok((Value::Item(Spanned::new(Item::Const(cst), span)), new_pos))
             }
-            // <Name> [...] — grammar rule
+            // <Name> {...} — grammar rule
             Token::LessThan => {
                 let (rule, new_pos) = self.parse_grammar_rule_item(tokens, cur)?;
                 let span = start..tokens[new_pos.saturating_sub(1)].span.end;
@@ -519,15 +519,15 @@ impl GrammarParser {
         expect_token(tokens, cur, &Token::GreaterThan)?;
         cur += 1;
 
-        // [arms]
+        // {arms}
         cur = skip_newlines(tokens, cur);
-        expect_token(tokens, cur, &Token::LBracket)?;
+        expect_token(tokens, cur, &Token::LBrace)?;
         cur += 1;
 
         let mut arms = Vec::new();
         loop {
             cur = skip_newlines(tokens, cur);
-            if cur >= tokens.len() || tokens[cur].token == Token::RBracket { break; }
+            if cur >= tokens.len() || tokens[cur].token == Token::RBrace { break; }
             // Each arm: [pattern | @Rest] result @Rest
             if tokens[cur].token != Token::LBracket { break; }
             let arm_start = tokens[cur].span.start;
@@ -576,11 +576,11 @@ impl GrammarParser {
             expect_token(tokens, cur, &Token::RBracket)?;
             cur += 1;
 
-            // Result: collect expressions until next [ or ]
+            // Result: collect expressions until next [ or }
             let mut result = Vec::new();
-            while cur < tokens.len() && tokens[cur].token != Token::LBracket && tokens[cur].token != Token::RBracket {
+            while cur < tokens.len() && tokens[cur].token != Token::LBracket && tokens[cur].token != Token::RBrace {
                 cur = skip_newlines(tokens, cur);
-                if cur >= tokens.len() || tokens[cur].token == Token::LBracket || tokens[cur].token == Token::RBracket { break; }
+                if cur >= tokens.len() || tokens[cur].token == Token::LBracket || tokens[cur].token == Token::RBrace { break; }
                 let (expr, new_pos) = self.parse_expression(tokens, cur)?;
                 result.push(expr.as_expr()?);
                 cur = new_pos;
@@ -590,7 +590,7 @@ impl GrammarParser {
             arms.push(GrammarArm { pattern, result, span: arm_span });
         }
 
-        expect_token(tokens, cur, &Token::RBracket)?;
+        expect_token(tokens, cur, &Token::RBrace)?;
         cur += 1;
 
         let span = start..tokens[cur.saturating_sub(1)].span.end;

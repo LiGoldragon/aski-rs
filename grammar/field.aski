@@ -1,11 +1,11 @@
 ;; grammar/field.aski — struct field forms
 
-<field> [
+<field> {
   [@Name Colon <typeRef> | @Rest]   BorrowedField(@Name <typeRef>) @Rest
   [@Name <typeRef> | @Rest]         Field(@Name <typeRef>) @Rest
-]
+}
 
-<fields> [
+<fields> {
   [<field> <fields> | @Rest]   Cons(<field> <fields>) @Rest
   [| @Rest]                    Nil @Rest
-]
+}

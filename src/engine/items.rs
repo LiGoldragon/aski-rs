@@ -476,11 +476,11 @@ pub(crate) fn parse_grammar_rule(st: &mut ParseState) -> Result<Item, String> {
     let (name, _) = st.eat_pascal().ok_or("expected rule name")?;
     st.expect(&Token::GreaterThan)?;
     st.skip_newlines();
-    st.expect(&Token::LBracket)?;
+    st.expect(&Token::LBrace)?;
     let mut arms = Vec::new();
     loop {
         st.skip_newlines();
-        if st.peek() == Some(&Token::RBracket) {
+        if st.peek() == Some(&Token::RBrace) {
             st.advance();
             break;
         }

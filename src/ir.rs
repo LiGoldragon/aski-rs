@@ -1043,7 +1043,7 @@ mod tests {
 
     #[test]
     fn ir_grammar_rule_stored() {
-        let world = setup_world("<Truncate> [\n  [@Value] @Value.truncate\n]");
+        let world = setup_world("<Truncate> {\n  [@Value] @Value.truncate\n}");
         // Check that grammar_rule node exists
         let grammar_nodes = query_nodes_by_kind(&world, "grammar_rule_node").unwrap();
         assert_eq!(grammar_nodes.len(), 1);
@@ -1058,7 +1058,7 @@ mod tests {
 
     #[test]
     fn ir_grammar_rule_multi_arm() {
-        let world = setup_world("<Convert> [\n  [Truncate @Value] @Value.truncate\n  [ToFloat @Value] @Value.toF32\n]");
+        let world = setup_world("<Convert> {\n  [Truncate @Value] @Value.truncate\n  [ToFloat @Value] @Value.toF32\n}");
         assert_eq!(world.grammar_rules.len(), 1);
         assert_eq!(world.grammar_arms.len(), 2);
     }

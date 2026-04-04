@@ -2303,7 +2303,7 @@ mod tests {
     #[test]
     fn codegen_grammar_rule_skipped() {
         // Grammar rules should not produce any Rust output — they are macros
-        let db = setup("<Truncate> [\n  [@Value] @Value.truncate\n]");
+        let db = setup("<Truncate> {\n  [@Value] @Value.truncate\n}");
         let config = CodegenConfig { rkyv: false };
         let code = generate_rust_from_db_with_config(&db, &config).unwrap();
         assert!(code.is_empty() || !code.contains("Truncate"), "grammar rule should not appear in generated code: {code}");

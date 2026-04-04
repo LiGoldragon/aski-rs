@@ -1,7 +1,7 @@
 //! Bootstrap parser — reads grammar/*.aski rule files into a RuleTable.
 //!
 //! This is the ONLY Rust code that knows grammar file syntax.
-//! It parses the minimal subset: <name> [ [pattern | @Rest] Result @Rest ]
+//! It parses the minimal subset: <name> { [pattern | @Rest] (Result @Rest) }
 //! Everything else is defined BY the grammar rules it loads.
 
 use std::path::Path;
@@ -78,7 +78,7 @@ pub fn parse_rules_from_source(source: &str, known: &HashSet<&str>) -> Result<Ve
     Ok(rules)
 }
 
-/// Parse a single grammar rule: <name> [ arms ]
+/// Parse a single grammar rule: <name> { arms }
 fn parse_one_rule(tokens: &[&Token], pos: usize, known: &HashSet<&str>) -> Result<(ParseRule, usize), String> {
     let mut cur = pos;
 
@@ -91,18 +91,18 @@ fn parse_one_rule(tokens: &[&Token], pos: usize, known: &HashSet<&str>) -> Resul
     // >
     expect_tok(tokens, &mut cur, &Token::GreaterThan, ">")?;
 
-    // [
-    expect_tok(tokens, &mut cur, &Token::LBracket, "[")?;
+    // {
+    expect_tok(tokens, &mut cur, &Token::LBrace, "{")?;
 
-    // Arms until ]
+    // Arms until }
     let mut arms = Vec::new();
-    while cur < tokens.len() && tokens[cur] != &Token::RBracket {
+    while cur < tokens.len() && tokens[cur] != &Token::RBrace {
         let arm = parse_arm(tokens, &mut cur, known)?;
         arms.push(arm);
     }
 
-    // ]
-    expect_tok(tokens, &mut cur, &Token::RBracket, "]")?;
+    // }
+    expect_tok(tokens, &mut cur, &Token::RBrace, "}")?;
 
     Ok((ParseRule { name, arms }, cur))
 }
@@ -165,7 +165,7 @@ fn parse_arm(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>) -> Resul
     // ]
     expect_tok(tokens, cur, &Token::RBracket, "]")?;
 
-    // Result: constructor with optional args, until next [ or ]
+    // Result: constructor with optional args, until next [ or }
     let result = parse_result_spec(tokens, cur, known)?;
 
     // Skip trailing @Rest on result side
@@ -361,10 +361,10 @@ mod tests {
     #[test]
     fn bootstrap_parse_simple_rule() {
         let source = r#"
-            <param> [
+            <param> {
                 [Colon At "Self" | @Rest]  BorrowSelf @Rest
                 [At @Name | @Rest]         Owned(@Name) @Rest
-            ]
+            }
         "#;
         let known = known_tokens();
         let rules = parse_rules_from_source(source, &known).unwrap();
@@ -394,9 +394,9 @@ mod tests {
     #[test]
     fn bootstrap_parse_nonterminal_in_pattern() {
         let source = r#"
-            <param> [
+            <param> {
                 [At @Name <typeRef> | @Rest]  Named(@Name <typeRef>) @Rest
-            ]
+            }
         "#;
         let known = known_tokens();
         let rules = parse_rules_from_source(source, &known).unwrap();
@@ -410,10 +410,10 @@ mod tests {
     #[test]
     fn bootstrap_parse_epsilon_arm() {
         let source = r#"
-            <variants> [
+            <variants> {
                 [<variant> <variants> | @Rest]  Cons(<variant> <variants>) @Rest
                 [| @Rest]                       Nil @Rest
-            ]
+            }
         "#;
         let known = known_tokens();
         let rules = parse_rules_from_source(source, &known).unwrap();
