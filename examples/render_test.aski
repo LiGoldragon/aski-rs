@@ -1,4 +1,4 @@
-;; render_test.aski — types for testing rkyv serialization + CozoDB rendering
+;; render_test.aski — types for testing rkyv serialization + Rust codegen
 ;; Exercises: domains, structs, nested structs, multiple domains
 
 Element (Fire Earth Air Water)

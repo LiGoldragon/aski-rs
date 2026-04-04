@@ -17,7 +17,7 @@ Emits Rust code. Deliberately simple — gets thinner as aski-cc takes over.
 ## Architecture
 
 ```
-Kernel Aski → Lexer (logos) → Parser (chumsky) → CozoDB → Codegen → Rust
+Kernel Aski → Lexer (logos) → Parser (chumsky) → AST → IR → Codegen → Rust
 ```
 
 ## v0.9 Language Features

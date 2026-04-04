@@ -1,6 +1,6 @@
 //! Rust code generation from aski v0.9.
 //!
-//! Primary path: source -> parse -> AST -> insert into CozoDB -> query CozoDB -> generate Rust
+//! Primary path: source -> parse -> AST -> IR -> codegen -> Rust
 //! No free functions — all behavior is methods on types.
 //! Trait names are camelCase in aski, PascalCase in Rust — codegen converts.
 //!
@@ -64,7 +64,7 @@ impl CodegenConfig {
     }
 }
 
-/// Generate complete, compilable Rust source by querying CozoDB.
+/// Generate complete, compilable Rust source from the IR.
 pub fn generate_rust_from_db(db: &World) -> Result<String, String> {
     generate_rust_from_db_with_config(db, &CodegenConfig::default())
 }

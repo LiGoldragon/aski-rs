@@ -1,5 +1,5 @@
 ;; parser.aski — aski parser written in aski (bootstrap target)
-;; Compiles through: aski → Rust parser → CozoDB → codegen → rustc
+;; Compiles through: aski → parse → AST → IR → codegen → Rust
 ;;
 ;; The lexer stays in Rust (logos). This parser consumes Vec{Token}.
 ;; Each parse method returns Option{ParseOk{T}} — None = backtrack.
