@@ -629,7 +629,7 @@ fn insert_expr(
         }
         Expr::BinOp(left, op, right) => {
             let op_str = binop_to_string(op);
-            put_expr(world, id, parent_id, "binop", ordinal, Some(op_str));
+            put_expr(world, id, parent_id, "bin_op", ordinal, Some(op_str));
             insert_expr(world, ids, &left.node, id, 0)?;
             insert_expr(world, ids, &right.node, id, 1)?;
         }
@@ -718,7 +718,7 @@ fn insert_expr(
             }
         }
         Expr::StdOut(inner) => {
-            put_expr(world, id, parent_id, "stdout", ordinal, None);
+            put_expr(world, id, parent_id, "std_out", ordinal, None);
             insert_expr(world, ids, &inner.node, id, 0)?;
         }
         Expr::Stub => {

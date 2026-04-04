@@ -1461,7 +1461,7 @@ fn gen_statement_from_db(
                 }
             }
         }
-        "stdout" => {
+        "std_out" => {
             let children = ir::query_child_exprs(db, expr_id)?;
             if let Some((child_id, child_kind, _ord, child_val)) = children.first() {
                 if child_kind == "string_lit" {
@@ -1527,7 +1527,7 @@ fn emit_expr_from_db(
                 Ok("()".to_string())
             }
         }
-        "binop" => {
+        "bin_op" => {
             let op = value.unwrap_or_default();
             let children = ir::query_child_exprs(db, expr_id)?;
             if children.len() >= 2 {
@@ -1563,7 +1563,7 @@ fn emit_expr_from_db(
             if let Some((child_id, child_kind, _, _)) = children.first() {
                 let base = emit_expr_from_db(db, *child_id, ctx)?;
                 // Wrap inline_eval and binop bases in parens for method calls
-                let base = if (child_kind == "inline_eval" || child_kind == "binop") && !base.starts_with('(') {
+                let base = if (child_kind == "inline_eval" || child_kind == "bin_op") && !base.starts_with('(') {
                     format!("({base})")
                 } else {
                     base
@@ -1679,7 +1679,7 @@ fn emit_expr_from_db(
             }
             let base = emit_expr_from_db(db, children[0].0, ctx)?;
             // Wrap inline_eval and binop bases in parens
-            let base = if (children[0].1 == "inline_eval" || children[0].1 == "binop") && !base.starts_with('(') {
+            let base = if (children[0].1 == "inline_eval" || children[0].1 == "bin_op") && !base.starts_with('(') {
                 format!("({base})")
             } else {
                 base

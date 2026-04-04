@@ -294,7 +294,7 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
                     }
                 }
             }
-            "stdout" => {
+            "std_out" => {
                 let children = ir::query_child_exprs(world, *eid)?;
                 if let Some((cid, _, _, _)) = children.first() {
                     let val = emit_expr(world, *cid)?;
@@ -333,7 +333,7 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
         "instance_ref" => Ok(snake(&value.unwrap_or_default())),
         "bare_name" => Ok(qualify(world, &value.unwrap_or_default())),
 
-        "binop" => {
+        "bin_op" => {
             let children = ir::query_child_exprs(world, expr_id)?;
             let op = value.unwrap_or("+".into());
             if children.len() >= 2 {

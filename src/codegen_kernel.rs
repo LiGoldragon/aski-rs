@@ -146,274 +146,545 @@ pub fn generate_kernel(world: &ir::World) -> Result<String, String> {
         }
     }
 
-    // ── derive() — fixed-point derivation rules ──
-    out.push_str("    /// Run all derivation rules to fixed point.\n");
-    out.push_str("    pub fn derive(&mut self) {\n");
-    out.push_str("        self.derive_variant_of();\n");
-    out.push_str("        self.derive_binding_info();\n");
-    out.push_str("        self.derive_type_kind();\n");
-    out.push_str("        self.derive_method_on_type();\n");
-    out.push_str("        self.derive_contained_type();\n");
-    out.push_str("        // Recursive: run until stable\n");
-    out.push_str("        self.derive_qualified_names_fixpoint();\n");
-    out.push_str("        self.derive_can_see_fixpoint();\n");
-    out.push_str("        self.derive_recursive_type_fixpoint();\n");
-    out.push_str("    }\n\n");
-
-    // ── Non-recursive derivation rules ──
-    generate_derive_variant_of(&mut out);
-    generate_derive_binding_info(&mut out);
-    generate_derive_type_kind(&mut out);
-    generate_derive_method_on_type(&mut out);
-    generate_derive_contained_type(&mut out);
-
-    // ── Recursive (fixed-point) derivation rules ──
-    generate_derive_qualified_names(&mut out);
-    generate_derive_can_see(&mut out);
-    generate_derive_recursive_type(&mut out);
+    // ── derive() and all derivation rules — generated from AST ──
+    generate_derive_from_ast(&mut out, world)?;
 
     out.push_str("}\n"); // close impl World
 
     Ok(out)
 }
 
+// ════════════════════════════════════════���══════════════════════
+// AST-driven derive codegen
 // ═══════════════════════════════════════════════════════════════
-// Derivation rule generators
-// ═══════════════════════════════════════════════════════════════
 
-fn generate_derive_variant_of(out: &mut String) {
-    out.push_str("    fn derive_variant_of(&mut self) {\n");
-    out.push_str("        let mut results = Vec::new();\n");
-    out.push_str("        for node in &self.nodes {\n");
-    out.push_str("            if node.kind == NodeKind::Domain {\n");
-    out.push_str("                for var in &self.variants {\n");
-    out.push_str("                    if var.domain_id == node.id {\n");
-    out.push_str("                        results.push(VariantOf {\n");
-    out.push_str("                            variant_name: var.name.clone(),\n");
-    out.push_str("                            domain_name: node.name.clone(),\n");
-    out.push_str("                            domain_node_id: node.id,\n");
-    out.push_str("                        });\n");
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        self.variant_ofs = results;\n");
-    out.push_str("    }\n\n");
+use aski_core::{ExprKind, NodeKind};
+
+/// A loop variable binding: var name + element type name
+struct Binding {
+    var_name: String,
+    type_name: String,
 }
 
-fn generate_derive_binding_info(out: &mut String) {
-    out.push_str("    fn derive_binding_info(&mut self) {\n");
-    out.push_str("        let mut results = Vec::new();\n");
-    out.push_str("        for expr in &self.exprs {\n");
-    out.push_str("            if expr.kind == ExprKind::SubTypeNew {\n");
-    out.push_str("                if expr.value.contains(':') {\n");
-    out.push_str("                    if let Some(colon) = expr.value.find(':') {\n");
-    out.push_str("                        results.push(BindingInfo {\n");
-    out.push_str("                            expr_id: expr.id,\n");
-    out.push_str("                            var_name: expr.value[..colon].to_string(),\n");
-    out.push_str("                            type_name: expr.value[colon+1..].to_string(),\n");
-    out.push_str("                        });\n");
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            } else if expr.kind == ExprKind::SameTypeNew {\n");
-    out.push_str("                if !expr.value.contains(':') {\n");
-    out.push_str("                    results.push(BindingInfo {\n");
-    out.push_str("                        expr_id: expr.id,\n");
-    out.push_str("                        var_name: expr.value.clone(),\n");
-    out.push_str("                        type_name: expr.value.clone(),\n");
-    out.push_str("                    });\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        self.binding_infos = results;\n");
-    out.push_str("    }\n\n");
+/// Decomposed pipeline node
+enum PipelineNode {
+    Map { source: SourceChain, constructor_id: i64 },
+    FlatMap { source: SourceChain, inner: Box<PipelineNode> },
+    Chain { left: Box<PipelineNode>, right: Box<PipelineNode> },
 }
 
-fn generate_derive_type_kind(out: &mut String) {
-    out.push_str("    fn derive_type_kind(&mut self) {\n");
-    out.push_str("        let mut results = Vec::new();\n");
-    out.push_str("        for node in &self.nodes {\n");
-    out.push_str("            match node.kind {\n");
-    out.push_str("                NodeKind::Domain => results.push(TypeKind {\n");
-    out.push_str("                    type_name: node.name.clone(),\n");
-    out.push_str("                    category: TypeCategory::Domain,\n");
-    out.push_str("                }),\n");
-    out.push_str("                NodeKind::Struct => results.push(TypeKind {\n");
-    out.push_str("                    type_name: node.name.clone(),\n");
-    out.push_str("                    category: TypeCategory::Struct,\n");
-    out.push_str("                }),\n");
-    out.push_str("                _ => {}\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        self.type_kinds = results;\n");
-    out.push_str("    }\n\n");
+/// Source with filter chain
+struct SourceChain {
+    collection: String,
+    filter_ids: Vec<i64>,
 }
 
-fn generate_derive_method_on_type(out: &mut String) {
-    out.push_str("    fn derive_method_on_type(&mut self) {\n");
-    out.push_str("        let mut results = Vec::new();\n");
-    out.push_str("        for ti in &self.trait_impls {\n");
-    out.push_str("            for node in &self.nodes {\n");
-    out.push_str("                if (node.kind == NodeKind::Method || node.kind == NodeKind::TailMethod)\n");
-    out.push_str("                    && node.parent == ti.impl_node_id\n");
-    out.push_str("                {\n");
-    out.push_str("                    results.push(MethodOnType {\n");
-    out.push_str("                        type_name: ti.type_name.clone(),\n");
-    out.push_str("                        method_name: node.name.clone(),\n");
-    out.push_str("                        method_node_id: node.id,\n");
-    out.push_str("                    });\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        self.method_on_types = results;\n");
+fn generate_derive_from_ast(out: &mut String, world: &ir::World) -> Result<(), String> {
+    let derive_impl = world.trait_impls.iter()
+        .find(|ti| ti.trait_name == "derive" && ti.type_name == "World")
+        .ok_or("no derive trait impl on World in kernel.aski")?;
+
+    let impl_body_id = derive_impl.impl_node_id;
+    let mut methods: Vec<_> = world.nodes.iter()
+        .filter(|n| n.parent == impl_body_id &&
+                (n.kind == NodeKind::Method || n.kind == NodeKind::TailMethod))
+        .collect();
+    methods.sort_by_key(|n| n.id);
+
+    // ── derive() dispatcher ──
+    let derive_method = methods.iter().find(|m| m.name == "derive")
+        .ok_or("no derive() method in derive impl")?;
+    out.push_str("    /// Run all derivation rules to fixed point.\n");
+    out.push_str("    pub fn derive(&mut self) {\n");
+    let body_exprs = get_child_exprs(world, derive_method.id);
+    for expr in &body_exprs {
+        if expr.kind == ExprKind::MethodCall {
+            let name = &expr.value;
+            let rust_name = pascal_to_snake(name);
+            let is_fp = methods.iter().any(|m| m.name == *name && m.kind == NodeKind::TailMethod);
+            if is_fp {
+                out.push_str(&format!("        self.{}_fixpoint();\n", rust_name));
+            } else {
+                out.push_str(&format!("        self.{}();\n", rust_name));
+            }
+        }
+    }
     out.push_str("    }\n\n");
+
+    // ── Each derive method ──
+    for method in &methods {
+        if method.name == "derive" { continue; }
+        let rust_name = pascal_to_snake(&method.name);
+        let result = if method.kind == NodeKind::TailMethod {
+            gen_fixpoint_method(out, world, method, &rust_name)
+        } else {
+            gen_simple_method(out, world, method, &rust_name)
+        };
+        result.map_err(|e| format!("in derive method '{}': {}", method.name, e))?;
+    }
+
+    Ok(())
 }
 
-fn generate_derive_contained_type(out: &mut String) {
-    out.push_str("    fn derive_contained_type(&mut self) {\n");
+fn gen_simple_method(out: &mut String, world: &ir::World, method: &aski_core::Node, rust_name: &str) -> Result<(), String> {
+    out.push_str(&format!("    fn {}(&mut self) {{\n", rust_name));
     out.push_str("        let mut results = Vec::new();\n");
-    out.push_str("        // From struct fields\n");
-    out.push_str("        for node in &self.nodes {\n");
-    out.push_str("            if node.kind == NodeKind::Struct {\n");
-    out.push_str("                for field in &self.fields {\n");
-    out.push_str("                    if field.struct_id == node.id {\n");
-    out.push_str("                        results.push(ContainedType {\n");
-    out.push_str("                            parent_type: node.name.clone(),\n");
-    out.push_str("                            child_type: field.type_ref.clone(),\n");
-    out.push_str("                        });\n");
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("            if node.kind == NodeKind::Domain {\n");
-    out.push_str("                for var in &self.variants {\n");
-    out.push_str("                    if var.domain_id == node.id && !var.wraps_type.is_empty() {\n");
-    out.push_str("                        results.push(ContainedType {\n");
-    out.push_str("                            parent_type: node.name.clone(),\n");
-    out.push_str("                            child_type: var.wraps_type.clone(),\n");
-    out.push_str("                        });\n");
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        self.contained_types = results;\n");
+
+    let body_exprs = get_child_exprs(world, method.id);
+    let stmt = body_exprs.first().ok_or(format!("empty body in {}", method.name))?;
+    if stmt.kind != ExprKind::MutableSet {
+        return Err(format!("expected MutableSet in {}, got {:?}", method.name, stmt.kind));
+    }
+    let field_name = extract_set_field(&stmt.value);
+    let pipeline_children = get_child_exprs(world, stmt.id);
+    let pipeline = decompose_pipeline(world, pipeline_children[0].id)?;
+    let mut bindings = Vec::new();
+    emit_pipeline(out, world, &pipeline, "results", 2, &mut bindings)?;
+    out.push_str(&format!("        self.{} = results;\n", field_name));
     out.push_str("    }\n\n");
+    Ok(())
 }
 
-fn generate_derive_qualified_names(out: &mut String) {
-    out.push_str("    fn derive_qualified_names_fixpoint(&mut self) {\n");
-    out.push_str("        use std::collections::HashMap;\n");
-    out.push_str("        let mut qn: HashMap<i64, String> = HashMap::new();\n");
-    out.push_str("        // Top-level nodes with scope\n");
-    out.push_str("        for node in &self.nodes {\n");
-    out.push_str("            if node.parent == 0 && node.scope_id != 0 {\n");
-    out.push_str("                if let Some(scope) = self.scopes.iter().find(|s| s.id == node.scope_id) {\n");
-    out.push_str("                    qn.insert(node.id, format!(\"{}::{}\", scope.name, node.name));\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
+fn gen_fixpoint_method(out: &mut String, world: &ir::World, method: &aski_core::Node, rust_name: &str) -> Result<(), String> {
+    out.push_str(&format!("    fn {}_fixpoint(&mut self) {{\n", rust_name));
+
+    let body_exprs = get_child_exprs(world, method.id);
+    // Statement 0: MutableSet for initial set
+    let set_stmt = &body_exprs[0];
+    let field_name = extract_set_field(&set_stmt.value);
+
+    // Initial set
+    out.push_str("        {\n");
+    out.push_str("            let mut results = Vec::new();\n");
+    let init_children = get_child_exprs(world, set_stmt.id);
+    let init_pipeline = decompose_pipeline(world, init_children[0].id)?;
+    let mut bindings = Vec::new();
+    emit_pipeline(out, world, &init_pipeline, "results", 3, &mut bindings)?;
+    out.push_str(&format!("            self.{} = results;\n", field_name));
     out.push_str("        }\n");
-    out.push_str("        // Top-level nodes without scope\n");
-    out.push_str("        for node in &self.nodes {\n");
-    out.push_str("            if node.parent == 0 && node.scope_id == 0 {\n");
-    out.push_str("                qn.insert(node.id, node.name.clone());\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        // Fixed-point: walk parent chain\n");
+
+    // Fixpoint loop
     out.push_str("        loop {\n");
-    out.push_str("            let mut changed = false;\n");
-    out.push_str("            for node in &self.nodes {\n");
-    out.push_str("                if node.parent != 0 && !qn.contains_key(&node.id) {\n");
-    out.push_str("                    if let Some(parent_qn) = qn.get(&node.parent) {\n");
-    out.push_str("                        qn.insert(node.id, format!(\"{}::{}\", parent_qn, node.name));\n");
-    out.push_str("                        changed = true;\n");
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("            if !changed { break; }\n");
+    // Statement 1: SubTypeNew or MutableNew for extension pipeline
+    let ext_stmt = &body_exprs[1];
+    let ext_children = get_child_exprs(world, ext_stmt.id);
+    out.push_str("            let mut new_items = Vec::new();\n");
+    let ext_pipeline = decompose_pipeline(world, ext_children[0].id)?;
+    let mut bindings = Vec::new();
+    emit_pipeline(out, world, &ext_pipeline, "new_items", 3, &mut bindings)?;
+    out.push_str(&format!("            new_items.retain(|item| !self.{}.contains(item));\n", field_name));
+    out.push_str("            if new_items.is_empty() { break; }\n");
+    out.push_str(&format!("            self.{}.extend(new_items);\n", field_name));
     out.push_str("        }\n");
-    out.push_str("        self.qualified_names = qn.into_iter()\n");
-    out.push_str("            .map(|(id, path)| QualifiedName { node_id: id, full_path: path })\n");
-    out.push_str("            .collect();\n");
     out.push_str("    }\n\n");
+    Ok(())
 }
 
-fn generate_derive_can_see(out: &mut String) {
-    out.push_str("    fn derive_can_see_fixpoint(&mut self) {\n");
-    out.push_str("        use std::collections::HashSet;\n");
-    out.push_str("        let mut seen: HashSet<(i64, i64)> = HashSet::new();\n");
-    out.push_str("        // Self-visibility\n");
-    out.push_str("        for node in &self.nodes {\n");
-    out.push_str("            seen.insert((node.id, node.id));\n");
-    out.push_str("        }\n");
-    out.push_str("        // Siblings (same parent)\n");
-    out.push_str("        for a in &self.nodes {\n");
-    out.push_str("            for b in &self.nodes {\n");
-    out.push_str("                if a.parent == b.parent && a.id != b.id {\n");
-    out.push_str("                    seen.insert((a.id, b.id));\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        // Imports\n");
-    out.push_str("        for node in &self.nodes {\n");
-    out.push_str("            if node.scope_id != 0 {\n");
-    out.push_str("                for imp in &self.imports {\n");
-    out.push_str("                    if imp.scope_id == node.scope_id {\n");
-    out.push_str("                        for target in &self.nodes {\n");
-    out.push_str("                            if target.name == imp.imported_name {\n");
-    out.push_str("                                seen.insert((node.id, target.id));\n");
-    out.push_str("                            }\n");
-    out.push_str("                        }\n");
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("        // Fixed-point: inherited visibility from parent\n");
-    out.push_str("        loop {\n");
-    out.push_str("            let mut changed = false;\n");
-    out.push_str("            let snapshot: Vec<(i64, i64)> = seen.iter().copied().collect();\n");
-    out.push_str("            for node in &self.nodes {\n");
-    out.push_str("                if node.parent != 0 {\n");
-    out.push_str("                    for &(observer, visible) in &snapshot {\n");
-    out.push_str("                        if observer == node.parent {\n");
-    out.push_str("                            if seen.insert((node.id, visible)) {\n");
-    out.push_str("                                changed = true;\n");
-    out.push_str("                            }\n");
-    out.push_str("                        }\n");
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("            if !changed { break; }\n");
-    out.push_str("        }\n");
-    out.push_str("        self.can_sees = seen.into_iter()\n");
-    out.push_str("            .map(|(o, v)| CanSee { observer_id: o, visible_id: v })\n");
-    out.push_str("            .collect();\n");
-    out.push_str("    }\n\n");
+// ── Pipeline decomposition ──
+
+fn decompose_pipeline(world: &ir::World, expr_id: i64) -> Result<PipelineNode, String> {
+    let expr = find_expr(world, expr_id)?;
+    let children = get_child_exprs(world, expr_id);
+
+    if expr.kind == ExprKind::MethodCall {
+        match expr.value.as_str() {
+            "map" => {
+                let source = decompose_source(world, children[0].id)?;
+                Ok(PipelineNode::Map { source, constructor_id: children[1].id })
+            }
+            "flatMap" => {
+                let source = decompose_source(world, children[0].id)?;
+                let inner = decompose_pipeline(world, children[1].id)?;
+                Ok(PipelineNode::FlatMap { source, inner: Box::new(inner) })
+            }
+            "chain" => {
+                let left = decompose_pipeline(world, children[0].id)?;
+                let right = decompose_pipeline(world, children[1].id)?;
+                Ok(PipelineNode::Chain { left: Box::new(left), right: Box::new(right) })
+            }
+            other => Err(format!("unexpected pipeline op: {}", other))
+        }
+    } else {
+        Err(format!("expected MethodCall in pipeline, got {:?}", expr.kind))
+    }
 }
 
-fn generate_derive_recursive_type(out: &mut String) {
-    out.push_str("    fn derive_recursive_type_fixpoint(&mut self) {\n");
-    out.push_str("        use std::collections::HashSet;\n");
-    out.push_str("        let mut reachable: HashSet<(String, String)> = HashSet::new();\n");
-    out.push_str("        // Base: direct containment\n");
-    out.push_str("        for ct in &self.contained_types {\n");
-    out.push_str("            reachable.insert((ct.parent_type.clone(), ct.child_type.clone()));\n");
-    out.push_str("        }\n");
-    out.push_str("        // Transitive closure\n");
-    out.push_str("        loop {\n");
-    out.push_str("            let mut changed = false;\n");
-    out.push_str("            let snapshot: Vec<(String, String)> = reachable.iter().cloned().collect();\n");
-    out.push_str("            for ct in &self.contained_types {\n");
-    out.push_str("                for (_, z) in snapshot.iter().filter(|(x, _)| *x == ct.child_type) {\n");
-    out.push_str("                    if reachable.insert((ct.parent_type.clone(), z.clone())) {\n");
-    out.push_str("                        changed = true;\n");
-    out.push_str("                    }\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("            if !changed { break; }\n");
-    out.push_str("        }\n");
-    out.push_str("        self.recursive_types = reachable.into_iter()\n");
-    out.push_str("            .map(|(p, c)| RecursiveType { parent_type: p, child_type: c })\n");
-    out.push_str("            .collect();\n");
-    out.push_str("    }\n\n");
+fn decompose_source(world: &ir::World, expr_id: i64) -> Result<SourceChain, String> {
+    let expr = find_expr(world, expr_id)?;
+    let children = get_child_exprs(world, expr_id);
+
+    if expr.kind == ExprKind::MethodCall && expr.value == "filter" {
+        let mut chain = decompose_source(world, children[0].id)?;
+        chain.filter_ids.push(children[1].id);
+        Ok(chain)
+    } else if expr.kind == ExprKind::Access {
+        Ok(SourceChain {
+            collection: to_snake(&expr.value),
+            filter_ids: vec![],
+        })
+    } else {
+        Err(format!("unexpected source expr: {:?} {:?}", expr.kind, expr.value))
+    }
+}
+
+// ── Pipeline emission ──
+
+fn emit_pipeline(
+    out: &mut String, world: &ir::World, node: &PipelineNode,
+    results_var: &str, indent: usize, bindings: &mut Vec<Binding>,
+) -> Result<(), String> {
+    match node {
+        PipelineNode::Map { source, constructor_id } => {
+            let loop_var = determine_loop_var(world, source, Some(*constructor_id), bindings);
+            let elem_type = element_type_for_collection(world, &source.collection);
+            let ind = "    ".repeat(indent);
+            out.push_str(&format!("{}for {} in &self.{} {{\n", ind, loop_var, source.collection));
+            bindings.push(Binding { var_name: loop_var.clone(), type_name: elem_type });
+            let filter_count = source.filter_ids.len();
+            for (i, &fid) in source.filter_ids.iter().enumerate() {
+                let cond = translate_predicate(world, fid, bindings)?;
+                let fi = "    ".repeat(indent + 1 + i);
+                out.push_str(&format!("{}if {} {{\n", fi, cond));
+            }
+            let ci = "    ".repeat(indent + 1 + filter_count);
+            let value = translate_constructor(world, *constructor_id, bindings)?;
+            out.push_str(&format!("{}{}.push({});\n", ci, results_var, value));
+            for i in (0..filter_count).rev() {
+                let fi = "    ".repeat(indent + 1 + i);
+                out.push_str(&format!("{}}}\n", fi));
+            }
+            out.push_str(&format!("{}}}\n", ind));
+            bindings.pop();
+            Ok(())
+        }
+        PipelineNode::FlatMap { source, inner } => {
+            let loop_var = determine_loop_var_for_flatmap(world, source, inner, bindings);
+            let elem_type = element_type_for_collection(world, &source.collection);
+            let ind = "    ".repeat(indent);
+            out.push_str(&format!("{}for {} in &self.{} {{\n", ind, loop_var, source.collection));
+            bindings.push(Binding { var_name: loop_var.clone(), type_name: elem_type });
+            let filter_count = source.filter_ids.len();
+            for (i, &fid) in source.filter_ids.iter().enumerate() {
+                let cond = translate_predicate(world, fid, bindings)?;
+                let fi = "    ".repeat(indent + 1 + i);
+                out.push_str(&format!("{}if {} {{\n", fi, cond));
+            }
+            emit_pipeline(out, world, inner, results_var, indent + 1 + filter_count, bindings)?;
+            for i in (0..filter_count).rev() {
+                let fi = "    ".repeat(indent + 1 + i);
+                out.push_str(&format!("{}}}\n", fi));
+            }
+            out.push_str(&format!("{}}}\n", ind));
+            bindings.pop();
+            Ok(())
+        }
+        PipelineNode::Chain { left, right } => {
+            emit_pipeline(out, world, left, results_var, indent, bindings)?;
+            emit_pipeline(out, world, right, results_var, indent, bindings)?;
+            Ok(())
+        }
+    }
+}
+
+// ── Loop variable determination ──
+
+fn determine_loop_var(world: &ir::World, source: &SourceChain, constructor_id: Option<i64>, bindings: &[Binding]) -> String {
+    // Scan filter predicates for new instance references
+    for &fid in &source.filter_ids {
+        if let Some(name) = first_new_ref(world, fid, bindings) {
+            return name;
+        }
+    }
+    // Scan constructor
+    if let Some(cid) = constructor_id {
+        if let Some(name) = first_new_ref(world, cid, bindings) {
+            return name;
+        }
+    }
+    // Fallback: singularize collection
+    singularize(&source.collection)
+}
+
+fn determine_loop_var_for_flatmap(world: &ir::World, source: &SourceChain, _inner: &PipelineNode, bindings: &[Binding]) -> String {
+    // Try filters first
+    for &fid in &source.filter_ids {
+        if let Some(name) = first_new_ref(world, fid, bindings) {
+            return name;
+        }
+    }
+    // Fallback: singularize collection
+    singularize(&source.collection)
+}
+
+fn first_new_ref(world: &ir::World, expr_id: i64, bindings: &[Binding]) -> Option<String> {
+    let refs = scan_instance_refs(world, expr_id);
+    for r in refs {
+        if r == "Self" { continue; }
+        let snake = to_snake(&r);
+        if !bindings.iter().any(|b| b.var_name == snake) {
+            return Some(snake);
+        }
+    }
+    None
+}
+
+fn scan_instance_refs(world: &ir::World, expr_id: i64) -> Vec<String> {
+    let Some(expr) = world.exprs.iter().find(|e| e.id == expr_id) else { return vec![] };
+    let mut result = Vec::new();
+    if expr.kind == ExprKind::InstanceRef {
+        result.push(expr.value.clone());
+    }
+    for child in get_child_exprs(world, expr_id) {
+        result.extend(scan_instance_refs(world, child.id));
+    }
+    result
+}
+
+fn element_type_for_collection(world: &ir::World, collection: &str) -> String {
+    let fields = ir::query_struct_fields(world, "World").unwrap_or_default();
+    for (_ord, fname, ftype) in &fields {
+        if to_snake(fname) == collection {
+            if let Some(inner) = ftype.strip_prefix("Vec(").and_then(|s| s.strip_suffix(')')) {
+                return inner.to_string();
+            }
+        }
+    }
+    collection.to_string()
+}
+
+fn singularize(s: &str) -> String {
+    if s.ends_with("ies") {
+        format!("{}y", &s[..s.len()-3])
+    } else if s.ends_with("ses") || s.ends_with("shes") || s.ends_with("ches") {
+        s[..s.len()-2].to_string()
+    } else if s.ends_with('s') {
+        s[..s.len()-1].to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+// ── Expression translation ──
+
+fn translate_predicate(world: &ir::World, expr_id: i64, bindings: &[Binding]) -> Result<String, String> {
+    translate_expr(world, expr_id, bindings, None)
+}
+
+fn translate_constructor(world: &ir::World, expr_id: i64, bindings: &[Binding]) -> Result<String, String> {
+    translate_expr(world, expr_id, bindings, None)
+}
+
+fn translate_expr(world: &ir::World, expr_id: i64, bindings: &[Binding], type_hint: Option<&str>) -> Result<String, String> {
+    let expr = find_expr(world, expr_id)?;
+    let children = get_child_exprs(world, expr_id);
+
+    match expr.kind {
+        ExprKind::BinOp => {
+            let op = &expr.value;
+            if is_comparison(op) {
+                let left_type = determine_expr_type(world, children[0].id, bindings);
+                let left = translate_expr(world, children[0].id, bindings, None)?;
+                let right = translate_expr(world, children[1].id, bindings, left_type.as_deref())?;
+                // != "" → !x.is_empty()
+                if op == "!=" && right == "\"\"" {
+                    return Ok(format!("!{}.is_empty()", left));
+                }
+                // == false → !x
+                if op == "==" && right == "false" {
+                    return Ok(format!("!{}", left));
+                }
+                Ok(format!("{} {} {}", left, op, right))
+            } else {
+                let left = translate_expr(world, children[0].id, bindings, None)?;
+                let right = translate_expr(world, children[1].id, bindings, None)?;
+                Ok(format!("({} {} {})", left, op, right))
+            }
+        }
+        ExprKind::Access => {
+            let field = &expr.value;
+            let base = translate_expr(world, children[0].id, bindings, None)?;
+            match field.as_str() {
+                "beforeColon" => Ok(format!("{}[..{}.find(':').unwrap()].to_string()", base, base)),
+                "afterColon" => Ok(format!("{}[{}.find(':').unwrap()+1..].to_string()", base, base)),
+                _ => Ok(format!("{}.{}", base, to_snake(field)))
+            }
+        }
+        ExprKind::InstanceRef => {
+            if expr.value == "Self" {
+                Ok("self".to_string())
+            } else {
+                Ok(to_snake(&expr.value))
+            }
+        }
+        ExprKind::BareName => {
+            match expr.value.as_str() {
+                "True" => Ok("true".to_string()),
+                "False" => Ok("false".to_string()),
+                name => {
+                    // Try type hint first for disambiguation
+                    if let Some(hint) = type_hint {
+                        let variants = ir::query_domain_variants(world, hint).unwrap_or_default();
+                        if variants.iter().any(|(_, vname, _)| vname == name) {
+                            return Ok(format!("{}::{}", hint, name));
+                        }
+                    }
+                    // Search all domains
+                    if let Some(domain) = find_variant_domain(world, name) {
+                        Ok(format!("{}::{}", domain, name))
+                    } else {
+                        Ok(name.to_string())
+                    }
+                }
+            }
+        }
+        ExprKind::IntLit => Ok(expr.value.clone()),
+        ExprKind::StringLit => {
+            if expr.value.contains("$@") {
+                translate_interpolated_string(&expr.value, bindings)
+            } else {
+                Ok(format!("\"{}\"", expr.value))
+            }
+        }
+        ExprKind::MethodCall => {
+            let method = &expr.value;
+            let base = translate_expr(world, children[0].id, bindings, None)?;
+            match method.as_str() {
+                "contains" => {
+                    let arg = translate_expr(world, children[1].id, bindings, None)?;
+                    Ok(format!("{}.contains({})", base, arg))
+                }
+                _ => {
+                    let args: Vec<String> = children[1..].iter()
+                        .map(|c| translate_expr(world, c.id, bindings, None))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    Ok(format!("{}.{}({})", base, to_snake(method), args.join(", ")))
+                }
+            }
+        }
+        ExprKind::StructConstruct => {
+            let type_name = &expr.value;
+            let mut field_strs = Vec::new();
+            for field_expr in &children {
+                if field_expr.kind != ExprKind::StructField { continue; }
+                let fname = &field_expr.value;
+                let rust_field = to_snake(fname);
+                let val_children = get_child_exprs(world, field_expr.id);
+                let field_type = get_struct_field_type(world, type_name, fname);
+                let value = translate_expr(world, val_children[0].id, bindings, field_type.as_deref())?;
+                let needs_clone = field_type.as_deref() == Some("String");
+                let val_str = if needs_clone {
+                    format!("{}.clone()", value)
+                } else {
+                    value
+                };
+                field_strs.push(format!("{}: {}", rust_field, val_str));
+            }
+            Ok(format!("{} {{ {} }}", type_name, field_strs.join(", ")))
+        }
+        _ => Err(format!("unhandled expr kind: {:?} (id={}, parent={}, value={:?})", expr.kind, expr.id, expr.parent_id, expr.value))
+    }
+}
+
+fn is_comparison(op: &str) -> bool {
+    matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=")
+}
+
+fn determine_expr_type(world: &ir::World, expr_id: i64, bindings: &[Binding]) -> Option<String> {
+    let expr = world.exprs.iter().find(|e| e.id == expr_id)?;
+    if expr.kind == ExprKind::Access {
+        let children = get_child_exprs(world, expr_id);
+        let base = children.first()?;
+        if base.kind == ExprKind::InstanceRef && base.value != "Self" {
+            let binding = bindings.iter().find(|b| b.var_name == to_snake(&base.value))?;
+            let fields = ir::query_struct_fields(world, &binding.type_name).unwrap_or_default();
+            for (_ord, fname, ftype) in &fields {
+                if fname == &expr.value {
+                    return Some(ftype.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn get_struct_field_type(world: &ir::World, struct_name: &str, field_name: &str) -> Option<String> {
+    let fields = ir::query_struct_fields(world, struct_name).unwrap_or_default();
+    for (_ord, fname, ftype) in &fields {
+        if fname == field_name {
+            return Some(ftype.clone());
+        }
+    }
+    None
+}
+
+fn find_variant_domain(world: &ir::World, variant_name: &str) -> Option<String> {
+    for variant in &world.variants {
+        if variant.name == variant_name {
+            for node in &world.nodes {
+                if node.id == variant.domain_id && node.kind == NodeKind::Domain {
+                    return Some(node.name.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn translate_interpolated_string(s: &str, bindings: &[Binding]) -> Result<String, String> {
+    // Parse "$@Ref.Field" patterns → format!() args
+    let mut fmt_str = String::new();
+    let mut args = Vec::new();
+    let mut i = 0;
+    let chars: Vec<char> = s.chars().collect();
+    while i < chars.len() {
+        if i + 1 < chars.len() && chars[i] == '$' && chars[i+1] == '@' {
+            fmt_str.push_str("{}");
+            i += 2; // skip $@
+            // Read Ref
+            let ref_start = i;
+            while i < chars.len() && chars[i].is_alphanumeric() { i += 1; }
+            let ref_name = &s[ref_start..i];
+            // Expect .
+            if i < chars.len() && chars[i] == '.' { i += 1; }
+            // Read Field
+            let field_start = i;
+            while i < chars.len() && chars[i].is_alphanumeric() { i += 1; }
+            let field_name = &s[field_start..i];
+            let var = to_snake(ref_name);
+            let field = to_snake(field_name);
+            args.push(format!("{}.{}", var, field));
+        } else {
+            fmt_str.push(chars[i]);
+            i += 1;
+        }
+    }
+    let _ = bindings;
+    Ok(format!("format!(\"{}\", {})", fmt_str, args.join(", ")))
+}
+
+// ── IR helpers ──
+
+fn find_expr<'a>(world: &'a ir::World, expr_id: i64) -> Result<&'a aski_core::Expr, String> {
+    world.exprs.iter().find(|e| e.id == expr_id)
+        .ok_or_else(|| format!("expr {} not found", expr_id))
+}
+
+fn get_child_exprs(world: &ir::World, parent_id: i64) -> Vec<&aski_core::Expr> {
+    let mut kids: Vec<_> = world.exprs.iter()
+        .filter(|e| e.parent_id == parent_id && parent_id != 0)
+        .collect();
+    kids.sort_by_key(|e| e.ordinal);
+    kids
+}
+
+fn extract_set_field(mutable_set_value: &str) -> String {
+    // "Self.VariantOfs" → "variant_ofs"
+    let parts: Vec<&str> = mutable_set_value.split('.').collect();
+    if parts.len() >= 2 {
+        to_snake(parts[1])
+    } else {
+        to_snake(mutable_set_value)
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -435,19 +706,6 @@ fn to_snake(s: &str) -> String {
     pascal_to_snake(s)
 }
 
-fn to_snake_plural(s: &str) -> String {
-    let snake = pascal_to_snake(s);
-    // Already plural (ends in 's') — don't double-pluralize
-    if snake.ends_with('s') {
-        snake
-    } else if snake.ends_with("sh") || snake.ends_with("ch") {
-        format!("{}es", snake)
-    } else if snake.ends_with('y') && !snake.ends_with("ey") {
-        format!("{}ies", &snake[..snake.len()-1])
-    } else {
-        format!("{}s", snake)
-    }
-}
 
 fn aski_type_to_rust(t: &str) -> String {
     // Handle parameterized types: "Vec(Node)" → "Vec<Node>"
