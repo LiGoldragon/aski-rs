@@ -9,7 +9,7 @@ pub fn generate(world: &World) -> Result<String, String> {
 
     // Emit operator trait imports from kernel
     let op_impls = aski_core::query_all_operator_impls(world);
-    let mut imports: Vec<String> = op_impls.iter()
+    let imports: Vec<String> = op_impls.iter()
         .map(|(name, _, _)| rust_trait(name))
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()

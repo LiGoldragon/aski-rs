@@ -14,26 +14,3 @@ pub fn parse_source(source: &str) -> Result<Vec<Spanned<Item>>, String> {
     let sf = parse_source_file(source)?;
     Ok(sf.items)
 }
-
-/// Parser backend selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParserBackend {
-    /// Data-driven grammar engine (default).
-    GrammarEngine,
-}
-
-/// Parse a source file with the specified backend.
-pub fn parse_source_file_with(
-    source: &str,
-    _backend: ParserBackend,
-) -> Result<SourceFile, String> {
-    parse_source_file(source)
-}
-
-/// Parse items with the specified backend.
-pub fn parse_source_with(
-    source: &str,
-    _backend: ParserBackend,
-) -> Result<Vec<Spanned<Item>>, String> {
-    parse_source(source)
-}

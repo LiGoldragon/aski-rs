@@ -174,36 +174,33 @@ impl GrammarParser {
             }
             // Grammar rule failed — fall through to built-in if one exists
             match name {
-                "item" | "expression" | "stmts" | "matchMethodArms" | "matchExprArms"
-                | "methodSigs" | "typeImpls" | "matchArms" | "matchExpr" => {}
+                "item" | "stmts" | "matchArms" | "matchExprArms"
+                | "methodSigs" | "typeImpls" | "matchExpr" => {}
                 _ => return Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err)),
             }
         }
 
-        // Built-in rules (fallback when grammar rules don't exist or fail)
+        // Built-in fallbacks for rules the grammar doesn't fully cover yet
         match name {
-            "item" => return self.parse_item(tokens, pos),
-            "expression" => return self.parse_expression(tokens, pos),
-            "stmts" => return self.parse_stmt_list(tokens, pos),
-            "matchMethodArms" | "matchArms" => return self.parse_match_method_arm_list(tokens, pos),
-            "matchExprArms" | "matchExpr" => return self.parse_match_expr_arm_list(tokens, pos),
-            "methodSigs" => return self.parse_method_sig_list(tokens, pos),
-            "typeImpls" => return self.parse_type_impl_list(tokens, pos),
-            _ => {}
-        }
-
-        let rule = self.rules.get(name)
-            .ok_or_else(|| format!("unknown grammar rule: <{}>", name))?;
-
-        let mut last_err = String::new();
-        for arm in &rule.arms {
-            match self.try_arm(arm, tokens, pos) {
-                Ok(result) => return Ok(result),
-                Err(e) => last_err = e,
+            "item" => self.parse_item(tokens, pos),
+            "stmts" => self.parse_stmt_list(tokens, pos),
+            "matchArms" => self.parse_match_method_arm_list(tokens, pos),
+            "matchExprArms" | "matchExpr" => self.parse_match_expr_arm_list(tokens, pos),
+            "methodSigs" => self.parse_method_sig_list(tokens, pos),
+            "typeImpls" => self.parse_type_impl_list(tokens, pos),
+            _ => {
+                let rule = self.rules.get(name)
+                    .ok_or_else(|| format!("unknown grammar rule: <{}>", name))?;
+                let mut last_err = String::new();
+                for arm in &rule.arms {
+                    match self.try_arm(arm, tokens, pos) {
+                        Ok(result) => return Ok(result),
+                        Err(e) => last_err = e,
+                    }
+                }
+                Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err))
             }
         }
-
-        Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err))
     }
 
     /// Try a single arm: match pattern, build result.
@@ -1171,7 +1168,6 @@ impl GrammarParser {
                         }
                         // No call — just ~@Self.method with no parens (statement-like)
                         if chain_parts.len() >= 2 {
-                            let set_name = chain_parts.join(".");
                             let span = start..tokens[chain_pos.saturating_sub(1)].span.end;
                             let base = Spanned::new(Expr::InstanceRef(name.clone()), span.clone());
                             let mut expr = base;
