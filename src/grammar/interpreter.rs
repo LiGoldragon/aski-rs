@@ -199,7 +199,6 @@ impl GrammarParser {
 
         for elem in &arm.pattern {
             cur = skip_newlines(tokens, cur);
-
             match elem {
                 PatElem::Tok(name) => {
                     let tok = tokens.get(cur)

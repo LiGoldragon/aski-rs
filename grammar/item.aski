@@ -116,13 +116,13 @@
 ;; ── Match arms (method body) ──
 
 <matchArm> {
-  ;; (pattern) body — commit
-  [LParen <pattern> RParen <expr> | @Rest]     CommitArm(<pattern> <expr>) @Rest
-  ;; [pattern] body — backtrack
-  [LBracket <pattern> RBracket <expr> | @Rest] BacktrackArm(<pattern> <expr>) @Rest
-  ;; [elem | @Rest] body — destructure
-  [LBracket <destructure> RBracket <expr> | @Rest]
-    DestructureArm(<destructure> <expr>) @Rest
+  ;; (pattern) result — commit (bareExpr: no struct construction ambiguity)
+  [LParen <pattern> RParen <bareExpr> | @Rest]     CommitArm(<pattern> <bareExpr>) @Rest
+  ;; [pattern] result — backtrack
+  [LBracket <pattern> RBracket <bareExpr> | @Rest] BacktrackArm(<pattern> <bareExpr>) @Rest
+  ;; [elem | @Rest] result — destructure
+  [LBracket <destructure> RBracket <bareExpr> | @Rest]
+    DestructureArm(<destructure> <bareExpr>) @Rest
 }
 
 <matchArms> {
@@ -137,7 +137,7 @@
 }
 
 <matchExprArm> {
-  [LParen <pattern> RParen <expr> | @Rest]   CommitArm(<pattern> <expr>) @Rest
+  [LParen <pattern> RParen <bareExpr> | @Rest]   CommitArm(<pattern> <bareExpr>) @Rest
 }
 
 <matchExprArms> {
