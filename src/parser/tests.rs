@@ -256,8 +256,8 @@ fn parse_struct_variant() {
 
 #[test]
 fn parse_subtype_decl_in_body() {
-    // SubTypeDecl (Name Type) parses as a statement — used for local sub-types
-    let src = "Main [ Result String ]";
+    // SubTypeDecl (@Name Type) parses as a statement — used for local sub-types
+    let src = "Main [ @Result String ]";
     let items = parse_source(src).unwrap();
     match &items[0].node {
         Item::Main(m) => {

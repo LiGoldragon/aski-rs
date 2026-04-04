@@ -162,13 +162,31 @@ impl GrammarParser {
 
     /// Try a grammar rule: ordered choice over arms.
     pub fn try_rule(&self, name: &str, tokens: &[SpannedToken], pos: usize) -> Result<(Value, usize), String> {
-        // Built-in rules
+        // Grammar rules take priority — try them first if defined
+        if self.rules.contains_key(name) {
+            let rule = &self.rules[name];
+            let mut last_err = String::new();
+            for arm in &rule.arms {
+                match self.try_arm(arm, tokens, pos) {
+                    Ok(result) => return Ok(result),
+                    Err(e) => last_err = e,
+                }
+            }
+            // Grammar rule failed — fall through to built-in if one exists
+            match name {
+                "item" | "expression" | "stmts" | "matchMethodArms" | "matchExprArms"
+                | "methodSigs" | "typeImpls" | "matchArms" | "matchExpr" => {}
+                _ => return Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err)),
+            }
+        }
+
+        // Built-in rules (fallback when grammar rules don't exist or fail)
         match name {
             "item" => return self.parse_item(tokens, pos),
             "expression" => return self.parse_expression(tokens, pos),
             "stmts" => return self.parse_stmt_list(tokens, pos),
-            "matchMethodArms" => return self.parse_match_method_arm_list(tokens, pos),
-            "matchExprArms" => return self.parse_match_expr_arm_list(tokens, pos),
+            "matchMethodArms" | "matchArms" => return self.parse_match_method_arm_list(tokens, pos),
+            "matchExprArms" | "matchExpr" => return self.parse_match_expr_arm_list(tokens, pos),
             "methodSigs" => return self.parse_method_sig_list(tokens, pos),
             "typeImpls" => return self.parse_type_impl_list(tokens, pos),
             _ => {}
@@ -2438,12 +2456,11 @@ Point { Horizontal F64 Vertical F64 }
             Item::Main(m) => match &m.body {
                 Body::Block(stmts) => match &stmts[0].node {
                     Expr::Return(inner) => match &inner.node {
-                        Expr::MethodCall(base, method, args) => {
-                            assert!(matches!(&base.node, Expr::BareName(n) if n == "Sign"));
-                            assert_eq!(method, "fromDegree");
+                        Expr::FnCall(name, args) => {
+                            assert_eq!(name, "Sign/fromDegree");
                             assert_eq!(args.len(), 1);
                         }
-                        other => panic!("expected MethodCall, got {:?}", other),
+                        other => panic!("expected FnCall, got {:?}", other),
                     }
                     _ => panic!("expected Return"),
                 }

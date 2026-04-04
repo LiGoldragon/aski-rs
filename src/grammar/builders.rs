@@ -355,17 +355,322 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
         }
 
         // ── Passthrough: result is a sub-rule's value directly ──
-        "Passthrough" => {
-            if args.len() == 1 {
-                Ok(args[0].clone())
-            } else {
-                // Passthrough with extra args — first is the result, rest are context
-                Ok(args[0].clone())
+        "Passthrough" => Ok(args[0].clone()),
+
+        // ── Expression constructors ───────────────────────────
+
+        // FoldLeft: base expr + list of Op(op_str, rhs_expr) pairs → left-assoc BinOp chain
+        "FoldLeft" => {
+            let ops = args[1].clone().into_list()?;
+            if ops.is_empty() { return Ok(args[0].clone()); }
+            let mut lhs = args[0].as_expr()?;
+            for op_pair in ops {
+                let pair = match op_pair { Value::List(v) => v, _ => return Err("FoldLeft: op must be list".into()) };
+                let op_str = pair[0].as_str()?;
+                let rhs = pair[1].as_expr()?;
+                let binop = str_to_binop(&op_str)?;
+                let sp = lhs.span.start..rhs.span.end;
+                lhs = Spanned::new(Expr::BinOp(Box::new(lhs), binop, Box::new(rhs)), sp);
+            }
+            Ok(Value::Expr(lhs))
+        }
+        // Op: (op_string, rhs_expr) pair for FoldLeft
+        "Op" => Ok(Value::List(vec![args[0].clone(), args[1].clone()])),
+
+        // FoldPost: base expr + list of postfix operations → left-assoc chain
+        "FoldPost" => {
+            let ops = args[1].clone().into_list()?;
+            if ops.is_empty() { return Ok(args[0].clone()); }
+            let mut expr = args[0].as_expr()?;
+            for op in ops {
+                let parts = match op { Value::List(v) => v, _ => return Err("FoldPost: op must be list".into()) };
+                let tag = parts[0].as_str()?;
+                match tag.as_str() {
+                    "method" => {
+                        let name = parts[1].as_str()?;
+                        let call_args = parts[2].clone().into_list()?
+                            .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+                        let end = call_args.last().map(|a| a.span.end).unwrap_or(expr.span.end);
+                        let sp = expr.span.start..end;
+                        expr = Spanned::new(Expr::MethodCall(Box::new(expr), name, call_args), sp);
+                    }
+                    "access" => {
+                        let name = parts[1].as_str()?;
+                        let sp = expr.span.clone();
+                        expr = Spanned::new(Expr::Access(Box::new(expr), name), sp);
+                    }
+                    "error_prop" => {
+                        let sp = expr.span.clone();
+                        expr = Spanned::new(Expr::ErrorProp(Box::new(expr)), sp);
+                    }
+                    "range_excl" => {
+                        let end_expr = parts[1].as_expr()?;
+                        let sp = expr.span.start..end_expr.span.end;
+                        expr = Spanned::new(Expr::Range {
+                            start: Box::new(expr), end: Box::new(end_expr), inclusive: false,
+                        }, sp);
+                    }
+                    "range_incl" => {
+                        let end_expr = parts[1].as_expr()?;
+                        let sp = expr.span.start..end_expr.span.end;
+                        expr = Spanned::new(Expr::Range {
+                            start: Box::new(expr), end: Box::new(end_expr), inclusive: true,
+                        }, sp);
+                    }
+                    _ => return Err(format!("FoldPost: unknown op tag: {}", tag)),
+                }
+            }
+            Ok(Value::Expr(expr))
+        }
+        // Postfix op constructors — produce tagged lists for FoldPost
+        "MethodOp" => Ok(Value::List(vec![Value::Str("method".into()), args[0].clone(), args[1].clone()])),
+        "AccessOp" => Ok(Value::List(vec![Value::Str("access".into()), args[0].clone()])),
+        "ErrorPropOp" => Ok(Value::List(vec![Value::Str("error_prop".into())])),
+        "RangeExclOp" => Ok(Value::List(vec![Value::Str("range_excl".into()), args[0].clone()])),
+        "RangeInclOp" => Ok(Value::List(vec![Value::Str("range_incl".into()), args[0].clone()])),
+
+        // Atom constructors
+        "ExprStub" => Ok(Value::Expr(Spanned::new(Expr::Stub, span))),
+        "ConstRef" => Ok(Value::Expr(Spanned::new(Expr::ConstRef(args[0].as_str()?), span))),
+        "Return" => {
+            let inner = args[0].as_expr()?;
+            Ok(Value::Expr(Spanned::new(Expr::Return(Box::new(inner)), span)))
+        }
+        "Yield" => {
+            let inner = args[0].as_expr()?;
+            Ok(Value::Expr(Spanned::new(Expr::Yield(Box::new(inner)), span)))
+        }
+        "InstanceRef" => Ok(Value::Expr(Spanned::new(Expr::InstanceRef(args[0].as_str()?), span))),
+        "InlineEval" => {
+            let stmts = args[0].clone().into_list()?
+                .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Expr(Spanned::new(Expr::InlineEval(stmts), span)))
+        }
+        "Group" => {
+            let inner = args[0].as_expr()?;
+            Ok(Value::Expr(Spanned::new(Expr::Group(Box::new(inner)), span)))
+        }
+        "StdOut" => {
+            let inner = args[0].as_expr()?;
+            Ok(Value::Expr(Spanned::new(Expr::StdOut(Box::new(inner)), span)))
+        }
+        "BareName" => Ok(Value::Expr(Spanned::new(Expr::BareName(args[0].as_str()?), span))),
+        "FnCall" => {
+            let type_name = args[0].as_str()?;
+            let method_name = args[1].as_str()?;
+            let call_args = args[2].clone().into_list()?
+                .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Expr(Spanned::new(Expr::FnCall(
+                format!("{}/{}", type_name, method_name), call_args), span)))
+        }
+        "TypePath" => {
+            // Name/Variant → Access(BareName(Name), Variant)
+            let type_name = args[0].as_str()?;
+            let variant = args[1].as_str()?;
+            let base = Spanned::new(Expr::BareName(type_name), span.clone());
+            Ok(Value::Expr(Spanned::new(Expr::Access(Box::new(base), variant), span)))
+        }
+        "BareTrue" => Ok(Value::Expr(Spanned::new(Expr::BareName("True".into()), span))),
+        "BareFalse" => Ok(Value::Expr(Spanned::new(Expr::BareName("False".into()), span))),
+        "ErrorProp" => {
+            let inner = args[0].as_expr()?;
+            Ok(Value::Expr(Spanned::new(Expr::ErrorProp(Box::new(inner)), span)))
+        }
+        "Literal" => {
+            match &args[0] {
+                Value::Int(n) => Ok(Value::Expr(Spanned::new(Expr::IntLit(*n), span))),
+                Value::Float(f) => Ok(Value::Expr(Spanned::new(Expr::FloatLit(*f), span))),
+                Value::Str(s) => Ok(Value::Expr(Spanned::new(Expr::StringLit(s.clone()), span))),
+                _ => Err("Literal: unsupported value type".into()),
+            }
+        }
+        "StructConstruct" => {
+            let name = args[0].as_str()?;
+            let field_vals = args[1].clone().into_list()?;
+            let mut fields = Vec::new();
+            for fv in field_vals {
+                match fv {
+                    // StructField produces a (name, expr) pair
+                    Value::List(pair) if pair.len() == 2 => {
+                        let fname = pair[0].as_str()?;
+                        let fexpr = pair[1].as_expr()?;
+                        fields.push((fname, fexpr));
+                    }
+                    // Bare expression (positional arg)
+                    _ => {
+                        let e = fv.as_expr()?;
+                        fields.push((String::new(), e));
+                    }
+                }
+            }
+            Ok(Value::Expr(Spanned::new(Expr::StructConstruct(name, fields), span)))
+        }
+        "StructField" => {
+            // Produce a (name, expr) pair for StructConstruct
+            let name = args[0].as_str()?;
+            let val = args[1].as_expr()?;
+            Ok(Value::List(vec![Value::Str(name), Value::Expr(val)]))
+        }
+
+        // ── Statement constructors ────────────────────────────
+
+        "ExprStmt" => Ok(args[0].clone()),
+        "MutableNew" => {
+            let name = args[0].as_str()?;
+            let type_ref = args[1].as_type_ref()?;
+            let init_args = args[2].clone().into_list()?
+                .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Expr(Spanned::new(Expr::MutableNew(name, type_ref, init_args), span)))
+        }
+        "SubTypeNew" => {
+            let name = args[0].as_str()?;
+            let type_ref = args[1].as_type_ref()?;
+            let init_args = args[2].clone().into_list()?
+                .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Expr(Spanned::new(Expr::SubTypeNew(name, type_ref, init_args), span)))
+        }
+        "SameTypeNew" => {
+            let name = args[0].as_str()?;
+            let init_args = args[1].clone().into_list()?
+                .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Expr(Spanned::new(Expr::SameTypeNew(name, init_args), span)))
+        }
+        "DeferredNew" => {
+            let name = args[0].as_str()?;
+            let init_args = args[1].clone().into_list()?
+                .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Expr(Spanned::new(Expr::DeferredNew(name, init_args), span)))
+        }
+        "SubTypeDecl" => {
+            let name = args[0].as_str()?;
+            let type_ref = args[1].as_type_ref()?;
+            Ok(Value::Expr(Spanned::new(Expr::SubTypeDecl(name, type_ref), span)))
+        }
+        "MutableSet" => {
+            // name + set chain value
+            let name = args[0].as_str()?;
+            let chain_val = args[1].as_expr()?;
+            Ok(Value::Expr(Spanned::new(Expr::MutableSet(name, Box::new(chain_val)), span)))
+        }
+
+        // Set chain constructors
+        "Set" => Ok(args[0].clone()),
+        "Extend" => Ok(args[0].clone()),
+        "Chain" => {
+            // name.rest → Access(rest, name)
+            let name = args[0].as_str()?;
+            let rest = args[1].as_expr()?;
+            Ok(Value::Expr(Spanned::new(Expr::Access(Box::new(rest), name), span)))
+        }
+
+        // ── Body constructors ─────────────────────────────────
+
+        "Block" => {
+            let stmts = args[0].clone().into_list()?
+                .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Body(Body::Block(stmts)))
+        }
+        "TailBlock" => {
+            let stmts = args[0].clone().into_list()?
+                .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Body(Body::TailBlock(stmts)))
+        }
+        "MatchBody" => {
+            let arms = args[0].clone().into_list()?
+                .into_iter().map(|v| v.as_match_method_arm()).collect::<Result<Vec<_>, _>>()?;
+            Ok(Value::Body(Body::MatchBody(arms)))
+        }
+        "Stub" => Ok(Value::Body(Body::Stub)),
+
+        // ── Match arm constructors ────────────────────────────
+
+        "CommitArm" => {
+            let pat = args[0].as_pattern()?;
+            let body_expr = args[1].as_expr()?;
+            Ok(Value::MatchMethodArm(MatchMethodArm {
+                kind: ArmKind::Commit,
+                patterns: vec![pat],
+                body: vec![body_expr],
+                destructure: None,
+                span,
+            }))
+        }
+        "BacktrackArm" => {
+            let pat = args[0].as_pattern()?;
+            let body_expr = args[1].as_expr()?;
+            Ok(Value::MatchMethodArm(MatchMethodArm {
+                kind: ArmKind::Backtrack,
+                patterns: vec![pat],
+                body: vec![body_expr],
+                destructure: None,
+                span,
+            }))
+        }
+
+        // ── Pattern constructors ──────────────────────────────
+
+        "Wildcard" => Ok(Value::Pattern(Pattern::Wildcard)),
+        "BoolTrue" => Ok(Value::Pattern(Pattern::BoolLit(true))),
+        "BoolFalse" => Ok(Value::Pattern(Pattern::BoolLit(false))),
+        "VariantPat" => Ok(Value::Pattern(Pattern::Variant(args[0].as_str()?))),
+        "InstanceBind" => Ok(Value::Pattern(Pattern::InstanceBind(args[0].as_str()?))),
+        "DataCarrying" => {
+            let name = args[0].as_str()?;
+            let inner = args[1].as_pattern()?;
+            Ok(Value::Pattern(Pattern::DataCarrying(name, Box::new(inner))))
+        }
+        "LiteralPat" => {
+            match &args[0] {
+                Value::Str(s) => Ok(Value::Pattern(Pattern::StringLit(s.clone()))),
+                Value::Int(n) => Ok(Value::Pattern(Pattern::Variant(n.to_string()))),
+                _ => Err("LiteralPat: unsupported".into()),
             }
         }
 
+        // ── Match expression constructors ──────────────────���──
+
+        "MatchExpr" => {
+            let target = args[0].as_expr()?;
+            let arms = args[1].clone().into_list()?
+                .into_iter().map(|v| v.as_match_method_arm()).collect::<Result<Vec<_>, _>>()?;
+            let match_arms: Vec<MatchArm> = arms.into_iter().map(|mma| {
+                MatchArm { patterns: mma.patterns, body: mma.body, span: mma.span }
+            }).collect();
+            Ok(Value::Expr(Spanned::new(Expr::MatchExpr(MatchExprData {
+                targets: vec![target],
+                arms: match_arms,
+            }), span)))
+        }
+
+        // ── Supertrait ────────────────────────────────────────
+
+        "Supertrait" => Ok(Value::Str(args[0].as_str()?)),
+
+        // ── Methods list wrapper ──────────────────────────────
+
+        "Methods" => Ok(args[0].clone()),
+
         // ── Pass-through: already-constructed values ─────────
-        // When a constructor name matches a Value variant, wrap it
         _ => Err(format!("unknown constructor: {}", name)),
+    }
+}
+
+fn str_to_binop(s: &str) -> Result<crate::ast::BinOp, String> {
+    use crate::ast::BinOp;
+    match s {
+        "+" => Ok(BinOp::Addition),
+        "-" => Ok(BinOp::Subtraction),
+        "*" => Ok(BinOp::Multiplication),
+        "/" => Ok(BinOp::Division),
+        "%" => Ok(BinOp::Remainder),
+        "==" => Ok(BinOp::Equal),
+        "!=" => Ok(BinOp::NotEqual),
+        "<" => Ok(BinOp::LessThan),
+        ">" => Ok(BinOp::GreaterThan),
+        "<=" => Ok(BinOp::LessThanOrEqual),
+        ">=" => Ok(BinOp::GreaterThanOrEqual),
+        "&&" => Ok(BinOp::LogicalAnd),
+        "||" => Ok(BinOp::LogicalOr),
+        _ => Err(format!("unknown operator: {}", s)),
     }
 }
