@@ -195,30 +195,11 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
         }
         "TraitDecl" => {
             let name = args[0].as_str()?;
-            let supertraits_val = if args.len() > 1 { args[1].clone() } else { Value::List(vec![]) };
-            let members_val = if args.len() > 2 { args[2].clone() } else { Value::List(vec![]) };
-
-            let supertraits: Vec<String> = match supertraits_val {
-                Value::List(items) => items.into_iter().map(|v| v.as_str()).collect::<Result<Vec<_>, _>>()?,
-                _ => vec![],
-            };
-            let members = match members_val {
-                Value::List(items) => items,
-                _ => vec![],
-            };
-
-            let mut method_sigs = Vec::new();
-            let mut constants = Vec::new();
-            for m in members {
-                match m {
-                    Value::MethodSig(s) => method_sigs.push(s),
-                    Value::ConstDecl(c) => constants.push(c),
-                    _ => {}
-                }
-            }
-
+            // <traitBody> produces: Cons(supertrait, Cons(..., Methods(sigs))) or Methods(sigs) or Nil
+            let body = if args.len() > 1 { args[1].clone() } else { Value::List(vec![]) };
+            let (supertraits, method_sigs) = extract_trait_body(body)?;
             Ok(Value::Item(Spanned::new(
-                Item::Trait(TraitDecl { name, supertraits, methods: method_sigs, constants, span: span.clone() }),
+                Item::Trait(TraitDecl { name, supertraits, methods: method_sigs, constants: vec![], span: span.clone() }),
                 span,
             )))
         }
@@ -650,6 +631,93 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
 
         "Methods" => Ok(args[0].clone()),
 
+        // ── Method signatures ─────────────────────────────────
+
+        "MethodSig" => {
+            let name = args[0].as_str()?;
+            let params = args[1].clone().into_list()?
+                .into_iter().map(|v| v.as_param()).collect::<Result<Vec<_>, _>>()?;
+            let output = if args.len() > 2 {
+                Some(args[2].as_type_ref()?)
+            } else {
+                None
+            };
+            Ok(Value::MethodSig(MethodSig { name, params, output, span }))
+        }
+
+        // TypeImpl — needs <methodDef> grammar rule (not yet implemented)
+        // Falls through to built-in parser until method definitions are grammar-driven
+
+        // ── Destructure arm ──────────────────────────────────
+
+        "DestructureArm" => {
+            let destructure_val = args[0].clone();
+            let body_expr = args[1].as_expr()?;
+            // Destructure is a Cons/Rest list of elements
+            let (elems, rest_name) = parse_destructure_list(destructure_val)?;
+            Ok(Value::MatchMethodArm(MatchMethodArm {
+                kind: ArmKind::Destructure,
+                patterns: vec![],
+                body: vec![body_expr],
+                destructure: Some((elems, rest_name)),
+                span,
+            }))
+        }
+
+        "Elem" => Ok(Value::Str(args[0].as_str()?)),
+        "Rest" => Ok(Value::Str(args[0].as_str()?)),
+
+        // ── Set chain method call ────────────────────────────
+
+        "MethodCall" => {
+            let name = args[0].as_str()?;
+            let call_args = if args.len() > 1 {
+                args[1].clone().into_list()?
+                    .into_iter().map(|v| v.as_expr()).collect::<Result<Vec<_>, _>>()?
+            } else {
+                vec![]
+            };
+            Ok(Value::Expr(Spanned::new(
+                Expr::MethodCall(
+                    Box::new(Spanned::new(Expr::BareName("_chain".into()), span.clone())),
+                    name,
+                    call_args,
+                ),
+                span,
+            )))
+        }
+
+        // ── Grammar rule self-definition ─────────────────────
+
+        "GrammarRule" => {
+            let name = args[0].as_str()?;
+            Ok(Value::Item(Spanned::new(
+                Item::GrammarRule(GrammarRule {
+                    name,
+                    arms: vec![],
+                    span: span.clone(),
+                }),
+                span,
+            )))
+        }
+        "RuleArm" => Ok(Value::List(args.to_vec())),
+        "NonTerminal" => Ok(Value::Str(args[0].as_str()?)),
+        "Terminal" => Ok(Value::Str(args[0].as_str()?)),
+        "Binding" => Ok(Value::Str(args[0].as_str()?)),
+        "RestBind" => Ok(Value::Str(args[0].as_str()?)),
+        "Bound" => Ok(Value::Str(args[0].as_str()?)),
+        "RuleRef" => Ok(Value::Str(args[0].as_str()?)),
+        "Constructor" => {
+            let name = args[0].as_str()?;
+            let ctor_args = if args.len() > 1 { args[1..].to_vec() } else { vec![] };
+            Ok(Value::List(vec![Value::Str(name), Value::List(ctor_args)]))
+        }
+        "Nested" => {
+            let name = args[0].as_str()?;
+            let nested_args = if args.len() > 1 { args[1..].to_vec() } else { vec![] };
+            Ok(Value::List(vec![Value::Str(name), Value::List(nested_args)]))
+        }
+
         // ── Pass-through: already-constructed values ─────────
         _ => Err(format!("unknown constructor: {}", name)),
     }
@@ -672,5 +740,47 @@ fn str_to_binop(s: &str) -> Result<crate::ast::BinOp, String> {
         "&&" => Ok(BinOp::LogicalAnd),
         "||" => Ok(BinOp::LogicalOr),
         _ => Err(format!("unknown operator: {}", s)),
+    }
+}
+
+/// Walk <traitBody> flat list into (supertraits, method_sigs).
+/// Cons flattens, so the result is [Str("super1"), Str("super2"), MethodSig, MethodSig, ...].
+fn extract_trait_body(val: Value) -> Result<(Vec<String>, Vec<MethodSig>), String> {
+    match val {
+        Value::List(items) => {
+            let mut supertraits = Vec::new();
+            let mut method_sigs = Vec::new();
+            for item in items {
+                match item {
+                    Value::Str(s) => supertraits.push(s),
+                    Value::MethodSig(s) => method_sigs.push(s),
+                    _ => {}
+                }
+            }
+            Ok((supertraits, method_sigs))
+        }
+        Value::None => Ok((vec![], vec![])),
+        _ => Ok((vec![], vec![])),
+    }
+}
+
+/// Walk a Cons/Rest list from <destructure> grammar rule into DestructureElements + rest name.
+fn parse_destructure_list(val: Value) -> Result<(Vec<DestructureElement>, String), String> {
+    let mut elems = Vec::new();
+    let mut current = val;
+    loop {
+        match current {
+            Value::List(ref items) if items.len() == 2 => {
+                // Cons(Elem(@Name), rest)
+                let head = items[0].as_str()?;
+                elems.push(DestructureElement::Binding(head));
+                current = items[1].clone();
+            }
+            Value::Str(rest_name) => {
+                // Rest(@Name) — the tail binding
+                return Ok((elems, rest_name));
+            }
+            _ => return Err(format!("unexpected destructure element: {:?}", current)),
+        }
     }
 }
