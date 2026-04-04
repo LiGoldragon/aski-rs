@@ -12,6 +12,6 @@ serde_json = "1"
 rkyv = { version = "0.8", features = ["bytecheck"] }
 rayon = "=1.10.0"
 ascent = "0.8.0"
-aski-core = { path = "../aski-core" }
+aski-core = { path = "flake-crates/aski-core" }
 
 [dev-dependencies]

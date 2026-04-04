@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "aski-core-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1775312599,
+        "narHash": "sha256-B8wxJldkz4OU3Ev5Qtjt5sCDlIWb1Ai8IJYQyjVQk0s=",
+        "owner": "LiGoldragon",
+        "repo": "aski-core",
+        "rev": "34691ea12c0614dcbf9d60a1a5dca36844a50678",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LiGoldragon",
+        "repo": "aski-core",
+        "type": "github"
+      }
+    },
     "crane": {
       "locked": {
         "lastModified": 1775236976,
@@ -54,6 +70,7 @@
     },
     "root": {
       "inputs": {
+        "aski-core-src": "aski-core-src",
         "crane": "crane",
         "fenix": "fenix",
         "nixpkgs": "nixpkgs"

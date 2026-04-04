@@ -4,6 +4,7 @@
 # Nix
 .direnv/
 result
+flake-crates/
 
 # Editor tempfiles
 \#*\#
