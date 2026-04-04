@@ -191,11 +191,15 @@ fn parse_pattern_elem(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>)
             expect_tok(tokens, cur, &Token::GreaterThan, ">")?;
             Ok(PatElem::Rule(name))
         }
-        // @Name — binding
+        // @Name — identifier binding; @Lit — literal binding
         Token::At => {
             *cur += 1;
             let name = eat_ident(tokens, cur)?;
-            Ok(PatElem::Bind(name))
+            if name == "Lit" {
+                Ok(PatElem::BindLit(name))
+            } else {
+                Ok(PatElem::Bind(name))
+            }
         }
         // "literal" — match identifier with exact value
         Token::StringLit(s) => {

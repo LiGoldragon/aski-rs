@@ -35,9 +35,12 @@ pub enum PatElem {
     Lit(String),
     /// Call another grammar rule (e.g., "typeRef" from <typeRef>).
     Rule(String),
-    /// Bind the next value-carrying token to a name.
-    /// Matches: PascalIdent, CamelIdent, Integer, Float, StringLit.
+    /// Bind the next identifier token to a name.
+    /// Matches: PascalIdent, CamelIdent.
     Bind(String),
+    /// Bind the next literal token to a name.
+    /// Matches: Integer, Float, StringLit.
+    BindLit(String),
 }
 
 /// What to produce from a matched arm.

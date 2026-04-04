@@ -239,14 +239,23 @@ impl GrammarParser {
                 }
                 PatElem::Bind(bind_name) => {
                     let tok = tokens.get(cur)
-                        .ok_or_else(|| format!("expected bindable token for @{}, got EOF", bind_name))?;
+                        .ok_or_else(|| format!("expected identifier for @{}, got EOF", bind_name))?;
                     let value = match &tok.token {
                         Token::PascalIdent(s) => Value::Str(s.clone()),
                         Token::CamelIdent(s) => Value::Str(s.clone()),
+                        _ => return Err(format!("cannot bind @{} to {:?} (expected identifier)", bind_name, tok.token)),
+                    };
+                    bindings.insert(bind_name.clone(), value);
+                    cur += 1;
+                }
+                PatElem::BindLit(bind_name) => {
+                    let tok = tokens.get(cur)
+                        .ok_or_else(|| format!("expected literal for @{}, got EOF", bind_name))?;
+                    let value = match &tok.token {
                         Token::Integer(n) => Value::Int(*n),
                         Token::Float(s) => Value::Float(s.parse().unwrap_or(0.0)),
                         Token::StringLit(s) => Value::Str(s.clone()),
-                        _ => return Err(format!("cannot bind @{} to {:?}", bind_name, tok.token)),
+                        _ => return Err(format!("cannot bind @{} to {:?} (expected literal)", bind_name, tok.token)),
                     };
                     bindings.insert(bind_name.clone(), value);
                     cur += 1;
@@ -2152,7 +2161,19 @@ mod tests {
         let parser = make_parser();
         let items = parser.parse_source("Main [ StdOut \"hello\" ]").unwrap();
         assert_eq!(items.len(), 1);
-        assert!(matches!(&items[0].node, Item::Main(_)));
+        match &items[0].node {
+            Item::Main(m) => match &m.body {
+                Body::Block(stmts) => match &stmts[0].node {
+                    Expr::StdOut(inner) => {
+                        assert!(matches!(&inner.node, Expr::StringLit(s) if s == "hello"),
+                            "expected StringLit(\"hello\"), got {:?}", inner.node);
+                    }
+                    other => panic!("expected StdOut, got {:?}", other),
+                }
+                other => panic!("expected Block, got {:?}", other),
+            }
+            _ => panic!("expected Main"),
+        }
     }
 
     #[test]
