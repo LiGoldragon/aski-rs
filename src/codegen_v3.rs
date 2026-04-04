@@ -7,6 +7,18 @@ use aski_core::{self, World};
 pub fn generate(world: &World) -> Result<String, String> {
     let mut out = String::new();
 
+    // Emit operator trait imports from kernel
+    let op_impls = aski_core::query_all_operator_impls(world);
+    let mut imports: Vec<String> = op_impls.iter()
+        .map(|(name, _, _)| rust_trait(name))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    for imp in &imports {
+        out.push_str(&format!("use std::ops::{imp};\n"));
+    }
+    if !imports.is_empty() { out.push('\n'); }
+
     let mut nodes = aski_core::query_all_top_level_nodes(world);
     nodes.sort_by_key(|(_, kind, _)| match kind.as_str() {
         "foreign_block" | "domain" | "struct" | "const" => 0u8,
@@ -103,12 +115,11 @@ fn emit_domain(out: &mut String, world: &World, name: &str) -> Result<(), String
 
 fn emit_struct(out: &mut String, world: &World, name: &str) -> Result<(), String> {
     let fields = aski_core::query_struct_fields(world, name);
-    let recursive = aski_core::query_recursive_fields(world);
     out.push_str(&format!("#[derive(Debug, Clone, PartialEq)]\npub struct {name} {{\n"));
     for (_, fname, ftype) in &fields {
         let sname = snake(fname);
         let rt = rust_type(ftype);
-        if recursive.contains(&(name.to_string(), fname.clone())) {
+        if aski_core::is_recursive_field(world, name, fname) {
             out.push_str(&format!("    pub {sname}: Box<{rt}>,\n"));
         } else {
             out.push_str(&format!("    pub {sname}: {rt},\n"));
@@ -164,7 +175,20 @@ fn emit_impl(out: &mut String, world: &World, node_id: i64) -> Result<(), String
 
     for (child_id, kind, target_type) in &children {
         if kind != "impl_body" { continue; }
+
+        // Check if this is an operator trait impl via kernel
+        let is_operator = aski_core::query_operator_impl(world, &trait_name, target_type).is_some();
+
         out.push_str(&format!("impl {} for {target_type} {{\n", rust_trait(&trait_name)));
+
+        // Operator traits need `type Output`
+        if is_operator {
+            let ret = aski_core::query_child_nodes(world, *child_id).iter()
+                .find(|(_, k, _)| k == "method" || k == "tail_method")
+                .and_then(|(mid, _, _)| aski_core::query_return_type(world, *mid));
+            let output = ret.unwrap_or_else(|| target_type.clone());
+            out.push_str(&format!("    type Output = {output};\n"));
+        }
 
         let methods = aski_core::query_child_nodes(world, *child_id);
         for (mid, mkind, mname) in &methods {
@@ -172,7 +196,14 @@ fn emit_impl(out: &mut String, world: &World, node_id: i64) -> Result<(), String
             let params = aski_core::query_params(world, *mid);
             let ret = aski_core::query_return_type(world, *mid);
             let ret_str = ret.map(|r| format!(" -> {}", rust_type(&r))).unwrap_or_default();
-            out.push_str(&format!("    fn {}({}){ret_str} {{\n", snake(mname), emit_params(&params)));
+
+            // Operator traits use owned self, not &self
+            let param_str = if is_operator {
+                emit_params_operator(&params)
+            } else {
+                emit_params(&params)
+            };
+            out.push_str(&format!("    fn {}({}){ret_str} {{\n", snake(mname), param_str));
 
             let arms = aski_core::query_match_arms(world, *mid);
             if !arms.is_empty() {
@@ -232,6 +263,18 @@ fn emit_params(params: &[(String, Option<String>, Option<String>)]) -> String {
             let t = typ.as_deref()?;
             let n = name.as_deref().unwrap_or(t);
             Some(format!("{}: &{}", snake(n), rust_type(t)))
+        }
+        _ => None,
+    }).collect::<Vec<_>>().join(", ")
+}
+
+fn emit_params_operator(params: &[(String, Option<String>, Option<String>)]) -> String {
+    params.iter().filter_map(|(kind, name, typ)| match kind.as_str() {
+        "borrow_self" | "mut_borrow_self" | "owned_self" => Some("self".into()),
+        "named" | "borrow" | "owned" => {
+            let t = typ.as_deref()?;
+            let n = name.as_deref().unwrap_or(t);
+            Some(format!("{}: {}", snake(n), rust_type(t)))
         }
         _ => None,
     }).collect::<Vec<_>>().join(", ")
