@@ -3,12 +3,11 @@
 //! the kernel needs a new derived relation.
 
 use aski_core::{self, World};
-use crate::ir;
 
 pub fn generate(world: &World) -> Result<String, String> {
     let mut out = String::new();
 
-    let mut nodes = ir::query_all_top_level_nodes(world)?;
+    let mut nodes = aski_core::query_all_top_level_nodes(world);
     nodes.sort_by_key(|(_, kind, _)| match kind.as_str() {
         "foreign_block" | "domain" | "struct" | "const" => 0u8,
         "trait" => 1,
@@ -85,7 +84,7 @@ fn qualify(world: &World, name: &str) -> String {
 // ── Domain ──
 
 fn emit_domain(out: &mut String, world: &World, name: &str) -> Result<(), String> {
-    let variants = ir::query_domain_variants(world, name)?;
+    let variants = aski_core::query_domain_variants(world, name);
     out.push_str(&format!("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum {name} {{\n"));
     for (_, vname, wraps) in &variants {
         match wraps {
@@ -103,10 +102,17 @@ fn emit_domain(out: &mut String, world: &World, name: &str) -> Result<(), String
 // ── Struct ──
 
 fn emit_struct(out: &mut String, world: &World, name: &str) -> Result<(), String> {
-    let fields = ir::query_struct_fields(world, name)?;
+    let fields = aski_core::query_struct_fields(world, name);
+    let recursive = aski_core::query_recursive_fields(world);
     out.push_str(&format!("#[derive(Debug, Clone, PartialEq)]\npub struct {name} {{\n"));
     for (_, fname, ftype) in &fields {
-        out.push_str(&format!("    pub {}: {},\n", snake(fname), rust_type(ftype)));
+        let sname = snake(fname);
+        let rt = rust_type(ftype);
+        if recursive.contains(&(name.to_string(), fname.clone())) {
+            out.push_str(&format!("    pub {sname}: Box<{rt}>,\n"));
+        } else {
+            out.push_str(&format!("    pub {sname}: {rt},\n"));
+        }
     }
     out.push_str("}\n\n");
     Ok(())
@@ -115,10 +121,10 @@ fn emit_struct(out: &mut String, world: &World, name: &str) -> Result<(), String
 // ── Constant ──
 
 fn emit_const(out: &mut String, world: &World, node_id: i64) -> Result<(), String> {
-    let (name, type_ref, has_value) = ir::query_constant(world, node_id)?
+    let (name, type_ref, has_value) = aski_core::query_constant(world, node_id)
         .ok_or("constant not found")?;
     if has_value {
-        let children = ir::query_child_exprs(world, node_id)?;
+        let children = aski_core::query_child_exprs(world, node_id);
         if let Some((cid, _, _, _)) = children.first() {
             let val = emit_expr(world, *cid)?;
             out.push_str(&format!("pub const {}: {} = {val};\n\n", screaming(&name), rust_type(&type_ref)));
@@ -130,12 +136,15 @@ fn emit_const(out: &mut String, world: &World, node_id: i64) -> Result<(), Strin
 // ── Trait ──
 
 fn emit_trait(out: &mut String, world: &World, node_id: i64, name: &str) -> Result<(), String> {
-    let children = ir::query_child_nodes(world, node_id)?;
-    out.push_str(&format!("pub trait {} {{\n", rust_trait(name)));
+    let supers = aski_core::query_supertraits(world, node_id);
+    let children = aski_core::query_child_nodes(world, node_id);
+    let super_str = if supers.is_empty() { String::new() }
+        else { format!(": {}", supers.iter().map(|s| rust_trait(s)).collect::<Vec<_>>().join(" + ")) };
+    out.push_str(&format!("pub trait {}{super_str} {{\n", rust_trait(name)));
     for (cid, kind, cname) in &children {
         if kind == "method_sig" {
-            let params = ir::query_params(world, *cid)?;
-            let ret = ir::query_return_type(world, *cid)?;
+            let params = aski_core::query_params(world, *cid);
+            let ret = aski_core::query_return_type(world, *cid);
             let ret_str = ret.map(|r| format!(" -> {}", rust_type(&r))).unwrap_or_default();
             out.push_str(&format!("    fn {}({}){ret_str};\n", snake(cname), emit_params(&params)));
         }
@@ -147,8 +156,7 @@ fn emit_trait(out: &mut String, world: &World, node_id: i64, name: &str) -> Resu
 // ── Impl ──
 
 fn emit_impl(out: &mut String, world: &World, node_id: i64) -> Result<(), String> {
-    let children = ir::query_child_nodes(world, node_id)?;
-    // The impl node's name is the trait name
+    let children = aski_core::query_child_nodes(world, node_id);
     let trait_name = world.nodes.iter()
         .find(|n| n.id == node_id)
         .map(|n| n.name.clone())
@@ -158,19 +166,19 @@ fn emit_impl(out: &mut String, world: &World, node_id: i64) -> Result<(), String
         if kind != "impl_body" { continue; }
         out.push_str(&format!("impl {} for {target_type} {{\n", rust_trait(&trait_name)));
 
-        let methods = ir::query_child_nodes(world, *child_id)?;
+        let methods = aski_core::query_child_nodes(world, *child_id);
         for (mid, mkind, mname) in &methods {
-            if mkind != "method" { continue; }
-            let params = ir::query_params(world, *mid)?;
-            let ret = ir::query_return_type(world, *mid)?;
+            if mkind != "method" && mkind != "tail_method" { continue; }
+            let params = aski_core::query_params(world, *mid);
+            let ret = aski_core::query_return_type(world, *mid);
             let ret_str = ret.map(|r| format!(" -> {}", rust_type(&r))).unwrap_or_default();
             out.push_str(&format!("    fn {}({}){ret_str} {{\n", snake(mname), emit_params(&params)));
 
-            let arms = ir::query_match_arms(world, *mid)?;
+            let arms = aski_core::query_match_arms(world, *mid);
             if !arms.is_empty() {
                 emit_match_body(out, world, &arms)?;
             } else {
-                let exprs = ir::query_child_exprs(world, *mid)?;
+                let exprs = aski_core::query_child_exprs(world, *mid);
                 emit_block(out, world, &exprs, "        ")?;
             }
 
@@ -185,7 +193,7 @@ fn emit_impl(out: &mut String, world: &World, node_id: i64) -> Result<(), String
 
 fn emit_main(out: &mut String, world: &World, node_id: i64) -> Result<(), String> {
     out.push_str("pub fn main() {\n");
-    let exprs = ir::query_child_exprs(world, node_id)?;
+    let exprs = aski_core::query_child_exprs(world, node_id);
     emit_block(out, world, &exprs, "    ")?;
     out.push_str("}\n");
     Ok(())
@@ -194,12 +202,12 @@ fn emit_main(out: &mut String, world: &World, node_id: i64) -> Result<(), String
 // ── Foreign block ──
 
 fn emit_foreign_block(out: &mut String, world: &World, node_id: i64, library: &str) -> Result<(), String> {
-    let children = ir::query_child_nodes(world, node_id)?;
+    let children = aski_core::query_child_nodes(world, node_id);
     let crate_name = snake(library);
     for (cid, _, cname) in &children {
-        let ret = ir::query_return_type(world, *cid)?.unwrap_or_else(|| "()".into());
-        let params = ir::query_params(world, *cid)?;
-        let exprs = ir::query_child_exprs(world, *cid)?;
+        let ret = aski_core::query_return_type(world, *cid).unwrap_or_else(|| "()".into());
+        let params = aski_core::query_params(world, *cid);
+        let exprs = aski_core::query_child_exprs(world, *cid);
         let extern_name = exprs.iter()
             .find(|(_, k, _, _)| k == "extern_name")
             .and_then(|(_, _, _, v)| v.clone())
@@ -263,30 +271,24 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
     for (eid, kind, _, _) in exprs {
         match kind.as_str() {
             "same_type_new" | "sub_type_new" => {
-                // Read binding info from kernel — no string parsing here
                 let (var_name, type_name) = aski_core::query_binding_info(world, *eid)
                     .ok_or_else(|| format!("no BindingInfo for expr {eid}"))?;
-                let children = ir::query_child_exprs(world, *eid)?;
+                let children = aski_core::query_child_exprs(world, *eid);
                 let svar = snake(&var_name);
-
-                // Query kernel for what kind of type this is
                 let type_kind = aski_core::query_type_kind(world, &type_name);
 
                 match type_kind.as_deref() {
                     Some("struct") => {
-                        // Struct binding — children are struct field inits or a single expr
                         let val = emit_struct_or_expr(world, &type_name, &children)?;
                         out.push_str(&format!("{indent}let {svar} = {val};\n"));
                     }
                     _ if is_primitive(&type_name) => {
-                        // Primitive binding
                         if let Some((cid, _, _, _)) = children.first() {
                             let val = emit_expr(world, *cid)?;
                             out.push_str(&format!("{indent}let {svar}: {} = {val};\n", rust_type(&type_name)));
                         }
                     }
                     _ => {
-                        // Domain or other type
                         if let Some((cid, _, _, _)) = children.first() {
                             let val = emit_expr(world, *cid)?;
                             out.push_str(&format!("{indent}let {svar}: {} = {val};\n", rust_type(&type_name)));
@@ -294,18 +296,39 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
                     }
                 }
             }
+            "mutable_new" | "mutable_set" => {
+                let children = aski_core::query_child_exprs(world, *eid);
+                if let Some((var_name, type_name)) = aski_core::query_binding_info(world, *eid) {
+                    let svar = snake(&var_name);
+                    if let Some((cid, _, _, _)) = children.first() {
+                        let val = emit_expr(world, *cid)?;
+                        if kind == "mutable_new" {
+                            out.push_str(&format!("{indent}let mut {svar}: {} = {val};\n", rust_type(&type_name)));
+                        } else {
+                            out.push_str(&format!("{indent}{svar} = {val};\n"));
+                        }
+                    }
+                }
+            }
             "std_out" => {
-                let children = ir::query_child_exprs(world, *eid)?;
+                let children = aski_core::query_child_exprs(world, *eid);
                 if let Some((cid, _, _, _)) = children.first() {
                     let val = emit_expr(world, *cid)?;
                     out.push_str(&format!("{indent}println!(\"{{}}\", {val});\n"));
                 }
             }
             "return" => {
-                let children = ir::query_child_exprs(world, *eid)?;
+                let children = aski_core::query_child_exprs(world, *eid);
                 if let Some((cid, _, _, _)) = children.first() {
                     let val = emit_expr(world, *cid)?;
                     out.push_str(&format!("{indent}{val}\n"));
+                }
+            }
+            "error_prop" => {
+                let children = aski_core::query_child_exprs(world, *eid);
+                if let Some((cid, _, _, _)) = children.first() {
+                    let val = emit_expr(world, *cid)?;
+                    out.push_str(&format!("{indent}{val}?;\n"));
                 }
             }
             _ => {
@@ -330,11 +353,15 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
         "float_lit" => Ok(value.unwrap_or("0.0".into())),
         "string_lit" => Ok(format!("\"{}\"", value.unwrap_or_default())),
         "const_ref" => Ok(screaming(&value.unwrap_or_default())),
-        "instance_ref" => Ok(snake(&value.unwrap_or_default())),
+        "instance_ref" => {
+            let name = value.unwrap_or_default();
+            if name == "Self" { Ok("self".into()) }
+            else { Ok(snake(&name)) }
+        }
         "bare_name" => Ok(qualify(world, &value.unwrap_or_default())),
 
         "bin_op" => {
-            let children = ir::query_child_exprs(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
             let op = value.unwrap_or("+".into());
             if children.len() >= 2 {
                 let l = emit_expr(world, children[0].0)?;
@@ -344,7 +371,7 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
         }
 
         "inline_eval" => {
-            let children = ir::query_child_exprs(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
             if children.len() == 1 {
                 emit_expr(world, children[0].0)
             } else {
@@ -355,11 +382,10 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
 
         "access" => {
             let name = value.unwrap_or_default();
-            let children = ir::query_child_exprs(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
             if let Some((cid, _, _, _)) = children.first() {
                 let base = emit_expr(world, *cid)?;
                 let s = snake(&name);
-                // Method (camelCase) vs field (PascalCase)
                 if name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
                     Ok(format!("{base}.{s}()"))
                 } else {
@@ -372,7 +398,7 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
 
         "method_call" => {
             let method = value.unwrap_or_default();
-            let children = ir::query_child_exprs(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
             let base = if children.is_empty() { "self".into() }
                        else { emit_expr(world, children[0].0)? };
             let args: Vec<String> = children.iter().skip(1)
@@ -385,9 +411,8 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
 
         "struct_construct" => {
             let name = value.unwrap_or_default();
-            let children = ir::query_child_exprs(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
 
-            // Kernel query: is this a variant?
             if aski_core::query_variant_domain(world, &name).is_some() {
                 if children.is_empty() { return Ok(qualify(world, &name)); }
                 if children.len() == 1 {
@@ -396,11 +421,10 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
                 }
             }
 
-            // Struct literal
             let mut fields = Vec::new();
             for (cid, _, _, cval) in &children {
                 let fname = snake(cval.as_deref().unwrap_or(""));
-                let inner = ir::query_child_exprs(world, *cid)?;
+                let inner = aski_core::query_child_exprs(world, *cid);
                 if let Some((vid, _, _, _)) = inner.first() {
                     fields.push(format!("{fname}: {}", emit_expr(world, *vid)?));
                 }
@@ -409,21 +433,21 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
         }
 
         "group" => {
-            let children = ir::query_child_exprs(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
             children.first().map(|(cid, _, _, _)| {
                 emit_expr(world, *cid).map(|v| format!("({v})"))
             }).unwrap_or(Ok("()".into()))
         }
 
         "return" => {
-            let children = ir::query_child_exprs(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
             children.first().map(|(cid, _, _, _)| emit_expr(world, *cid))
                 .unwrap_or(Ok("()".into()))
         }
 
         "fn_call" => {
             let name = value.unwrap_or_default();
-            let children = ir::query_child_exprs(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
             let args: Vec<String> = children.iter()
                 .map(|(cid, _, _, _)| emit_expr(world, *cid).map(|v| format!("&{v}")))
                 .collect::<Result<_, _>>()?;
@@ -431,18 +455,23 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
         }
 
         "match" => {
-            let children = ir::query_child_exprs(world, expr_id)?;
-            let arms = ir::query_match_arms(world, expr_id)?;
+            let children = aski_core::query_child_exprs(world, expr_id);
+            let arms = aski_core::query_match_arms(world, expr_id);
             if let Some((tid, _, _, _)) = children.first() {
                 let target = emit_expr(world, *tid)?;
                 let arm_strs: Vec<String> = arms.iter().filter_map(|(_, pats, bid, _)| {
                     let pat = pats.first().map(|p| qualify(world, p)).unwrap_or("_".into());
-                    bid.map(|b| emit_expr(world, b).map(|body| format!("{pat} => {body}")))
-                        .map(|r| r.ok())
+                    bid.map(|b| emit_expr(world, b).ok().map(|body| format!("{pat} => {body}")))
                         .flatten()
                 }).collect();
                 Ok(format!("match {target} {{ {} }}", arm_strs.join(", ")))
             } else { Ok("todo!()".into()) }
+        }
+
+        "yield" => {
+            let children = aski_core::query_child_exprs(world, expr_id);
+            children.first().map(|(cid, _, _, _)| emit_expr(world, *cid))
+                .unwrap_or(Ok("()".into()))
         }
 
         "stub" => Ok("todo!()".into()),
@@ -457,7 +486,7 @@ fn emit_struct_or_expr(world: &World, type_name: &str, children: &[(i64, String,
     for (cid, ckind, _, cval) in children {
         if ckind == "struct_construct" {
             let fname = snake(cval.as_deref().unwrap_or(""));
-            let inner = ir::query_child_exprs(world, *cid)?;
+            let inner = aski_core::query_child_exprs(world, *cid);
             if let Some((vid, _, _, _)) = inner.first() {
                 fields.push(format!("{fname}: {}", emit_expr(world, *vid)?));
             }
