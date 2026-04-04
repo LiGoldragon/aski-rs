@@ -39,39 +39,40 @@ fn resolve_sources(sources: &[(&str, &str)]) -> ir::World {
 }
 
 fn find_node(world: &ir::World, kind: &str, name: &str) -> Option<i64> {
-    world.Node.iter()
-        .find(|(_, k, n, _, _, _, _)| k == kind && n == name)
-        .map(|(id, _, _, _, _, _, _)| *id)
+    let k = aski_core::NodeKind::from_str(kind);
+    world.nodes.iter()
+        .find(|n| k.map_or(false, |k| n.kind == k) && n.name == name)
+        .map(|n| n.id)
 }
 
 fn qualified_name(world: &ir::World, node_id: i64) -> Option<String> {
-    world.QualifiedName.iter()
-        .find(|(id, _)| *id == node_id)
-        .map(|(_, qn)| qn.clone())
+    world.qualified_names.iter()
+        .find(|q| q.node_id == node_id)
+        .map(|q| q.full_path.clone())
 }
 
 fn can_see(world: &ir::World, observer: i64, target: i64) -> bool {
-    world.CanSee.contains(&(observer, target))
+    world.can_sees.iter().any(|c| c.observer_id == observer && c.visible_id == target)
 }
 
-/// Validate resolution graph, then generate Rust via codegen_v2.
+/// Validate resolution graph, then generate Rust via codegen_v3.
 fn generate_with_resolution(world: &ir::World) -> String {
     // Verify every top-level node has a QualifiedName
     for (id, kind, name) in &ir::query_all_top_level_nodes(world).unwrap() {
-        assert!(world.QualifiedName.iter().any(|(nid, _)| *nid == *id),
+        assert!(world.qualified_names.iter().any(|q| q.node_id == *id),
             "node '{}' (kind={}, id={}) has no QualifiedName", name, kind, id);
     }
 
     // Verify every method can see its return type
-    for (id, kind, name, _, _, _, _) in world.Node.iter() {
-        if kind != "method" { continue; }
-        if let Some(ret_type) = ir::query_return_type(world, *id).unwrap() {
-            if let Some((type_id, _, type_name, _, _, _, _)) = world.Node.iter()
-                .find(|(_, k, n, _, _, _, _)| (k == "domain" || k == "struct") && *n == ret_type)
+    for node in world.nodes.iter() {
+        if node.kind != aski_core::NodeKind::Method { continue; }
+        if let Some(ret_type) = ir::query_return_type(world, node.id).unwrap() {
+            if let Some(type_node) = world.nodes.iter()
+                .find(|n| (n.kind == aski_core::NodeKind::Domain || n.kind == aski_core::NodeKind::Struct) && n.name == ret_type)
             {
-                assert!(world.CanSee.contains(&(*id, *type_id)),
+                assert!(world.can_sees.iter().any(|c| c.observer_id == node.id && c.visible_id == type_node.id),
                     "method '{}' returns '{}' but cannot see type '{}' (id={})",
-                    name, ret_type, type_name, type_id);
+                    node.name, ret_type, type_node.name, type_node.id);
             }
         }
     }
@@ -171,9 +172,9 @@ fn method_inherits_parent_visibility() {
 
     let element_id = find_node(&world, "domain", "Element").expect("Element");
 
-    let method_nodes: Vec<i64> = world.Node.iter()
-        .filter(|(_, k, n, _, _, _, _)| k == "method" && n == "element")
-        .map(|(id, _, _, _, _, _, _)| *id)
+    let method_nodes: Vec<i64> = world.nodes.iter()
+        .filter(|n| n.kind == aski_core::NodeKind::Method && n.name == "element")
+        .map(|n| n.id)
         .collect();
     assert!(!method_nodes.is_empty());
 
@@ -191,9 +192,7 @@ fn cross_module_visibility_via_import() {
 
     let sign_id = find_node(&world, "domain", "Sign").expect("Sign");
     let element_id = find_node(&world, "domain", "Element").expect("Element");
-    let main_id = find_node(&world, "main", "main")
-        .or_else(|| find_node(&world, "main", "Main"))
-        .expect("Main");
+    let main_id = find_node(&world, "main", "Main").expect("Main");
 
     assert!(can_see(&world, main_id, sign_id), "Main should see Sign");
     assert!(can_see(&world, main_id, element_id), "Main should see Element");
@@ -221,9 +220,7 @@ fn end_to_end_multi_module() {
     let sign_id = find_node(&world, "domain", "Sign").expect("Sign");
     assert_eq!(qualified_name(&world, sign_id).as_deref(), Some("Chart::Sign"));
 
-    let main_id = find_node(&world, "main", "main")
-        .or_else(|| find_node(&world, "main", "Main"))
-        .expect("Main");
+    let main_id = find_node(&world, "main", "Main").expect("Main");
     assert!(can_see(&world, main_id, sign_id), "Main must see Sign");
 
     let rust = generate_with_resolution(&world);

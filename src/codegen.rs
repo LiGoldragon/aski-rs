@@ -862,9 +862,9 @@ fn gen_body_from_db(
                     if rk == "method_call" {
                         if let Some(continuation_method) = rv.as_ref() {
                             // Find method nodes with this name
-                            let method_nodes: Vec<(i64, String)> = db.Node.iter()
-                                .filter(|(_, kind, name, _, _, _, _)| kind == "method" && name == continuation_method)
-                                .map(|(id, _, _, _, _, _, _)| (*id, continuation_method.clone()))
+                            let method_nodes: Vec<(i64, String)> = db.nodes.iter()
+                                .filter(|n| n.kind == aski_core::NodeKind::Method && n.name == *continuation_method)
+                                .map(|n| (n.id, continuation_method.clone()))
                                 .collect();
                             {
                                 for (cont_method_id, _) in &method_nodes {

@@ -20,9 +20,9 @@ use crate::ir::World;
 /// These are World's variants — their ordinal is their position.
 fn world_variants(db: &World) -> Result<Vec<(i32, String, String)>, String> {
     // All top-level nodes (parent=null) that are domains or structs, ordered by id
-    let mut nodes: Vec<(i64, String, String)> = db.Node.iter()
-        .filter(|(_, kind, _, parent, _, _, _)| parent.is_none() && (kind == "domain" || kind == "struct"))
-        .map(|(id, kind, name, _, _, _, _)| (*id, kind.clone(), name.clone()))
+    let mut nodes: Vec<(i64, String, String)> = db.nodes.iter()
+        .filter(|n| n.parent == 0 && (n.kind == aski_core::NodeKind::Domain || n.kind == aski_core::NodeKind::Struct))
+        .map(|n| (n.id, n.kind.to_str().to_string(), n.name.clone()))
         .collect();
     nodes.sort_by_key(|(id, _, _)| *id);
     Ok(nodes.into_iter().enumerate().map(|(ordinal, (_, kind, name))| {
@@ -53,9 +53,9 @@ fn world_variant_ordinal(db: &World, name: &str) -> Result<(i32, String), String
 // ═══════════════════════════════════════════════════════════════
 
 fn type_kind(db: &World, type_name: &str) -> Result<Option<String>, String> {
-    Ok(db.Node.iter()
-        .find(|(_, kind, name, _, _, _, _)| (kind == "domain" || kind == "struct") && name == type_name)
-        .map(|(_, kind, _, _, _, _, _)| kind.clone()))
+    Ok(db.nodes.iter()
+        .find(|n| (n.kind == aski_core::NodeKind::Domain || n.kind == aski_core::NodeKind::Struct) && n.name == type_name)
+        .map(|n| n.kind.to_str().to_string()))
 }
 
 fn struct_fields(db: &World, type_name: &str) -> Result<Vec<(String, String)>, String> {

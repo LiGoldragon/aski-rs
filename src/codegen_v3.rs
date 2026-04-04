@@ -149,9 +149,9 @@ fn emit_trait(out: &mut String, world: &World, node_id: i64, name: &str) -> Resu
 fn emit_impl(out: &mut String, world: &World, node_id: i64) -> Result<(), String> {
     let children = ir::query_child_nodes(world, node_id)?;
     // The impl node's name is the trait name
-    let (_, _, trait_name) = world.Node.iter()
-        .find(|(id, _, _, _, _, _, _)| *id == node_id)
-        .map(|(id, _, name, _, _, _, _)| (*id, "impl", name.clone()))
+    let trait_name = world.nodes.iter()
+        .find(|n| n.id == node_id)
+        .map(|n| n.name.clone())
         .ok_or("impl node not found")?;
 
     for (child_id, kind, target_type) in &children {

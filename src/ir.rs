@@ -129,11 +129,19 @@ pub fn insert_module_header(
     let scope_id = ids.next();
 
     // Create scope node
-    world.Scope.push((scope_id, "module".to_string(), header.name.clone(), None));
+    world.scopes.push(aski_core::Scope {
+        id: scope_id,
+        kind: aski_core::ScopeKind::Module,
+        name: header.name.clone(),
+        parent_scope_id: 0,
+    });
 
     // Store exports
     for export in &header.exports {
-        world.Export.push((scope_id, export.clone()));
+        world.exports.push(aski_core::Export {
+            scope_id,
+            exported_name: export.clone(),
+        });
     }
 
     // Store imports
@@ -141,11 +149,19 @@ pub fn insert_module_header(
         match &import.items {
             ImportItems::Named(items) => {
                 for item in items {
-                    world.Import.push((scope_id, import.module.clone(), item.clone()));
+                    world.imports.push(aski_core::Import {
+                        scope_id,
+                        source_module: import.module.clone(),
+                        imported_name: item.clone(),
+                    });
                 }
             }
             ImportItems::Wildcard => {
-                world.Import.push((scope_id, import.module.clone(), "_".to_string()));
+                world.imports.push(aski_core::Import {
+                    scope_id,
+                    source_module: import.module.clone(),
+                    imported_name: "_".to_string(),
+                });
             }
         }
     }
@@ -172,17 +188,28 @@ fn insert_item(
             let span = &ta.span;
             insert_node(world, id, "type_alias", &ta.name, parent, span, scope_id);
             let aliased = type_ref_to_string(&ta.target);
-            world.Returns.push((id, aliased));
+            world.returns.push(aski_core::Returns {
+                method_id: id,
+                type_ref: aliased,
+            });
             Ok(id)
         }
         Item::GrammarRule(gr) => {
             let id = ids.next();
-            insert_node(world, id, "grammar_rule", &gr.name, parent, &gr.span, scope_id);
-            world.GrammarRule.push((id, gr.name.clone()));
+            insert_node(world, id, "grammar_rule_node", &gr.name, parent, &gr.span, scope_id);
+            world.grammar_rules.push(aski_core::GrammarRule {
+                node_id: id,
+                rule_name: gr.name.clone(),
+            });
             for (i, arm) in gr.arms.iter().enumerate() {
                 let pattern_json = serialize_grammar_pattern(&arm.pattern);
                 let result_json = serialize_grammar_result(&arm.result);
-                world.GrammarArm.push((id, i as i64, pattern_json, result_json));
+                world.grammar_arms.push(aski_core::GrammarArm {
+                    rule_id: id,
+                    ordinal: i as i64,
+                    pattern_json,
+                    result_json,
+                });
             }
             Ok(id)
         }
@@ -194,7 +221,10 @@ fn insert_item(
                 insert_node(world, fid, "foreign_function", &func.name, Some(id), &func.span, scope_id);
                 // Store extern name as a constant expression
                 let ret = type_ref_to_string(&func.return_type);
-                world.Returns.push((fid, ret));
+                world.returns.push(aski_core::Returns {
+                    method_id: fid,
+                    type_ref: ret,
+                });
                 // Store params
                 for (i, param) in func.params.iter().enumerate() {
                     insert_param(world, fid, i, param);
@@ -217,7 +247,15 @@ fn insert_node(
     span: &Span,
     scope_id: Option<i64>,
 ) {
-    world.Node.push((id, kind.to_string(), name.to_string(), parent, span.start, span.end, scope_id));
+    world.nodes.push(aski_core::Node {
+        id,
+        kind: aski_core::NodeKind::from_str(kind).unwrap_or(aski_core::NodeKind::Struct),
+        name: name.to_string(),
+        parent: parent.unwrap_or(0),
+        span_start: span.start as i64,
+        span_end: span.end as i64,
+        scope_id: scope_id.unwrap_or(0),
+    });
 }
 
 fn insert_domain(
@@ -231,8 +269,13 @@ fn insert_domain(
     insert_node(world, id, "domain", &domain.name, parent, &domain.span, scope_id);
 
     for (ordinal, variant) in domain.variants.iter().enumerate() {
-        let wraps = variant.wraps.as_ref().map(type_ref_to_string);
-        world.Variant.push((id, ordinal as i64, variant.name.clone(), wraps));
+        let wraps = variant.wraps.as_ref().map(type_ref_to_string).unwrap_or_default();
+        world.variants.push(aski_core::Variant {
+            domain_id: id,
+            ordinal: ordinal as i64,
+            name: variant.name.clone(),
+            wraps_type: wraps,
+        });
 
         // Struct variant fields
         if let Some(ref fields) = variant.fields {
@@ -240,7 +283,12 @@ fn insert_domain(
             insert_node(world, variant_id, "struct", &variant.name, Some(id), &variant.span, scope_id);
             for (ford, field) in fields.iter().enumerate() {
                 let tr = type_ref_to_string(&field.type_ref);
-                world.Field.push((variant_id, ford as i64, field.name.clone(), tr));
+                world.fields.push(aski_core::Field {
+                    struct_id: variant_id,
+                    ordinal: ford as i64,
+                    name: field.name.clone(),
+                    type_ref: tr,
+                });
             }
         }
 
@@ -249,8 +297,13 @@ fn insert_domain(
             let sub_domain_id = ids.next();
             insert_node(world, sub_domain_id, "domain", &variant.name, Some(id), &variant.span, scope_id);
             for (sord, sub_var) in sub_vars.iter().enumerate() {
-                let sw = sub_var.wraps.as_ref().map(type_ref_to_string);
-                world.Variant.push((sub_domain_id, sord as i64, sub_var.name.clone(), sw));
+                let sw = sub_var.wraps.as_ref().map(type_ref_to_string).unwrap_or_default();
+                world.variants.push(aski_core::Variant {
+                    domain_id: sub_domain_id,
+                    ordinal: sord as i64,
+                    name: sub_var.name.clone(),
+                    wraps_type: sw,
+                });
             }
         }
     }
@@ -270,7 +323,12 @@ fn insert_struct(
 
     for (ordinal, field) in s.fields.iter().enumerate() {
         let tr = type_ref_to_string(&field.type_ref);
-        world.Field.push((id, ordinal as i64, field.name.clone(), tr));
+        world.fields.push(aski_core::Field {
+            struct_id: id,
+            ordinal: ordinal as i64,
+            name: field.name.clone(),
+            type_ref: tr,
+        });
     }
 
     Ok(id)
@@ -283,17 +341,23 @@ fn insert_param(
     ordinal: usize,
     param: &Param,
 ) {
-    let (kind, name, type_ref): (&str, Option<String>, Option<String>) = match param {
-        Param::Owned(t) => ("owned", None, Some(t.clone())),
-        Param::Named(n, tr) => ("named", Some(n.clone()), Some(type_ref_to_string(tr))),
-        Param::BorrowSelf => ("borrow_self", None, None),
-        Param::MutBorrowSelf => ("mut_borrow_self", None, None),
-        Param::OwnedSelf => ("owned_self", None, None),
-        Param::Borrow(t) => ("borrow", None, Some(t.clone())),
-        Param::MutBorrow(t) => ("mut_borrow", None, Some(t.clone())),
+    let (kind, name, type_ref): (aski_core::ParamKind, String, String) = match param {
+        Param::Owned(t) => (aski_core::ParamKind::Owned, String::new(), t.clone()),
+        Param::Named(n, tr) => (aski_core::ParamKind::Named, n.clone(), type_ref_to_string(tr)),
+        Param::BorrowSelf => (aski_core::ParamKind::BorrowSelf, String::new(), String::new()),
+        Param::MutBorrowSelf => (aski_core::ParamKind::MutBorrowSelf, String::new(), String::new()),
+        Param::OwnedSelf => (aski_core::ParamKind::OwnedSelf, String::new(), String::new()),
+        Param::Borrow(t) => (aski_core::ParamKind::Borrow, String::new(), t.clone()),
+        Param::MutBorrow(t) => (aski_core::ParamKind::MutBorrow, String::new(), t.clone()),
     };
 
-    world.Param.push((node_id, ordinal as i64, kind.to_string(), name, type_ref));
+    world.params.push(aski_core::Param {
+        method_id: node_id,
+        ordinal: ordinal as i64,
+        kind,
+        name,
+        type_ref,
+    });
 }
 
 fn insert_return_type(
@@ -302,7 +366,10 @@ fn insert_return_type(
     tr: &TypeRef,
 ) {
     let type_str = type_ref_to_string(tr);
-    world.Returns.push((node_id, type_str));
+    world.returns.push(aski_core::Returns {
+        method_id: node_id,
+        type_ref: type_str,
+    });
 }
 
 fn insert_trait(
@@ -316,7 +383,10 @@ fn insert_trait(
     insert_node(world, id, "trait", &t.name, parent, &t.span, scope_id);
 
     for st in &t.supertraits {
-        world.Supertrait.push((id, st.clone()));
+        world.supertraits.push(aski_core::Supertrait {
+            trait_node_id: id,
+            supertrait_name: st.clone(),
+        });
     }
 
     for method in &t.methods {
@@ -364,14 +434,21 @@ fn insert_trait_impl(
         let impl_id = ids.next();
         insert_node(world, impl_id, "impl_body", &type_impl.target, Some(id), &type_impl.span, scope_id);
 
-        world.TraitImpl.push((ti.trait_name.clone(), type_impl.target.clone(), impl_id));
+        world.trait_impls.push(aski_core::TraitImpl {
+            trait_name: ti.trait_name.clone(),
+            type_name: type_impl.target.clone(),
+            impl_node_id: impl_id,
+        });
 
         // Store associated types as assoc_type child nodes
         for assoc in &type_impl.associated_types {
             let assoc_id = ids.next();
             insert_node(world, assoc_id, "assoc_type", &assoc.name, Some(impl_id), &assoc.span, scope_id);
             let type_str = type_ref_to_string(&assoc.concrete_type);
-            world.Returns.push((assoc_id, type_str));
+            world.returns.push(aski_core::Returns {
+                method_id: assoc_id,
+                type_ref: type_str,
+            });
         }
 
         // Store associated constants as const child nodes
@@ -423,7 +500,12 @@ fn insert_const(
     let tr = type_ref_to_string(&c.type_ref);
     let has_value = c.value.is_some();
 
-    world.Constant.push((id, c.name.clone(), tr, has_value));
+    world.constants.push(aski_core::Constant {
+        node_id: id,
+        name: c.name.clone(),
+        type_ref: tr,
+        has_value,
+    });
 
     if let Some(body) = &c.value {
         insert_body(world, ids, body, id)?;
@@ -457,7 +539,7 @@ fn insert_body(
     match body {
         Body::Stub => {
             let id = ids.next();
-            world.Expr.push((id, Some(owner_id), "stub".to_string(), 0, None));
+            put_expr(world, id, owner_id, "stub", 0, None);
         }
         Body::Block(stmts) | Body::TailBlock(stmts) => {
             for (ordinal, stmt) in stmts.iter().enumerate() {
@@ -497,18 +579,18 @@ fn insert_body(
                     Some(wrapper_id)
                 };
 
-                let kind_str = match arm.kind {
-                    ArmKind::Commit => "commit",
-                    ArmKind::Backtrack => "backtrack",
-                    ArmKind::Destructure => "destructure",
+                let kind = match arm.kind {
+                    ArmKind::Commit => aski_core::ArmKind::Commit,
+                    ArmKind::Backtrack => aski_core::ArmKind::Backtrack,
+                    ArmKind::Destructure => aski_core::ArmKind::Destructure,
                 };
-                world.MatchArm.push((
-                    owner_id,
-                    arm_ord as i64,
+                world.match_arms.push(aski_core::MatchArm {
+                    match_id: owner_id,
+                    ordinal: arm_ord as i64,
                     patterns_json,
-                    body_expr_id,
-                    kind_str.to_string(),
-                ));
+                    body_expr_id: body_expr_id.unwrap_or(0),
+                    kind,
+                });
             }
         }
     }
@@ -626,14 +708,13 @@ fn insert_expr(
                     Some(wrapper_id)
                 };
 
-                let kind_str = "commit"; // inline match expressions always commit
-                world.MatchArm.push((
-                    id,
-                    arm_ord as i64,
+                world.match_arms.push(aski_core::MatchArm {
+                    match_id: id,
+                    ordinal: arm_ord as i64,
                     patterns_json,
-                    body_expr_id,
-                    kind_str.to_string(),
-                ));
+                    body_expr_id: body_expr_id.unwrap_or(0),
+                    kind: aski_core::ArmKind::Commit,
+                });
             }
         }
         Expr::StdOut(inner) => {
@@ -695,7 +776,13 @@ fn put_expr(
     ordinal: i64,
     value: Option<&str>,
 ) {
-    world.Expr.push((id, Some(parent_id), kind.to_string(), ordinal, value.map(|s| s.to_string())));
+    world.exprs.push(aski_core::Expr {
+        id,
+        parent_id,
+        kind: aski_core::ExprKind::from_str(kind).unwrap_or(aski_core::ExprKind::Stub),
+        ordinal,
+        value: value.unwrap_or("").to_string(),
+    });
 }
 
 fn binop_to_string(op: &BinOp) -> &'static str {
@@ -814,24 +901,23 @@ pub fn is_known_method(name: &str, world: &World) -> bool {
 
 /// Query fields that need auto-boxing — where a type contains itself (directly or transitively).
 /// Returns (containing_type, field_name, recursive_type) triples.
-/// This version returns 3-tuples (aski-core returns 2-tuples) for codegen compatibility.
 pub fn query_recursive_fields(world: &World) -> Result<Vec<(String, String, String)>, String> {
     let mut fields = Vec::new();
 
-    for (owner_id, kind, owner_name, _, _, _, _) in &world.Node {
-        if kind != "struct" {
+    for node in &world.nodes {
+        if node.kind != aski_core::NodeKind::Struct {
             continue;
         }
-        for (sid, _, field_name, field_type) in &world.Field {
-            if sid != owner_id {
+        for field in &world.fields {
+            if field.struct_id != node.id {
                 continue;
             }
-            let matches_rule1 = field_type == owner_name
-                && world.RecursiveType.iter().any(|(a, b)| a == owner_name && b == field_type);
-            let matches_rule2 = world.RecursiveType.iter().any(|(a, b)| a == field_type && b == owner_name);
+            let matches_rule1 = field.type_ref == node.name
+                && world.recursive_types.iter().any(|r| r.parent_type == node.name && r.child_type == field.type_ref);
+            let matches_rule2 = world.recursive_types.iter().any(|r| r.parent_type == field.type_ref && r.child_type == node.name);
 
             if matches_rule1 || matches_rule2 {
-                fields.push((owner_name.clone(), field_name.clone(), field_type.clone()));
+                fields.push((node.name.clone(), field.name.clone(), field.type_ref.clone()));
             }
         }
     }
@@ -841,18 +927,18 @@ pub fn query_recursive_fields(world: &World) -> Result<Vec<(String, String, Stri
 
 /// Validate that no method return type references a body-scoped type.
 pub fn validate_return_type_scope(world: &World) -> Result<Vec<(String, String)>, String> {
-    let body_scoped: HashSet<String> = world.Node.iter()
-        .filter(|(_, kind, _, parent, _, _, _)| {
-            parent.is_some() && (kind == "struct" || kind == "domain")
+    let body_scoped: HashSet<String> = world.nodes.iter()
+        .filter(|n| {
+            n.parent != 0 && (n.kind == aski_core::NodeKind::Struct || n.kind == aski_core::NodeKind::Domain)
         })
-        .map(|(_, _, name, _, _, _, _)| name.clone())
+        .map(|n| n.name.clone())
         .collect();
 
     let mut violations = Vec::new();
-    for (node_id, type_name) in &world.Returns {
-        if body_scoped.contains(type_name) {
-            if let Some((_, _, method_name, _, _, _, _)) = world.Node.iter().find(|(id, _, _, _, _, _, _)| id == node_id) {
-                violations.push((method_name.clone(), type_name.clone()));
+    for ret in &world.returns {
+        if body_scoped.contains(&ret.type_ref) {
+            if let Some(node) = world.nodes.iter().find(|n| n.id == ret.method_id) {
+                violations.push((node.name.clone(), ret.type_ref.clone()));
             }
         }
     }
@@ -862,13 +948,13 @@ pub fn validate_return_type_scope(world: &World) -> Result<Vec<(String, String)>
 /// Validate that no struct-domain has String fields.
 pub fn validate_no_string_fields(world: &World) -> Result<Vec<(String, String)>, String> {
     let mut violations = Vec::new();
-    for (struct_id, kind, struct_name, _, _, _, _) in &world.Node {
-        if kind != "struct" {
+    for node in &world.nodes {
+        if node.kind != aski_core::NodeKind::Struct {
             continue;
         }
-        for (sid, _, field_name, type_ref) in &world.Field {
-            if sid == struct_id && type_ref == "String" {
-                violations.push((struct_name.clone(), field_name.clone()));
+        for field in &world.fields {
+            if field.struct_id == node.id && field.type_ref == "String" {
+                violations.push((node.name.clone(), field.name.clone()));
             }
         }
     }
@@ -959,21 +1045,21 @@ mod tests {
     fn ir_grammar_rule_stored() {
         let world = setup_world("<Truncate> [\n  [@Value] @Value.truncate\n]");
         // Check that grammar_rule node exists
-        let grammar_nodes = query_nodes_by_kind(&world, "grammar_rule").unwrap();
+        let grammar_nodes = query_nodes_by_kind(&world, "grammar_rule_node").unwrap();
         assert_eq!(grammar_nodes.len(), 1);
         assert_eq!(grammar_nodes[0].1, "Truncate");
-        // Check that GrammarRule relation is populated
-        assert_eq!(world.GrammarRule.len(), 1);
-        assert_eq!(world.GrammarRule[0].1, "Truncate");
-        // Check that GrammarArm relation is populated
-        assert_eq!(world.GrammarArm.len(), 1);
-        assert_eq!(world.GrammarArm[0].1, 0); // ordinal 0
+        // Check that grammar_rules relation is populated
+        assert_eq!(world.grammar_rules.len(), 1);
+        assert_eq!(world.grammar_rules[0].rule_name, "Truncate");
+        // Check that grammar_arms relation is populated
+        assert_eq!(world.grammar_arms.len(), 1);
+        assert_eq!(world.grammar_arms[0].ordinal, 0); // ordinal 0
     }
 
     #[test]
     fn ir_grammar_rule_multi_arm() {
         let world = setup_world("<Convert> [\n  [Truncate @Value] @Value.truncate\n  [ToFloat @Value] @Value.toF32\n]");
-        assert_eq!(world.GrammarRule.len(), 1);
-        assert_eq!(world.GrammarArm.len(), 2);
+        assert_eq!(world.grammar_rules.len(), 1);
+        assert_eq!(world.grammar_arms.len(), 2);
     }
 }

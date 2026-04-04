@@ -70,9 +70,9 @@ fn kernel_struct_in_match_relations() {
 
     // BindingInfo: the Main bindings should be parsed
     // Find the sub_type_new exprs in Main
-    let main_id = world.Node.iter()
-        .find(|(_, k, _, _, _, _, _)| k == "main")
-        .map(|(id, _, _, _, _, _, _)| *id)
+    let main_id = world.nodes.iter()
+        .find(|n| n.kind == aski_core::NodeKind::Main)
+        .map(|n| n.id)
         .expect("Main not found");
 
     let main_exprs = aski_core::query_child_exprs(&world, main_id);

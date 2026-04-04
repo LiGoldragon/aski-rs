@@ -81,8 +81,9 @@ pub fn generate_kernel(world: &ir::World) -> Result<String, String> {
         let _ = id;
     }
 
-    // ── Structs ──
+    // ── Structs (exclude World — it gets special treatment) ──
     for (id, name) in &structs {
+        if name == "World" { continue; }
         let fields = ir::query_struct_fields(world, name)?;
         out.push_str("#[derive(Debug, Clone, PartialEq)]\n");
         out.push_str(&format!("pub struct {} {{\n", name));
@@ -95,38 +96,51 @@ pub fn generate_kernel(world: &ir::World) -> Result<String, String> {
         let _ = id;
     }
 
-    // ── World struct ──
+    // ── World struct — read from kernel.aski's World definition ──
+    let world_fields = ir::query_struct_fields(world, "World")?;
+    // Collect (snake_field_name, element_type, original_name) for each Vec field
+    let mut world_vec_fields: Vec<(String, String, String)> = Vec::new();
+
     out.push_str("/// Kernel World — holds all relations as Vec<T>.\n");
     out.push_str("#[derive(Debug, Clone, Default)]\n");
     out.push_str("pub struct World {\n");
-    for (_id, name) in &structs {
-        let field = to_snake_plural(name);
-        out.push_str(&format!("    pub {}: Vec<{}>,\n", field, name));
+    for (_ord, fname, ftype) in &world_fields {
+        let snake_field = to_snake(fname);
+        let rust_type = aski_type_to_rust(ftype);
+        out.push_str(&format!("    pub {}: {},\n", snake_field, rust_type));
+        // Track Vec fields for query generation
+        if ftype.starts_with("Vec(") || ftype.contains("Vec") {
+            // Extract element type from "Vec(Node)" or similar
+            let elem = ftype.strip_prefix("Vec(").and_then(|s| s.strip_suffix(')'))
+                .unwrap_or(ftype);
+            world_vec_fields.push((snake_field.clone(), elem.to_string(), fname.clone()));
+        }
     }
     out.push_str("}\n\n");
 
-    // ── Query methods ──
+    // ── Query methods — for each Vec field, generate lookups by element fields ──
     out.push_str("impl World {\n");
     out.push_str("    pub fn new() -> Self { Self::default() }\n\n");
 
-    for (_id, name) in &structs {
-        let fields = ir::query_struct_fields(world, name)?;
-        let plural = to_snake_plural(name);
+    for (vec_field, elem_type, _orig_name) in &world_vec_fields {
+        // Find the struct definition for the element type
+        let elem_fields = ir::query_struct_fields(world, elem_type)?;
+        if elem_fields.is_empty() { continue; }
 
-        // For each field, generate a query-by-field method
-        for (_ord, fname, ftype) in &fields {
+        let type_snake = to_snake(elem_type);
+        for (_ord, fname, ftype) in &elem_fields {
             let snake_field = to_snake(fname);
-            let rust_type = aski_type_to_rust(&ftype);
+            let rust_type = aski_type_to_rust(ftype);
             let param_type = query_param_type(&rust_type);
             let filter_expr = query_filter_expr(&snake_field, &rust_type);
 
             out.push_str(&format!(
                 "    pub fn {}_by_{}(&self, val: {}) -> Vec<&{}> {{\n",
-                to_snake(name), snake_field, param_type, name
+                type_snake, snake_field, param_type, elem_type
             ));
             out.push_str(&format!(
                 "        self.{}.iter().filter(|r| {}).collect()\n",
-                plural, filter_expr
+                vec_field, filter_expr
             ));
             out.push_str("    }\n\n");
         }
@@ -423,8 +437,10 @@ fn to_snake(s: &str) -> String {
 
 fn to_snake_plural(s: &str) -> String {
     let snake = pascal_to_snake(s);
-    // Simple pluralization
-    if snake.ends_with('s') || snake.ends_with("sh") || snake.ends_with("ch") {
+    // Already plural (ends in 's') — don't double-pluralize
+    if snake.ends_with('s') {
+        snake
+    } else if snake.ends_with("sh") || snake.ends_with("ch") {
         format!("{}es", snake)
     } else if snake.ends_with('y') && !snake.ends_with("ey") {
         format!("{}ies", &snake[..snake.len()-1])
@@ -434,6 +450,10 @@ fn to_snake_plural(s: &str) -> String {
 }
 
 fn aski_type_to_rust(t: &str) -> String {
+    // Handle parameterized types: "Vec(Node)" → "Vec<Node>"
+    if let Some(inner) = t.strip_prefix("Vec(").and_then(|s| s.strip_suffix(')')) {
+        return format!("Vec<{}>", aski_type_to_rust(inner));
+    }
     match t {
         "I64" => "i64".to_string(),
         "F64" => "f64".to_string(),

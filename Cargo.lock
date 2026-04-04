@@ -94,7 +94,6 @@ dependencies = [
 name = "aski-core"
 version = "0.1.0"
 dependencies = [
- "ascent",
  "serde_json",
 ]
 

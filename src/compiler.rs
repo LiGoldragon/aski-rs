@@ -73,8 +73,8 @@ pub fn compile_files(
 /// replace them with expanded kernel forms.
 fn expand_grammar_rules(world: &mut ir::World) -> Result<(), String> {
     // Collect grammar rules for validation
-    let rules: Vec<(i64, String)> = world.GrammarRule.iter()
-        .map(|(id, name)| (*id, name.clone()))
+    let rules: Vec<(i64, String)> = world.grammar_rules.iter()
+        .map(|r| (r.node_id, r.rule_name.clone()))
         .collect();
 
     // Log grammar rules found (useful for debugging)
