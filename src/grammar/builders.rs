@@ -354,6 +354,16 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
             )))
         }
 
+        // ── Passthrough: result is a sub-rule's value directly ──
+        "Passthrough" => {
+            if args.len() == 1 {
+                Ok(args[0].clone())
+            } else {
+                // Passthrough with extra args — first is the result, rest are context
+                Ok(args[0].clone())
+            }
+        }
+
         // ── Pass-through: already-constructed values ─────────
         // When a constructor name matches a Value variant, wrap it
         _ => Err(format!("unknown constructor: {}", name)),

@@ -56,6 +56,8 @@ pub enum ResultArg {
     RuleResult(String),
     /// Nested constructor: Name(args...).
     Nested(ResultSpec),
+    /// String literal value: "text".
+    Literal(String),
 }
 
 /// Dynamic value produced during rule execution.

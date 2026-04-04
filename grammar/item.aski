@@ -1,12 +1,185 @@
 ;; grammar/item.aski — top-level item dispatch
 ;;
 ;; Eight item forms. Order matters: more specific patterns first.
-;; Const, grammar rule, Main, domain, struct, type alias, trait decl, trait impl.
-;;
-;; NOTE: Most item parsing is handled by built-in functions in the interpreter
-;; because items require complex multi-step parsing (method bodies, type impls, etc.)
-;; These rules serve as the DISPATCH — they identify which item form, then
-;; the interpreter handles the details.
-;;
-;; The interpreter uses this rule table to know what exists.
-;; Actual item parsing is done in interpreter.rs built-in functions.
+;; PEG ordered choice: first match wins.
+
+<item> [
+  ;; !Name Type {value} — constant
+  [Bang @Name <typeRef> LBrace <expr> RBrace | @Rest]
+    Const(@Name <typeRef> <expr>) @Rest
+
+  ;; <Name> [arms] — grammar rule definition
+  [LessThan @Name GreaterThan LBracket <ruleArms> RBracket | @Rest]
+    GrammarRule(@Name <ruleArms>) @Rest
+
+  ;; Main [body] — entry point
+  ["Main" <body> | @Rest]
+    Main(<body>) @Rest
+
+  ;; Name (variants) — domain (enum)
+  [@Name LParen <variants> RParen | @Rest]
+    Domain(@Name <variants>) @Rest
+
+  ;; Name {fields} — struct
+  [@Name LBrace <fields> RBrace | @Rest]
+    Struct(@Name <fields>) @Rest
+
+  ;; {| Library funcs |} — foreign block
+  [TraitBoundOpen @Library <ffiFunctions> TraitBoundClose | @Rest]
+    ForeignBlock(@Library <ffiFunctions>) @Rest
+
+  ;; name (supertraits [methodSigs]) — trait declaration
+  [@Name LParen <traitBody> RParen | @Rest]
+    TraitDecl(@Name <traitBody>) @Rest
+
+  ;; name [typeImpls] — trait implementation
+  [@Name LBracket <typeImpls> RBracket | @Rest]
+    TraitImpl(@Name <typeImpls>) @Rest
+
+  ;; Name TypeRef — type alias
+  [@Name <typeRef> | @Rest]
+    TypeAlias(@Name <typeRef>) @Rest
+]
+
+;; ── Trait body: optional supertraits then method sigs ──
+
+<traitBody> [
+  [<supertrait> <traitBody> | @Rest]       Cons(<supertrait> <traitBody>) @Rest
+  [LBracket <methodSigs> RBracket | @Rest] Methods(<methodSigs>) @Rest
+  [| @Rest]                                 Nil @Rest
+]
+
+<supertrait> [
+  [Ampersand @Name | @Rest]   Supertrait(@Name) @Rest
+  [@Name | @Rest]             Supertrait(@Name) @Rest
+]
+
+;; ── Method signatures ──
+
+<methodSig> [
+  [@Name LParen <params> RParen <typeRef> | @Rest]   MethodSig(@Name <params> <typeRef>) @Rest
+  [@Name LParen <params> RParen | @Rest]              MethodSig(@Name <params>) @Rest
+]
+
+<methodSigs> [
+  [<methodSig> <methodSigs> | @Rest]   Cons(<methodSig> <methodSigs>) @Rest
+  [| @Rest]                             Nil @Rest
+]
+
+;; ── Type implementations ──
+
+<typeImpl> [
+  [@Type <body> | @Rest]   TypeImpl(@Type <body>) @Rest
+]
+
+<typeImpls> [
+  [<typeImpl> <typeImpls> | @Rest]   Cons(<typeImpl> <typeImpls>) @Rest
+  [| @Rest]                           Nil @Rest
+]
+
+;; ── Body forms ──
+
+<body> [
+  ;; [| stmts |] — tail-recursive block
+  [IterOpen <stmts> IterClose | @Rest]         TailBlock(<stmts>) @Rest
+  ;; [stmts] — regular block
+  [LBracket <stmts> RBracket | @Rest]          Block(<stmts>) @Rest
+  ;; (| arms |) — match body
+  [CompositionOpen <matchArms> CompositionClose | @Rest]
+    MatchBody(<matchArms>) @Rest
+  ;; ___ — stub
+  [Stub | @Rest]                                Stub @Rest
+]
+
+;; ── Match arms (method body) ──
+
+<matchArm> [
+  ;; (pattern) body — commit
+  [LParen <pattern> RParen <expr> | @Rest]     CommitArm(<pattern> <expr>) @Rest
+  ;; [pattern] body — backtrack
+  [LBracket <pattern> RBracket <expr> | @Rest] BacktrackArm(<pattern> <expr>) @Rest
+  ;; [elem | @Rest] body — destructure
+  [LBracket <destructure> RBracket <expr> | @Rest]
+    DestructureArm(<destructure> <expr>) @Rest
+]
+
+<matchArms> [
+  [<matchArm> <matchArms> | @Rest]   Cons(<matchArm> <matchArms>) @Rest
+  [| @Rest]                            Nil @Rest
+]
+
+;; ── Match expression arms (inline) ──
+
+<matchExpr> [
+  [<expr> <matchExprArms> | @Rest]   MatchExpr(<expr> <matchExprArms>) @Rest
+]
+
+<matchExprArm> [
+  [LParen <pattern> RParen <expr> | @Rest]   CommitArm(<pattern> <expr>) @Rest
+]
+
+<matchExprArms> [
+  [<matchExprArm> <matchExprArms> | @Rest]   Cons(<matchExprArm> <matchExprArms>) @Rest
+  [| @Rest]                                    Nil @Rest
+]
+
+;; ── Patterns ──
+
+<pattern> [
+  [Underscore | @Rest]                          Wildcard @Rest
+  ["True" | @Rest]                              BoolTrue @Rest
+  ["False" | @Rest]                             BoolFalse @Rest
+  [@Name LParen <pattern> RParen | @Rest]       DataCarrying(@Name <pattern>) @Rest
+  [At @Name | @Rest]                            InstanceBind(@Name) @Rest
+  [@Name | @Rest]                               VariantPat(@Name) @Rest
+  [@Lit | @Rest]                                LiteralPat(@Lit) @Rest
+]
+
+;; ── Destructure ──
+
+<destructure> [
+  [<destructElem> <destructure> | @Rest]   Cons(<destructElem> <destructure>) @Rest
+  [Pipe At @Name | @Rest]                  Rest(@Name) @Rest
+]
+
+<destructElem> [
+  [@Name | @Rest]   Elem(@Name) @Rest
+]
+
+;; ── Grammar rule arms (for self-extension) ──
+
+<ruleArm> [
+  [LBracket <rulePattern> RBracket <ruleResult> | @Rest]
+    RuleArm(<rulePattern> <ruleResult>) @Rest
+]
+
+<ruleArms> [
+  [<ruleArm> <ruleArms> | @Rest]   Cons(<ruleArm> <ruleArms>) @Rest
+  [| @Rest]                         Nil @Rest
+]
+
+<rulePatElem> [
+  [LessThan @Name GreaterThan | @Rest]   NonTerminal(@Name) @Rest
+  [At @Name | @Rest]                      Binding(@Name) @Rest
+  [Pipe At @Name | @Rest]                 RestBind(@Name) @Rest
+  [@Name | @Rest]                          Terminal(@Name) @Rest
+]
+
+<rulePattern> [
+  [<rulePatElem> <rulePattern> | @Rest]   Cons(<rulePatElem> <rulePattern>) @Rest
+  [| @Rest]                                Nil @Rest
+]
+
+<ruleResult> [
+  [@Name LParen <ruleResultArgs> RParen | @Rest]   Constructor(@Name <ruleResultArgs>) @Rest
+  [@Name | @Rest]                                    Constructor(@Name) @Rest
+]
+
+<ruleResultArgs> [
+  [At @Name <ruleResultArgs> | @Rest]           Cons(Bound(@Name) <ruleResultArgs>) @Rest
+  [LessThan @Name GreaterThan <ruleResultArgs> | @Rest]
+    Cons(RuleRef(@Name) <ruleResultArgs>) @Rest
+  [@Name LParen <ruleResultArgs> RParen <ruleResultArgs> | @Rest]
+    Cons(Nested(@Name <ruleResultArgs>) <ruleResultArgs>) @Rest
+  [| @Rest]                                      Nil @Rest
+]

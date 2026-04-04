@@ -226,8 +226,25 @@ fn parse_pattern_elem(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>)
     }
 }
 
-/// Parse result specification: Constructor or Constructor(args...)
+/// Parse result specification: Constructor(args...) or <rule> passthrough
 fn parse_result_spec(tokens: &[&Token], cur: &mut usize, _known: &HashSet<&str>) -> Result<ResultSpec, String> {
+    // Passthrough: <rule> — result is the sub-rule's result directly
+    if *cur < tokens.len() && tokens[*cur] == &Token::LessThan {
+        *cur += 1;
+        let name = eat_ident(tokens, cur)?;
+        expect_tok(tokens, cur, &Token::GreaterThan, ">")?;
+        // Optional (base) for dotChain-style calls
+        let mut args = vec![ResultArg::RuleResult(name)];
+        if *cur < tokens.len() && tokens[*cur] == &Token::LParen {
+            *cur += 1;
+            while *cur < tokens.len() && tokens[*cur] != &Token::RParen {
+                args.push(parse_result_arg(tokens, cur)?);
+            }
+            expect_tok(tokens, cur, &Token::RParen, ")")?;
+        }
+        return Ok(ResultSpec { constructor: "Passthrough".to_string(), args });
+    }
+
     // Constructor name
     let constructor = eat_ident(tokens, cur)?;
 
@@ -290,6 +307,12 @@ fn parse_result_arg(tokens: &[&Token], cur: &mut usize) -> Result<ResultArg, Str
             let name = s.clone();
             *cur += 1;
             Ok(ResultArg::Bound(name))
+        }
+        // "string" — literal string value
+        Token::StringLit(s) => {
+            let val = s.clone();
+            *cur += 1;
+            Ok(ResultArg::Literal(val))
         }
         other => Err(format!("unexpected token in result args: {:?}", other)),
     }

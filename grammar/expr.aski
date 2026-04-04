@@ -1,0 +1,124 @@
+;; grammar/expr.aski — expression grammar (Shen-style nested precedence)
+;;
+;; Replaces the Pratt parser. Precedence is structural:
+;; expr → orExpr → andExpr → eqExpr → cmpExpr → addExpr → mulExpr → postfix → atom
+;;
+;; Left-associative: binary op at each level calls ITSELF for the left
+;; operand and the NEXT TIGHTER level for the right.
+;; Fallthrough: each level tries its operator, then falls through to the next.
+
+;; ── Top-level expression ──
+
+<expr> [
+  [<orExpr> | @Rest]  <orExpr> @Rest
+]
+
+;; ── Logical Or: left-assoc ──
+
+<orExpr> [
+  [<andExpr> LogicalOr <orExpr> | @Rest]   BinOp(<andExpr> "||" <orExpr>) @Rest
+  [<andExpr> | @Rest]                       <andExpr> @Rest
+]
+
+;; ── Logical And: left-assoc ──
+
+<andExpr> [
+  [<eqExpr> LogicalAnd <andExpr> | @Rest]   BinOp(<eqExpr> "&&" <andExpr>) @Rest
+  [<eqExpr> | @Rest]                         <eqExpr> @Rest
+]
+
+;; ── Equality: left-assoc ──
+
+<eqExpr> [
+  [<cmpExpr> DoubleEquals <eqExpr> | @Rest]   BinOp(<cmpExpr> "==" <eqExpr>) @Rest
+  [<cmpExpr> NotEqual <eqExpr> | @Rest]        BinOp(<cmpExpr> "!=" <eqExpr>) @Rest
+  [<cmpExpr> | @Rest]                           <cmpExpr> @Rest
+]
+
+;; ── Comparison: left-assoc ──
+
+<cmpExpr> [
+  [<addExpr> LessThan <cmpExpr> | @Rest]              BinOp(<addExpr> "<" <cmpExpr>) @Rest
+  [<addExpr> GreaterThan <cmpExpr> | @Rest]            BinOp(<addExpr> ">" <cmpExpr>) @Rest
+  [<addExpr> LessThanOrEqual <cmpExpr> | @Rest]        BinOp(<addExpr> "<=" <cmpExpr>) @Rest
+  [<addExpr> GreaterThanOrEqual <cmpExpr> | @Rest]     BinOp(<addExpr> ">=" <cmpExpr>) @Rest
+  [<addExpr> | @Rest]                                   <addExpr> @Rest
+]
+
+;; ── Additive: left-assoc ──
+
+<addExpr> [
+  [<mulExpr> Plus <addExpr> | @Rest]    BinOp(<mulExpr> "+" <addExpr>) @Rest
+  [<mulExpr> Minus <addExpr> | @Rest]   BinOp(<mulExpr> "-" <addExpr>) @Rest
+  [<mulExpr> | @Rest]                    <mulExpr> @Rest
+]
+
+;; ── Multiplicative: left-assoc ──
+
+<mulExpr> [
+  [<postfix> Star <mulExpr> | @Rest]      BinOp(<postfix> "*" <mulExpr>) @Rest
+  [<postfix> Slash <mulExpr> | @Rest]     BinOp(<postfix> "/" <mulExpr>) @Rest
+  [<postfix> Percent <mulExpr> | @Rest]   BinOp(<postfix> "%" <mulExpr>) @Rest
+  [<postfix> | @Rest]                      <postfix> @Rest
+]
+
+;; ── Postfix: method calls, field access, error prop, ranges ──
+
+<postfix> [
+  [<atom> Dot <dotChain> | @Rest]               <dotChain>(<atom>) @Rest
+  [<atom> Question | @Rest]                      ErrorProp(<atom>) @Rest
+  [<atom> RangeExclusive <atom> | @Rest]         RangeExclusive(<atom> <atom>) @Rest
+  [<atom> RangeInclusive <atom> | @Rest]         RangeInclusive(<atom> <atom>) @Rest
+  [<atom> | @Rest]                                <atom> @Rest
+]
+
+;; ── Dot chain: .method(args) or .Field ──
+
+<dotChain> [
+  [@Name LParen <callArgs> RParen Dot <dotChain> | @Rest]
+    MethodCall(@Name <callArgs> <dotChain>) @Rest
+  [@Name LParen <callArgs> RParen | @Rest]
+    MethodCall(@Name <callArgs>) @Rest
+  [@Name Dot <dotChain> | @Rest]
+    Access(@Name <dotChain>) @Rest
+  [@Name | @Rest]
+    Access(@Name) @Rest
+]
+
+;; ── Call arguments ──
+
+<callArgs> [
+  [<expr> <callArgs> | @Rest]   Cons(<expr> <callArgs>) @Rest
+  [| @Rest]                     Nil @Rest
+]
+
+;; ── Atoms ──
+
+<atom> [
+  [Stub | @Rest]                                     Stub @Rest
+  [Bang @Name | @Rest]                               ConstRef(@Name) @Rest
+  [Caret <expr> | @Rest]                             Return(<expr>) @Rest
+  [Hash <expr> | @Rest]                              Yield(<expr>) @Rest
+  [At @Name | @Rest]                                 InstanceRef(@Name) @Rest
+  [CompositionOpen <matchExpr> CompositionClose | @Rest]
+    MatchExpr(<matchExpr>) @Rest
+  [LBracket <stmts> RBracket | @Rest]               InlineEval(<stmts>) @Rest
+  [LParen <expr> RParen | @Rest]                     Group(<expr>) @Rest
+  ["StdOut" <expr> | @Rest]                          StdOut(<expr>) @Rest
+  ["True" | @Rest]                                   BareName("True") @Rest
+  ["False" | @Rest]                                  BareName("False") @Rest
+  [@Name LParen <structFields> RParen | @Rest]       StructConstruct(@Name <structFields>) @Rest
+  [@Name | @Rest]                                    BareName(@Name) @Rest
+  [@Lit | @Rest]                                     Literal(@Lit) @Rest
+]
+
+;; ── Struct field arguments in construction ──
+
+<structFields> [
+  [@Name LParen <expr> RParen <structFields> | @Rest]
+    Cons(StructField(@Name <expr>) <structFields>) @Rest
+  [<expr> <structFields> | @Rest]
+    Cons(<expr> <structFields>) @Rest
+  [| @Rest]
+    Nil @Rest
+]

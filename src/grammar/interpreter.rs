@@ -2038,6 +2038,7 @@ fn build_result(spec: &ResultSpec, bindings: &Bindings, span: Span) -> Result<Va
                 .cloned()
                 .ok_or_else(|| format!("rule result not found: <{}>", name)),
             ResultArg::Nested(nested) => build_result(nested, bindings, span.clone()),
+            ResultArg::Literal(s) => Ok(Value::Str(s.clone())),
         }
     }).collect::<Result<Vec<_>, _>>()?;
 
