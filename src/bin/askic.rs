@@ -20,12 +20,32 @@ fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
 
     if args.is_empty() {
-        eprintln!("usage: askic [--kernel] <file.aski> [file2.aski ...]");
+        eprintln!("usage: askic [--kernel] [--grammar-dir <path>] <file.aski> [file2.aski ...]");
         process::exit(1);
     }
 
     let kernel_mode = args.iter().any(|a| a == "--kernel");
-    let file_args: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
+
+    // Extract --grammar-dir <path> and set ASKI_GRAMMAR_DIR
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--grammar-dir" {
+            if let Some(dir) = args.get(i + 1) {
+                env::set_var("ASKI_GRAMMAR_DIR", dir);
+            } else {
+                eprintln!("askic: --grammar-dir requires an argument");
+                process::exit(1);
+            }
+        }
+    }
+
+    let file_args: Vec<&String> = args.iter().enumerate()
+        .filter(|(i, a)| {
+            if *a == "--kernel" || *a == "--grammar-dir" { return false; }
+            if *i > 0 && args[i - 1] == "--grammar-dir" { return false; }
+            true
+        })
+        .map(|(_, a)| a)
+        .collect();
 
     if file_args.is_empty() {
         eprintln!("askic: no input files");
