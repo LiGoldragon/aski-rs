@@ -172,24 +172,21 @@ impl GrammarParser {
                     Err(e) => last_err = e,
                 }
             }
-            // Grammar rule failed — fall through to built-in if one exists
-            match name {
-                "item" | "stmts" | "matchArms" | "matchExprArms"
-                | "methodSigs" | "typeImpls" | "matchExpr" => {}
-                _ => return Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err)),
+            // Grammar rule failed — fall through to built-in for <item> only
+            // (1 remaining: bootstrap/tokens.aski transform impl)
+            if name == "item" {
+                // Fallback for items the grammar can't yet fully handle
+            } else {
+                return Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err));
             }
         }
 
-        // Built-in fallbacks — being eliminated as grammar rules mature
-        match name {
-            "item" => self.parse_item(tokens, pos),
-            "stmts" => self.parse_stmt_list(tokens, pos),
-            "matchArms" => self.parse_match_method_arm_list(tokens, pos),
-            "matchExprArms" | "matchExpr" => self.parse_match_expr_arm_list(tokens, pos),
-            "methodSigs" => self.parse_method_sig_list(tokens, pos),
-            "typeImpls" => self.parse_type_impl_list(tokens, pos),
-            _ => Err(format!("unknown grammar rule: <{}>", name)),
+        // Last built-in fallback — only <item> remains
+        if name == "item" {
+            return self.parse_item(tokens, pos);
         }
+
+        Err(format!("unknown grammar rule: <{}>", name))
     }
 
     /// Try a single arm: match pattern, build result.

@@ -572,22 +572,22 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
         // ── Match arm constructors ────────────────────────────
 
         "CommitArm" => {
-            let pat = args[0].as_pattern()?;
+            let patterns = extract_patterns(&args[0])?;
             let body_expr = args[1].as_expr()?;
             Ok(Value::MatchMethodArm(MatchMethodArm {
                 kind: ArmKind::Commit,
-                patterns: vec![pat],
+                patterns,
                 body: vec![body_expr],
                 destructure: None,
                 span,
             }))
         }
         "BacktrackArm" => {
-            let pat = args[0].as_pattern()?;
+            let patterns = extract_patterns(&args[0])?;
             let body_expr = args[1].as_expr()?;
             Ok(Value::MatchMethodArm(MatchMethodArm {
                 kind: ArmKind::Backtrack,
-                patterns: vec![pat],
+                patterns,
                 body: vec![body_expr],
                 destructure: None,
                 span,
@@ -611,6 +611,24 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
                 Value::Str(s) => Ok(Value::Pattern(Pattern::StringLit(s.clone()))),
                 Value::Int(n) => Ok(Value::Pattern(Pattern::Variant(n.to_string()))),
                 _ => Err("LiteralPat: unsupported".into()),
+            }
+        }
+
+        "OrPattern" => {
+            let pats = args[0].clone().into_list()?
+                .into_iter().map(|v| v.as_pattern()).collect::<Result<Vec<_>, _>>()?;
+            if pats.len() == 1 {
+                Ok(Value::Pattern(pats.into_iter().next().unwrap()))
+            } else {
+                // Check if this is a destructure pattern: head elements | @Tail
+                // Destructure: last element is InstanceBind (tail binding)
+                if let Some(Pattern::InstanceBind(tail)) = pats.last() {
+                    let tail = tail.clone();
+                    let head = pats[..pats.len()-1].to_vec();
+                    Ok(Value::Pattern(Pattern::Destructure { head, tail: Some(tail) }))
+                } else {
+                    Ok(Value::Pattern(Pattern::Or(pats)))
+                }
             }
         }
 
@@ -709,7 +727,9 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
         }
 
         "Elem" => Ok(Value::Str(args[0].as_str()?)),
-        "Rest" => Ok(Value::Str(args[0].as_str()?)),
+        "DestructBind" => Ok(Value::Str(format!("@{}", args[0].as_str()?))),
+        "DestructWildcard" => Ok(Value::Str("_".to_string())),
+        "Rest" => Ok(Value::List(vec![Value::Str(args[0].as_str()?)])),
 
         // ── Set chain method call ────────────────────────────
 
@@ -735,20 +755,38 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
 
         "GrammarRule" => {
             let name = args[0].as_str()?;
+            let arms_list = if args.len() > 1 { args[1].clone().into_list()? } else { vec![] };
+            let mut arms = Vec::new();
+            for arm_val in arms_list {
+                if let Value::List(parts) = arm_val {
+                    // RuleArm produces [pattern_list, result_list]
+                    let pattern = if !parts.is_empty() {
+                        parts[0].clone().into_list()?.into_iter().filter_map(|v| {
+                            match v.as_str() {
+                                Ok(s) if s.starts_with('@') => Some(GrammarElement::Binding(s[1..].to_string())),
+                                Ok(s) if s.starts_with('<') => Some(GrammarElement::NonTerminal(s[1..s.len()-1].to_string())),
+                                Ok(s) if s.starts_with("|@") => Some(GrammarElement::Rest(s[2..].to_string())),
+                                Ok(s) => Some(GrammarElement::Terminal(s)),
+                                _ => None,
+                            }
+                        }).collect()
+                    } else { vec![] };
+                    let result_exprs = if parts.len() > 1 {
+                        vec![parts[1].as_expr().unwrap_or_else(|_| Spanned::new(Expr::Stub, span.clone()))]
+                    } else { vec![] };
+                    arms.push(GrammarArm { pattern, result: result_exprs, span: span.clone() });
+                }
+            }
             Ok(Value::Item(Spanned::new(
-                Item::GrammarRule(GrammarRule {
-                    name,
-                    arms: vec![],
-                    span: span.clone(),
-                }),
+                Item::GrammarRule(GrammarRule { name, arms, span: span.clone() }),
                 span,
             )))
         }
         "RuleArm" => Ok(Value::List(args.to_vec())),
-        "NonTerminal" => Ok(Value::Str(args[0].as_str()?)),
+        "NonTerminal" => Ok(Value::Str(format!("<{}>", args[0].as_str()?))),
         "Terminal" => Ok(Value::Str(args[0].as_str()?)),
-        "Binding" => Ok(Value::Str(args[0].as_str()?)),
-        "RestBind" => Ok(Value::Str(args[0].as_str()?)),
+        "Binding" => Ok(Value::Str(format!("@{}", args[0].as_str()?))),
+        "RestBind" => Ok(Value::Str(format!("|@{}", args[0].as_str()?))),
         "Bound" => Ok(Value::Str(args[0].as_str()?)),
         "RuleRef" => Ok(Value::Str(args[0].as_str()?)),
         "Constructor" => {
@@ -787,6 +825,15 @@ fn str_to_binop(s: &str) -> Result<crate::ast::BinOp, String> {
     }
 }
 
+/// Extract patterns from a Cons/Singleton list or a single Pattern value.
+fn extract_patterns(val: &Value) -> Result<Vec<Pattern>, String> {
+    match val {
+        Value::Pattern(p) => Ok(vec![p.clone()]),
+        Value::List(items) => items.iter().map(|v| v.as_pattern()).collect(),
+        _ => Err(format!("expected pattern(s), got {:?}", std::mem::discriminant(val))),
+    }
+}
+
 /// Walk <traitBody> flat list into (supertraits, method_sigs).
 /// Cons flattens, so the result is [Str("super1"), Str("super2"), MethodSig, MethodSig, ...].
 fn extract_trait_body(val: Value) -> Result<(Vec<String>, Vec<MethodSig>), String> {
@@ -810,21 +857,28 @@ fn extract_trait_body(val: Value) -> Result<(Vec<String>, Vec<MethodSig>), Strin
 
 /// Walk a Cons/Rest list from <destructure> grammar rule into DestructureElements + rest name.
 fn parse_destructure_list(val: Value) -> Result<(Vec<DestructureElement>, String), String> {
-    let mut elems = Vec::new();
-    let mut current = val;
-    loop {
-        match current {
-            Value::List(ref items) if items.len() == 2 => {
-                // Cons(Elem(@Name), rest)
-                let head = items[0].as_str()?;
-                elems.push(DestructureElement::Binding(head));
-                current = items[1].clone();
+    // Cons flattens: [Str("PascalIdent"), Str("@Variants"), Str("Rest")]
+    // Last element is the tail binding (Rest). Others are head elements.
+    match val {
+        Value::List(items) => {
+            if items.is_empty() {
+                return Err("empty destructure list".into());
             }
-            Value::Str(rest_name) => {
-                // Rest(@Name) — the tail binding
-                return Ok((elems, rest_name));
+            let rest_name = items.last().unwrap().as_str()?;
+            let mut elems = Vec::new();
+            for item in &items[..items.len()-1] {
+                let s = item.as_str()?;
+                if s == "_" {
+                    elems.push(DestructureElement::Wildcard);
+                } else if s.starts_with('@') {
+                    elems.push(DestructureElement::Binding(s[1..].to_string()));
+                } else {
+                    elems.push(DestructureElement::ExactToken(s));
+                }
             }
-            _ => return Err(format!("unexpected destructure element: {:?}", current)),
+            Ok((elems, rest_name))
         }
+        Value::Str(rest_name) => Ok((vec![], rest_name)),
+        _ => Err(format!("unexpected destructure: {:?}", std::mem::discriminant(&val))),
     }
 }

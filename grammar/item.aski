@@ -116,13 +116,20 @@
 ;; ── Match arms (method body) ──
 
 <matchArm> {
-  ;; (pattern) result — commit (bareExpr: no struct construction ambiguity)
-  [LParen <pattern> RParen <bareExpr> | @Rest]     CommitArm(<pattern> <bareExpr>) @Rest
-  ;; [pattern] result — backtrack
-  [LBracket <pattern> RBracket <bareExpr> | @Rest] BacktrackArm(<pattern> <bareExpr>) @Rest
+  ;; (patterns) result — commit (bareExpr: no struct construction ambiguity)
+  [LParen <patterns> RParen <bareExpr> | @Rest]     CommitArm(<patterns> <bareExpr>) @Rest
+  ;; [patterns] result — backtrack
+  [LBracket <patterns> RBracket <bareExpr> | @Rest] BacktrackArm(<patterns> <bareExpr>) @Rest
   ;; [elem | @Rest] result — destructure
   [LBracket <destructure> RBracket <bareExpr> | @Rest]
     DestructureArm(<destructure> <bareExpr>) @Rest
+}
+
+;; ── Pattern list (one or more patterns) ──
+
+<patterns> {
+  [<pattern> <patterns> | @Rest]   Cons(<pattern> <patterns>) @Rest
+  [<pattern> | @Rest]              Singleton(<pattern>) @Rest
 }
 
 <matchArms> {
@@ -137,7 +144,7 @@
 }
 
 <matchExprArm> {
-  [LParen <pattern> RParen <bareExpr> | @Rest]   CommitArm(<pattern> <bareExpr>) @Rest
+  [LParen <patterns> RParen <bareExpr> | @Rest]   CommitArm(<patterns> <bareExpr>) @Rest
 }
 
 <matchExprArms> {
@@ -148,6 +155,24 @@
 ;; ── Patterns ──
 
 <pattern> {
+  [Underscore | @Rest]                          Wildcard @Rest
+  ["True" | @Rest]                              BoolTrue @Rest
+  ["False" | @Rest]                             BoolFalse @Rest
+  [LParen <orPatterns> RParen | @Rest]          OrPattern(<orPatterns>) @Rest
+  [@Name LParen <pattern> RParen | @Rest]       DataCarrying(@Name <pattern>) @Rest
+  [At @Name | @Rest]                            InstanceBind(@Name) @Rest
+  [@Name | @Rest]                               VariantPat(@Name) @Rest
+  [@Lit | @Rest]                                LiteralPat(@Lit) @Rest
+}
+
+;; ── Or-pattern list: Pattern | Pattern | ... ──
+
+<orPatterns> {
+  [<orPatternElem> Pipe <orPatterns> | @Rest]   Cons(<orPatternElem> <orPatterns>) @Rest
+  [<orPatternElem> | @Rest]                      Singleton(<orPatternElem>) @Rest
+}
+
+<orPatternElem> {
   [Underscore | @Rest]                          Wildcard @Rest
   ["True" | @Rest]                              BoolTrue @Rest
   ["False" | @Rest]                             BoolFalse @Rest
@@ -165,14 +190,16 @@
 }
 
 <destructElem> {
-  [@Name | @Rest]   Elem(@Name) @Rest
+  [At @Name | @Rest]   DestructBind(@Name) @Rest
+  [Underscore | @Rest]  DestructWildcard @Rest
+  [@Name | @Rest]       Elem(@Name) @Rest
 }
 
 ;; ── Grammar rule arms (for self-extension) ──
 
 <ruleArm> {
-  [LBracket <rulePattern> RBracket <ruleResult> | @Rest]
-    RuleArm(<rulePattern> <ruleResult>) @Rest
+  [LBracket <rulePattern> RBracket <bareExpr> | @Rest]
+    RuleArm(<rulePattern> <bareExpr>) @Rest
 }
 
 <ruleArms> {
