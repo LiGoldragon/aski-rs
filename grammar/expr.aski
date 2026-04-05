@@ -131,8 +131,10 @@
   [@Lit | @Rest]                                     Literal(@Lit) @Rest
 }
 
-;; ── Bare atom: like <atom> but without struct construction ──
-;; Used in match arm results where Name(args) would be ambiguous with the next arm.
+;; ── Bare atom: same as <atom> ──
+;; Used in match arm results. With skip_newlines only before Rule elements,
+;; Name\n(nextArm) won't be consumed as struct construction because LParen
+;; requires adjacency (no newline skip before Tok elements).
 
 <bareAtom> {
   [Stub | @Rest]                                     ExprStub @Rest
@@ -151,6 +153,7 @@
     FnCall(@Name @Method <callArgs>) @Rest
   [@Name Slash @Variant | @Rest]
     TypePath(@Name @Variant) @Rest
+  [@Name LParen <structFields> RParen | @Rest]       StructConstruct(@Name <structFields>) @Rest
   [@Name | @Rest]                                    BareName(@Name) @Rest
   [@Lit | @Rest]                                     Literal(@Lit) @Rest
 }
