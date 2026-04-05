@@ -10,7 +10,7 @@ use crate::lexer::{self, Token};
 use super::{ParseRule, ParseArm, PatElem, ResultSpec, ResultArg, RuleTable};
 
 /// Known token variant names — used to distinguish terminals from literals.
-fn known_tokens() -> HashSet<&'static str> {
+pub fn known_tokens() -> HashSet<&'static str> {
     [
         "LParen", "RParen", "LBracket", "RBracket", "LBrace", "RBrace",
         "Dot", "At", "Dollar", "Caret", "GreaterThan", "LessThan",

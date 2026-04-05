@@ -7,7 +7,7 @@
 use crate::ast::*;
 use crate::lexer::{self, Token};
 use crate::grammar::config::GrammarConfig;
-use super::{ParseArm, PatElem, ResultSpec, ResultArg, Value, Bindings, RuleTable};
+use super::{ParseRule, ParseArm, PatElem, ResultSpec, ResultArg, Value, Bindings, RuleTable};
 use super::builders;
 
 /// Spanned token — re-uses the lexer's Spanned type.
@@ -25,7 +25,9 @@ impl GrammarParser {
     }
 
     /// Parse source text into a SourceFile (optional header + items).
-    pub fn parse_source_file(&self, source: &str) -> Result<SourceFile, String> {
+    /// User-defined grammar rules encountered during parsing are added to
+    /// the live rule table, making them available for subsequent code.
+    pub fn parse_source_file(&mut self, source: &str) -> Result<SourceFile, String> {
         let tokens = crate::lexer::lex(source).map_err(|errs| {
             errs.into_iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join(", ")
         })?;
@@ -46,7 +48,7 @@ impl GrammarParser {
     }
 
     /// Parse source text into a list of items (no header).
-    pub fn parse_source(&self, source: &str) -> Result<Vec<Spanned<Item>>, String> {
+    pub fn parse_source(&mut self, source: &str) -> Result<Vec<Spanned<Item>>, String> {
         let tokens = crate::lexer::lex(source).map_err(|errs| {
             errs.into_iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join(", ")
         })?;
@@ -54,13 +56,22 @@ impl GrammarParser {
     }
 
     /// Parse items from token stream.
-    fn parse_items(&self, tokens: &[SpannedToken], mut pos: usize) -> Result<Vec<Spanned<Item>>, String> {
+    /// When a GrammarRule item is encountered, it's converted to a ParseRule
+    /// and added to the live rule table for subsequent parsing.
+    fn parse_items(&mut self, tokens: &[SpannedToken], mut pos: usize) -> Result<Vec<Spanned<Item>>, String> {
         let mut items = Vec::new();
         pos = skip_newlines(tokens, pos);
         while pos < tokens.len() {
             let (value, new_pos) = self.try_rule("item", tokens, pos)
                 .map_err(|e| format!("at position {}: {}", pos, e))?;
-            items.push(value.as_item()?);
+            let item = value.as_item()?;
+            // Live grammar rule injection: user-defined rules extend the parser
+            if let Item::GrammarRule(ref gr) = item.node {
+                if let Some(parse_rule) = grammar_rule_to_parse_rule(gr) {
+                    self.rules.insert(parse_rule.name.clone(), parse_rule);
+                }
+            }
+            items.push(item);
             pos = skip_newlines(tokens, new_pos);
         }
         Ok(items)
@@ -252,6 +263,93 @@ fn build_result(spec: &ResultSpec, bindings: &Bindings, span: Span) -> Result<Va
     builders::construct(&spec.constructor, &resolved, span)
 }
 
+/// Convert an AST GrammarRule into a live ParseRule for the interpreter.
+/// Pattern: GrammarElement → PatElem (Terminal→Tok/Lit, NonTerminal→Rule, etc.)
+/// Result: the Expr result is stored as a ResultSpec by analyzing its structure.
+fn grammar_rule_to_parse_rule(gr: &crate::ast::GrammarRule) -> Option<ParseRule> {
+    let known = super::bootstrap::known_tokens();
+    let arms: Vec<ParseArm> = gr.arms.iter().filter_map(|arm| {
+        let pattern: Vec<PatElem> = arm.pattern.iter().filter_map(|elem| {
+            match elem {
+                crate::ast::GrammarElement::Terminal(name) => {
+                    if known.contains(name.as_str()) {
+                        Some(PatElem::Tok(name.clone()))
+                    } else {
+                        Some(PatElem::Lit(name.clone()))
+                    }
+                }
+                crate::ast::GrammarElement::NonTerminal(name) => Some(PatElem::Rule(name.clone())),
+                crate::ast::GrammarElement::Binding(name) => {
+                    if name == "Lit" {
+                        Some(PatElem::BindLit(name.clone()))
+                    } else if name == "Type" {
+                        Some(PatElem::BindType(name.clone()))
+                    } else {
+                        Some(PatElem::Bind(name.clone()))
+                    }
+                }
+                crate::ast::GrammarElement::Rest(_) => None,
+            }
+        }).collect();
+        // Convert result Expr to ResultSpec
+        let result = if let Some(expr) = arm.result.first() {
+            expr_to_result_spec(&expr.node)
+        } else {
+            ResultSpec { constructor: "Nil".into(), args: vec![] }
+        };
+        Some(ParseArm { pattern, result })
+    }).collect();
+    Some(ParseRule { name: gr.name.clone(), arms })
+}
+
+/// Convert an AST Expr into a ResultSpec for the interpreter's build_result.
+fn expr_to_result_spec(expr: &crate::ast::Expr) -> ResultSpec {
+    use crate::ast::Expr;
+    match expr {
+        // BareName → constructor with no args
+        Expr::BareName(name) => ResultSpec {
+            constructor: name.clone(),
+            args: vec![],
+        },
+        // InstanceRef(@Name) → bound reference
+        Expr::InstanceRef(name) => ResultSpec {
+            constructor: "Passthrough".into(),
+            args: vec![ResultArg::Bound(name.clone())],
+        },
+        // StructConstruct(Name, [(field_name, field_value)]) → constructor with field args
+        Expr::StructConstruct(name, fields) => {
+            let args = fields.iter().map(|(_, val)| {
+                ResultArg::Nested(expr_to_result_spec(&val.node))
+            }).collect();
+            ResultSpec { constructor: name.clone(), args }
+        },
+        // Access(base, field) → method call on base
+        Expr::Access(base, field) => {
+            let base_spec = expr_to_result_spec(&base.node);
+            ResultSpec {
+                constructor: "Passthrough".into(),
+                args: vec![ResultArg::Nested(base_spec)],
+            }
+        }
+        // StringLit → literal
+        Expr::StringLit(s) => ResultSpec {
+            constructor: "Passthrough".into(),
+            args: vec![ResultArg::Literal(s.clone())],
+        },
+        // IntLit, FloatLit
+        Expr::IntLit(n) => ResultSpec {
+            constructor: "Passthrough".into(),
+            args: vec![ResultArg::Literal(n.to_string())],
+        },
+        Expr::FloatLit(n) => ResultSpec {
+            constructor: "Passthrough".into(),
+            args: vec![ResultArg::Literal(format!("{n}"))],
+        },
+        // Fallback
+        _ => ResultSpec { constructor: "Nil".into(), args: vec![] },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,7 +366,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_domain() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("Element (Fire Earth Air Water)").unwrap();
         assert_eq!(items.len(), 1);
         match &items[0].node {
@@ -284,7 +382,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_struct() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("Point { Horizontal F64 Vertical F64 }").unwrap();
         assert_eq!(items.len(), 1);
         match &items[0].node {
@@ -300,7 +398,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_const() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("!Pi F64 {3.14159265358979}").unwrap();
         assert_eq!(items.len(), 1);
         match &items[0].node {
@@ -314,7 +412,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_main() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("Main [ StdOut \"hello\" ]").unwrap();
         assert_eq!(items.len(), 1);
         match &items[0].node {
@@ -334,7 +432,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_trait_decl() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("classify ([element(:@Self) Element])").unwrap();
         assert_eq!(items.len(), 1);
         match &items[0].node {
@@ -349,7 +447,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_trait_impl() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source(
             "compute [Addition [ add(:@Self) U32 [ ^(@Self.Left + @Self.Right) ] ]]"
         ).unwrap();
@@ -366,7 +464,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_type_alias() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("SignList Vec{Sign}").unwrap();
         assert_eq!(items.len(), 1);
         match &items[0].node {
@@ -380,7 +478,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_inline_domain() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("Polarity (Solar (Active Positive) Lunar (Receptive Negative))").unwrap();
         match &items[0].node {
             Item::Domain(d) => {
@@ -398,7 +496,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_matching_body() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let src = r#"describe [Element [
   describe(:@Self) Element (|
     (Fire)  Fire
@@ -424,7 +522,7 @@ mod tests {
 
     #[test]
     fn grammar_multi_method_match_body() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let src = r#"transform [Tokens [
   advance(@Self) Tokens [ ^@Self ]
   skipNewlines(@Self) Tokens [
@@ -447,7 +545,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_binding_new() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("Main [ @Radius/new(Value(5.0)) ]").unwrap();
         match &items[0].node {
             Item::Main(m) => {
@@ -464,7 +562,7 @@ mod tests {
 
     #[test]
     fn grammar_parse_multiple_items() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let src = r#"
 Element (Fire Earth Air Water)
 Point { Horizontal F64 Vertical F64 }
@@ -479,7 +577,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_parse_measure_impl() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let src = r#"measure [Radius [
   area(:@Self) F64 [
     @Area F64/new([@Self.Value * @Self.Value * !Pi])
@@ -500,7 +598,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_parse_simple_aski_file() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let source = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/simple.aski")
         ).unwrap();
@@ -512,7 +610,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_parse_module_header() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let src = "(Chart Sign Planet)\n[Ephemeris(julianDay longitude)]\nSign (Aries Taurus)";
         let sf = parser.parse_source_file(src).unwrap();
         let header = sf.header.as_ref().expect("should have header");
@@ -524,7 +622,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_parse_data_driven_precedence() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         // 1 + 2 * 3 should parse as 1 + (2 * 3) due to precedence
         let items = parser.parse_source("Main [ ^(1 + 2 * 3) ]").unwrap();
         match &items[0].node {
@@ -557,7 +655,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_parse_ffi_block() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let src = r#"{| SwissEphemeris
   julianDay(@Year I32 @Month I32 @Day I32 @Hour F64 @Flag I32) F64 swe_julday
 |}"#;
@@ -578,7 +676,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_parse_ffi_multiple_functions() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let src = r#"{| SwissEphemeris
   julianDay(@Year I32 @Month I32 @Day I32 @Hour F64 @Flag I32) F64 swe_julday
   calculate(@JulDay F64 @Planet I32 @Flag I64) F64 swe_calc_ut
@@ -597,7 +695,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_ffi_codegen() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let src = r#"{| swisseph
   julianDay(@Year I32 @Month I32 @Day I32 @Hour F64 @Flag I32) F64 swe_julday
 |}"#;
@@ -616,7 +714,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_parse_bootstrap_tokens_aski() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let source = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("bootstrap/tokens.aski")
         ).unwrap();
@@ -627,7 +725,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_type_path_variant() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("Main [ ^Sign/Aries ]").unwrap();
         match &items[0].node {
             Item::Main(m) => match &m.body {
@@ -649,7 +747,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_type_path_method_call() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("Main [ ^Sign/fromDegree(@Lon) ]").unwrap();
         match &items[0].node {
             Item::Main(m) => match &m.body {
@@ -671,7 +769,7 @@ Point { Horizontal F64 Vertical F64 }
 
     #[test]
     fn grammar_at_slash_new() {
-        let parser = make_parser();
+        let mut parser = make_parser();
         let items = parser.parse_source("Main [ @Radius/new(Value(5.0)) ]").unwrap();
         match &items[0].node {
             Item::Main(m) => match &m.body {

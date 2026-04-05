@@ -282,7 +282,7 @@ use crate::grammar::config::{self as grammar_config, GrammarConfig};
 
 /// Parse a full aski source file using the grammar engine.
 pub fn parse_source_file(source: &str) -> Result<SourceFile, String> {
-    let parser = make_parser()?;
+    let mut parser = make_parser()?;
     parser.parse_source_file(source)
 }
 
@@ -293,7 +293,7 @@ pub fn parse_source_file_with_config(source: &str, config: &GrammarConfig) -> Re
         Some(ref dir) => bootstrap::load_rules(dir).unwrap_or_default(),
         None => RuleTable::new(),
     };
-    let parser = interpreter::GrammarParser::new(rules, config.clone());
+    let mut parser = interpreter::GrammarParser::new(rules, config.clone());
     parser.parse_source_file(source)
 }
 
