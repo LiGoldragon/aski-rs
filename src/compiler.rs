@@ -28,15 +28,12 @@ pub fn compile_files(
     codegen_v3::generate_with_config(&world, config)
 }
 
-/// Expand grammar rules -- Surface Aski -> Kernel Aski.
+/// Expand grammar rules — validate grammar rules stored in the World.
 ///
-/// Reads all GrammarRule/GrammarArm relations from the World.
-/// For the first pass, grammar rules are stored but expansion is a no-op:
-/// the rules exist in the World for tooling to query, and kernel primitives
-/// (truncate, fromOrdinal, sin, cos, etc.) are handled directly by codegen.
-///
-/// Future passes will pattern-match expressions against grammar rules and
-/// replace them with expanded kernel forms.
+/// Grammar rules are live: they are injected into the parser during parsing
+/// and travel with imports via topo-sort. This pass validates the stored
+/// GrammarRule/GrammarArm relations. Kernel primitives (truncate, fromOrdinal,
+/// sin, cos, etc.) are handled directly by codegen.
 fn expand_grammar_rules(world: &mut ir::World) -> Result<(), String> {
     // Collect grammar rules for validation
     let rules: Vec<(i64, String)> = world.grammar_rules.iter()

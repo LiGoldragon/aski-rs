@@ -2,7 +2,8 @@
 //!
 //! Ordered choice with backtracking. First arm that matches wins.
 //! Built-in rules: `expression` (Pratt parser), `stmts` (statement list).
-//! Newlines are skipped between pattern elements.
+//! Newline skip: only Tok elements are position-exact; other elements
+//! skip newlines before matching.
 
 use crate::ast::*;
 use crate::lexer::{self, Token};

@@ -1,9 +1,9 @@
 # aski-rs — Rust Backend
 
-Reads **Kernel Aski** (the simplified, macro-expanded subset of aski v0.9).
-Emits Rust code. Deliberately simple — gets thinner as aski-cc takes over.
+Reads aski source, emits Rust code. Sole codegen is codegen_v3.
+Bootstrap pipeline green at v0.4.0.4.
 
-## Current State (2026-04-02)
+## Current State (2026-04-05)
 
 - 86 tests pass (82 unit + 4 integration)
 - Only v0.9 spec exists — all pre-v0.8 removed
@@ -13,11 +13,14 @@ Emits Rust code. Deliberately simple — gets thinner as aski-cc takes over.
 - Auto-deref primitive named params in arithmetic
 - `PartialEq`/`Eq` derived on all structs
 - camelCase traits → PascalCase Rust conversion
+- BindType (PascalCase-only binding for type references)
+- Grammar rules are live — injected during parsing, module-scoped via topo-sort
+- No serde_json — JSON eliminated, World relations are canonical
 
 ## Architecture
 
 ```
-Kernel Aski → Lexer (logos) → Parser (chumsky) → AST → IR → Codegen → Rust
+.aski → Lexer (logos) → Grammar Rules (PEG interpreter) → AST → IR → Codegen v3 → Rust
 ```
 
 ## v0.9 Language Features
@@ -43,7 +46,7 @@ Aski's type system is fixed-size: U8, U16, U32, U64, I64, F64.
 No platform-dependent types. `usize` appears only as an ephemeral
 runtime detail in generated Rust for Vec operations (`.get(x as usize)`,
 `.len() as u32`). Never stored, never serialized, never visible to aski.
-See src/codegen.rs module doc.
+See src/codegen_v3.rs module doc.
 
 ## VCS
 
