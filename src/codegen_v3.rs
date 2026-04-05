@@ -881,7 +881,7 @@ fn emit_simple_derive_method(out: &mut String, world: &World, method: &aski_core
     out.push_str("        let mut results = Vec::new();\n");
     let body = child_exprs_sorted(world, method.id);
     let stmt = body.first().ok_or(format!("empty body in {}", method.name))?;
-    let field_name = extract_set_field(&stmt.value);
+    let field_name = extract_set_field_from_world(world, stmt.id);
     let pipeline_id = find_pipeline_root(world, stmt.id)?;
     let pipeline = decompose_pipeline(world, pipeline_id)?;
     let mut bindings = Vec::new();
@@ -895,7 +895,7 @@ fn emit_fixpoint_method(out: &mut String, world: &World, method: &aski_core::Nod
     out.push_str(&format!("    fn {}_fixpoint(&mut self) {{\n", rn));
     let body = child_exprs_sorted(world, method.id);
     let set_stmt = &body[0];
-    let field_name = extract_set_field(&set_stmt.value);
+    let field_name = extract_set_field_from_world(world, set_stmt.id);
     // Initial set
     out.push_str("        {\n            let mut results = Vec::new();\n");
     let ip_id = find_pipeline_root(world, set_stmt.id)?;
@@ -970,10 +970,10 @@ fn emit_pipeline_loops(out: &mut String, world: &World, node: &Pipeline, rv: &st
             bindings.push(DeriveBinding { var_name: lv.clone(), type_name: et });
             let fc = source.filter_ids.len();
             for (i, &fid) in source.filter_ids.iter().enumerate() {
-                let c = translate_derive_expr(world, fid, bindings)?;
+                let c = translate_derive_expr(world, fid, bindings, None)?;
                 out.push_str(&format!("{}if {} {{\n", "    ".repeat(indent+1+i), c));
             }
-            let v = translate_derive_expr(world, *constructor_id, bindings)?;
+            let v = translate_derive_expr(world, *constructor_id, bindings, None)?;
             out.push_str(&format!("{}{rv}.push({v});\n", "    ".repeat(indent+1+fc)));
             for i in (0..fc).rev() { out.push_str(&format!("{}}}\n", "    ".repeat(indent+1+i))); }
             out.push_str(&format!("{ind}}}\n"));
@@ -987,7 +987,7 @@ fn emit_pipeline_loops(out: &mut String, world: &World, node: &Pipeline, rv: &st
             bindings.push(DeriveBinding { var_name: lv.clone(), type_name: et });
             let fc = source.filter_ids.len();
             for (i, &fid) in source.filter_ids.iter().enumerate() {
-                let c = translate_derive_expr(world, fid, bindings)?;
+                let c = translate_derive_expr(world, fid, bindings, None)?;
                 out.push_str(&format!("{}if {} {{\n", "    ".repeat(indent+1+i), c));
             }
             emit_pipeline_loops(out, world, inner, rv, indent+1+fc, bindings)?;
@@ -1003,22 +1003,22 @@ fn emit_pipeline_loops(out: &mut String, world: &World, node: &Pipeline, rv: &st
     }
 }
 
-fn translate_derive_expr(world: &World, id: i64, bindings: &[DeriveBinding]) -> Result<String, String> {
+fn translate_derive_expr(world: &World, id: i64, bindings: &[DeriveBinding], type_hint: Option<&str>) -> Result<String, String> {
     let expr = find_expr_by_id(world, id)?;
     let ch = child_exprs_sorted(world, id);
     match expr.kind {
         ExprKind::BinOp => {
             let op = &expr.value;
             let lt = derive_expr_type(world, ch[0].id, bindings);
-            let l = translate_derive_expr(world, ch[0].id, bindings)?;
-            let r = translate_derive_expr(world, ch[1].id, bindings)?;
+            let l = translate_derive_expr(world, ch[0].id, bindings, None)?;
+            let r = translate_derive_expr(world, ch[1].id, bindings, lt.as_deref())?;
             if op == "!=" && r == "\"\"" { return Ok(format!("!{l}.is_empty()")); }
             if op == "==" && r == "false" { return Ok(format!("!{l}")); }
             if is_cmp(op) { Ok(format!("{l} {op} {r}")) } else { Ok(format!("({l} {op} {r})")) }
         }
         ExprKind::Access => {
             let f = &expr.value;
-            let b = translate_derive_expr(world, ch[0].id, bindings)?;
+            let b = translate_derive_expr(world, ch[0].id, bindings, None)?;
             match f.as_str() {
                 "beforeColon" => Ok(format!("{b}[..{b}.find(':').unwrap()].to_string()")),
                 "afterColon" => Ok(format!("{b}[{b}.find(':').unwrap()+1..].to_string()")),
@@ -1033,6 +1033,13 @@ fn translate_derive_expr(world: &World, id: i64, bindings: &[DeriveBinding]) -> 
                 "True" => Ok("true".into()),
                 "False" => Ok("false".into()),
                 name => {
+                    // Use type hint for disambiguation when a variant name exists in multiple domains
+                    if let Some(hint) = type_hint {
+                        let variants = aski_core::query_domain_variants(world, hint);
+                        if variants.iter().any(|(_, vname, _)| vname == name) {
+                            return Ok(format!("{hint}::{name}"));
+                        }
+                    }
                     if let Some((domain, _)) = aski_core::query_variant_domain(world, name) {
                         Ok(format!("{domain}::{name}"))
                     } else { Ok(name.to_string()) }
@@ -1046,14 +1053,14 @@ fn translate_derive_expr(world: &World, id: i64, bindings: &[DeriveBinding]) -> 
             } else { Ok(format!("\"{}\"", expr.value)) }
         }
         ExprKind::MethodCall => {
-            let b = translate_derive_expr(world, ch[0].id, bindings)?;
+            let b = translate_derive_expr(world, ch[0].id, bindings, None)?;
             let method = &expr.value;
             if method == "contains" {
-                let a = translate_derive_expr(world, ch[1].id, bindings)?;
+                let a = translate_derive_expr(world, ch[1].id, bindings, None)?;
                 return Ok(format!("{b}.contains({a})"));
             }
             let args: Vec<String> = ch[1..].iter()
-                .map(|c| translate_derive_expr(world, c.id, bindings))
+                .map(|c| translate_derive_expr(world, c.id, bindings, None))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(format!("{b}.{}({})", snake(method), args.join(", ")))
         }
@@ -1065,7 +1072,7 @@ fn translate_derive_expr(world: &World, id: i64, bindings: &[DeriveBinding]) -> 
                 let rf = snake(&fe.value);
                 let vc = child_exprs_sorted(world, fe.id);
                 let ft = get_struct_field_type_for(world, tn, &fe.value);
-                let v = translate_derive_expr(world, vc[0].id, bindings)?;
+                let v = translate_derive_expr(world, vc[0].id, bindings, ft.as_deref())?;
                 let vs = if ft.as_deref() == Some("String") { format!("{v}.clone()") } else { v };
                 fs.push(format!("{rf}: {vs}"));
             }
@@ -1169,9 +1176,22 @@ fn translate_interpolated(s: &str, _bindings: &[DeriveBinding]) -> Result<String
     Ok(format!("format!(\"{fmt}\", {})", args.join(", ")))
 }
 
-fn extract_set_field(v: &str) -> String {
-    let parts: Vec<&str> = v.split('.').collect();
-    if parts.len() >= 2 { snake(parts[1]) } else { snake(v) }
+/// Extract the target field name from a MutableSet statement.
+/// The MutableSet stores the binding name (e.g., "Self") in its value.
+/// The actual field is in the Access chain child: Access(inner, "FieldName").
+fn extract_set_field_from_world(world: &World, stmt_id: i64) -> String {
+    let ch = child_exprs_sorted(world, stmt_id);
+    if let Some(child) = ch.first() {
+        if child.kind == ExprKind::Access {
+            return snake(&child.value);
+        }
+    }
+    // Fallback: parse from value string (old codegen_kernel behavior)
+    if let Some(expr) = world.exprs.iter().find(|e| e.id == stmt_id) {
+        let parts: Vec<&str> = expr.value.split('.').collect();
+        if parts.len() >= 2 { return snake(parts[1]); }
+    }
+    "unknown".to_string()
 }
 
 fn child_exprs_sorted<'a>(world: &'a World, parent_id: i64) -> Vec<&'a aski_core::Expr> {
