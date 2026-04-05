@@ -7,7 +7,7 @@
 //! is loaded from grammar/*.aski files before parsing begins.
 
 use crate::ast::SourceFile;
-use crate::codegen::{CodegenConfig, generate_rust_from_db_with_config};
+use crate::codegen_v3::{self, CodegenConfig};
 use crate::ir;
 use crate::grammar::config as grammar_config;
 
@@ -59,7 +59,7 @@ pub fn compile_files(
     ir::run_rules(&mut world);
 
     // Phase 5: Generate Rust from the combined World
-    generate_rust_from_db_with_config(&world, config)
+    codegen_v3::generate_with_config(&world, config)
 }
 
 /// Expand grammar rules -- Surface Aski -> Kernel Aski.

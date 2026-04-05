@@ -4,7 +4,19 @@
 
 use aski_core::{self, World};
 
+pub struct CodegenConfig {
+    pub rkyv: bool,
+}
+
+impl Default for CodegenConfig {
+    fn default() -> Self { Self { rkyv: false } }
+}
+
 pub fn generate(world: &World) -> Result<String, String> {
+    generate_with_config(world, &CodegenConfig::default())
+}
+
+pub fn generate_with_config(world: &World, config: &CodegenConfig) -> Result<String, String> {
     let mut out = String::new();
 
     // Emit operator trait imports from kernel
@@ -30,8 +42,8 @@ pub fn generate(world: &World) -> Result<String, String> {
 
     for (node_id, kind, name) in &nodes {
         match kind.as_str() {
-            "domain" => emit_domain(&mut out, world, name)?,
-            "struct" => emit_struct(&mut out, world, name)?,
+            "domain" => emit_domain(&mut out, world, name, config)?,
+            "struct" => emit_struct(&mut out, world, name, config)?,
             "const" => emit_const(&mut out, world, *node_id)?,
             "trait" => emit_trait(&mut out, world, *node_id, name)?,
             "impl" => emit_impl(&mut out, world, *node_id)?,
@@ -96,6 +108,10 @@ fn is_primitive(t: &str) -> bool {
     matches!(t, "F32"|"F64"|"I8"|"I16"|"I32"|"I64"|"U8"|"U16"|"U32"|"U64"|"Bool"|"String")
 }
 
+fn rkyv_suffix(config: &CodegenConfig) -> &'static str {
+    if config.rkyv { ", rkyv::Archive, rkyv::Serialize, rkyv::Deserialize" } else { "" }
+}
+
 // ── Qualify a name: variant → Domain::Variant, other → as-is ──
 
 fn qualify(world: &World, name: &str) -> String {
@@ -144,13 +160,14 @@ fn has_data_carrying(world: &World, domain_name: &str) -> bool {
         .iter().any(|(_, _, wraps)| wraps.is_some())
 }
 
-fn emit_domain(out: &mut String, world: &World, name: &str) -> Result<(), String> {
+fn emit_domain(out: &mut String, world: &World, name: &str, config: &CodegenConfig) -> Result<(), String> {
     let variants = aski_core::query_domain_variants(world, name);
     let has_data = variants.iter().any(|(_, _, wraps)| wraps.is_some());
+    let rkyv = rkyv_suffix(config);
     let derives = if has_data {
-        "#[derive(Debug, Clone, PartialEq, Eq)]"
+        format!("#[derive(Debug, Clone, PartialEq, Eq{rkyv})]")
     } else {
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]"
+        format!("#[derive(Debug, Clone, Copy, PartialEq, Eq{rkyv})]")
     };
     out.push_str(&format!("{derives}\npub enum {name} {{\n"));
     for (_, vname, wraps) in &variants {
@@ -178,15 +195,18 @@ fn is_copy_eligible(type_name: &str, world: &World) -> bool {
     }
 }
 
-fn emit_struct(out: &mut String, world: &World, name: &str) -> Result<(), String> {
+fn emit_struct(out: &mut String, world: &World, name: &str, config: &CodegenConfig) -> Result<(), String> {
     let fields = aski_core::query_struct_fields(world, name);
     let all_copy = !fields.is_empty() && fields.iter().all(|(_, fname, ftype)| {
         !aski_core::is_recursive_field(world, name, fname) && is_copy_eligible(ftype, world)
     });
+    let rkyv = rkyv_suffix(config);
+    let has_float = fields.iter().any(|(_, _, ftype)| matches!(ftype.as_str(), "F32" | "F64"));
+    let eq_str = if has_float { "" } else { ", Eq" };
     let derives = if all_copy {
-        "#[derive(Debug, Copy, Clone, PartialEq)]"
+        format!("#[derive(Debug, Copy, Clone, PartialEq{eq_str}{rkyv})]")
     } else {
-        "#[derive(Debug, Clone, PartialEq, Eq)]"
+        format!("#[derive(Debug, Clone, PartialEq{eq_str}{rkyv})]")
     };
     out.push_str(&format!("{derives}\npub struct {name} {{\n"));
     for (_, fname, ftype) in &fields {
@@ -576,7 +596,7 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             }
 
             let args: Vec<String> = children.iter().skip(1)
-                .map(|(cid, _, _, _)| emit_expr(world, *cid))
+                .map(|(cid, _, _, _)| emit_expr(world, *cid).map(|v| format!("&{v}")))
                 .collect::<Result<_, _>>()?;
             if args.is_empty() { Ok(format!("{base}.{s}()")) }
             else { Ok(format!("{base}.{s}({})", args.join(", "))) }
@@ -647,6 +667,18 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
                 .unwrap_or(Ok("()".into()))
         }
 
+        "struct_field" => {
+            // Named struct field: value is the field name, child is the value expr
+            let fname = snake(&value.unwrap_or_default());
+            let children = aski_core::query_child_exprs(world, expr_id);
+            if let Some((cid, _, _, _)) = children.first() {
+                let val = emit_expr(world, *cid)?;
+                Ok(format!("{fname}: {val}"))
+            } else {
+                Ok(format!("{fname}: todo!()"))
+            }
+        }
+
         "stub" => Ok("todo!()".into()),
         other => Ok(format!("/* unhandled: {other} */")),
     }
@@ -689,11 +721,19 @@ fn infer_self_type(world: &World, expr_id: i64) -> String {
 fn emit_struct_or_expr(world: &World, type_name: &str, children: &[(i64, String, i64, Option<String>)]) -> Result<String, String> {
     let mut fields = Vec::new();
     for (cid, ckind, _, cval) in children {
-        if ckind == "struct_construct" {
+        if ckind == "struct_construct" || ckind == "struct_field" {
             let fname = snake(cval.as_deref().unwrap_or(""));
             let inner = aski_core::query_child_exprs(world, *cid);
-            if let Some((vid, _, _, _)) = inner.first() {
-                fields.push(format!("{fname}: {}", emit_expr(world, *vid)?));
+            if let Some((vid, vkind, _, _)) = inner.first() {
+                // If the child is itself a struct_field, get its value child
+                if vkind == "struct_field" {
+                    let gc = aski_core::query_child_exprs(world, *vid);
+                    if let Some((gid, _, _, _)) = gc.first() {
+                        fields.push(format!("{fname}: {}", emit_expr(world, *gid)?));
+                    }
+                } else {
+                    fields.push(format!("{fname}: {}", emit_expr(world, *vid)?));
+                }
             }
         } else {
             return emit_expr(world, *cid);

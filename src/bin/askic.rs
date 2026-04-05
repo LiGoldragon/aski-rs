@@ -6,17 +6,15 @@
 //!
 //! Modes:
 //!   askic <files...>           — standard codegen (Rust structs/enums)
-//!   askic --v3 <files...>      — codegen v3 (kernel-query-driven)
 //!   askic --kernel <files...>  — kernel codegen (World + queries + derive)
 
 use std::env;
 use std::fs;
 use std::process;
 
-use aski_rs::codegen::CodegenConfig;
+use aski_rs::codegen_v3::{self, CodegenConfig};
 use aski_rs::codegen_kernel;
-use aski_rs::codegen_v3;
-use aski_rs::compiler::{compile_files, compile_files_to_world};
+use aski_rs::compiler::compile_files_to_world;
 
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -27,7 +25,6 @@ fn main() {
     }
 
     let kernel_mode = args.iter().any(|a| a == "--kernel");
-    let v3_mode = args.iter().any(|a| a == "--v3");
 
     // Extract --grammar-dir <path> and set ASKI_GRAMMAR_DIR
     for (i, arg) in args.iter().enumerate() {
@@ -43,7 +40,7 @@ fn main() {
 
     let file_args: Vec<&String> = args.iter().enumerate()
         .filter(|(i, a)| {
-            if *a == "--kernel" || *a == "--v3" || *a == "--grammar-dir" { return false; }
+            if *a == "--kernel" || *a == "--grammar-dir" { return false; }
             if *i > 0 && args[i - 1] == "--grammar-dir" { return false; }
             true
         })
@@ -84,24 +81,16 @@ fn main() {
                 process::exit(1);
             }
         }
-    } else if v3_mode {
+    } else {
+        let config = CodegenConfig { rkyv: false };
         match compile_files_to_world(&refs) {
-            Ok(world) => match codegen_v3::generate(&world) {
+            Ok(world) => match codegen_v3::generate_with_config(&world, &config) {
                 Ok(rust) => print!("{}", rust),
                 Err(e) => {
-                    eprintln!("askic: v3 codegen: {}", e);
+                    eprintln!("askic: codegen: {}", e);
                     process::exit(1);
                 }
             },
-            Err(e) => {
-                eprintln!("askic: {}", e);
-                process::exit(1);
-            }
-        }
-    } else {
-        let config = CodegenConfig { rkyv: false };
-        match compile_files(&refs, &config) {
-            Ok(rust) => print!("{}", rust),
             Err(e) => {
                 eprintln!("askic: {}", e);
                 process::exit(1);

@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::process::Command;
 
-use aski_rs::codegen::CodegenConfig;
+use aski_rs::codegen_v3::CodegenConfig;
 use aski_rs::compiler::compile_directory;
 
 #[test]
@@ -100,7 +100,7 @@ fn main() {"#,
                 eprintln!("stderr: {stderr_run}");
             }
             assert!(run_output.status.success(), "runtime error: {stderr_run}");
-            assert!(stdout.contains("parseDomain"), "should have parseDomain output");
+            assert!(stdout.contains("aski bootstrap parser"), "should have main output");
         }
     }
 

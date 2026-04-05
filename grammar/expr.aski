@@ -131,60 +131,6 @@
   [@Lit | @Rest]                                     Literal(@Lit) @Rest
 }
 
-;; ── Bare atom: same as <atom> ──
-;; Used in match arm results. With skip_newlines only before Rule elements,
-;; Name\n(nextArm) won't be consumed as struct construction because LParen
-;; requires adjacency (no newline skip before Tok elements).
-
-<bareAtom> {
-  [Stub | @Rest]                                     ExprStub @Rest
-  [Bang @Name | @Rest]                               ConstRef(@Name) @Rest
-  [Caret <expr> | @Rest]                             Return(<expr>) @Rest
-  [Hash <expr> | @Rest]                              Yield(<expr>) @Rest
-  [At @Name | @Rest]                                 InstanceRef(@Name) @Rest
-  [CompositionOpen <matchExpr> CompositionClose | @Rest]
-    <matchExpr> @Rest
-  [LBracket <stmts> RBracket | @Rest]               InlineEval(<stmts>) @Rest
-  [LParen <expr> RParen | @Rest]                     Group(<expr>) @Rest
-  ["StdOut" <expr> | @Rest]                          StdOut(<expr>) @Rest
-  ["True" | @Rest]                                   BareTrue @Rest
-  ["False" | @Rest]                                  BareFalse @Rest
-  [@Name Slash @Method LParen <callArgs> RParen | @Rest]
-    FnCall(@Name @Method <callArgs>) @Rest
-  [@Name Slash @Variant | @Rest]
-    TypePath(@Name @Variant) @Rest
-  [@Name LParen <structFields> RParen | @Rest]       StructConstruct(@Name <structFields>) @Rest
-  [@Name | @Rest]                                    BareName(@Name) @Rest
-  [@Lit | @Rest]                                     Literal(@Lit) @Rest
-}
-
-;; ── Bare expression: no struct construction at atom level ──
-
-<barePostfix> {
-  [<bareAtom> <postfixOps> | @Rest]  FoldPost(<bareAtom> <postfixOps>) @Rest
-}
-<bareMultiplicative> {
-  [<barePostfix> <multiplicativeOps> | @Rest]  FoldLeft(<barePostfix> <multiplicativeOps>) @Rest
-}
-<bareAdditive> {
-  [<bareMultiplicative> <additiveOps> | @Rest]  FoldLeft(<bareMultiplicative> <additiveOps>) @Rest
-}
-<bareComparison> {
-  [<bareAdditive> <comparisonOps> | @Rest]  FoldLeft(<bareAdditive> <comparisonOps>) @Rest
-}
-<bareEquality> {
-  [<bareComparison> <equalityOps> | @Rest]  FoldLeft(<bareComparison> <equalityOps>) @Rest
-}
-<bareAnd> {
-  [<bareEquality> <andOps> | @Rest]  FoldLeft(<bareEquality> <andOps>) @Rest
-}
-<bareOr> {
-  [<bareAnd> <orOps> | @Rest]  FoldLeft(<bareAnd> <orOps>) @Rest
-}
-<bareExpr> {
-  [<bareOr> | @Rest]  <bareOr> @Rest
-}
-
 ;; ── Struct field arguments in construction ──
 
 <structFields> {

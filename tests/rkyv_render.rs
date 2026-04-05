@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use aski_rs::codegen::{CodegenConfig, generate_rust_from_db_with_config};
+use aski_rs::codegen_v3::{self, CodegenConfig};
 use aski_rs::codec;
 use aski_rs::ir;
 use aski_rs::parser::parse_source;
@@ -22,7 +22,7 @@ fn rkyv_serialize_then_decode_via_codec() {
 
     // 3. Generate Rust with rkyv=true
     let config = CodegenConfig { rkyv: true };
-    let mut rust_code = generate_rust_from_db_with_config(&world, &config).expect("failed to generate");
+    let mut rust_code = codegen_v3::generate_with_config(&world, &config).expect("failed to generate");
 
     // 4. Append main that serializes and prints rkyv bytes
     rust_code.push_str(r#"

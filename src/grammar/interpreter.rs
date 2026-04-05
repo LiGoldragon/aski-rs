@@ -596,8 +596,7 @@ Point { Horizontal F64 Vertical F64 }
             crate::ir::insert_item_pub(&mut world, &mut ids, &item.node, None, None).unwrap();
         }
         crate::ir::run_rules(&mut world);
-        let config = crate::codegen::CodegenConfig { rkyv: false };
-        let rust = crate::codegen::generate_rust_from_db_with_config(&world, &config).unwrap();
+        let rust = crate::codegen_v3::generate(&world).unwrap();
         assert!(rust.contains("swisseph::swe_julday"), "should call crate function:\n{}", rust);
         assert!(rust.contains("fn julian_day"), "should have wrapper:\n{}", rust);
         assert!(rust.contains("year: i32"), "should have typed params:\n{}", rust);

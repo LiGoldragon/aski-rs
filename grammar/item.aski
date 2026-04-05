@@ -117,12 +117,12 @@
 
 <matchArm> {
   ;; (patterns) result — commit (bareExpr: no struct construction ambiguity)
-  [LParen <patterns> RParen <bareExpr> | @Rest]     CommitArm(<patterns> <bareExpr>) @Rest
+  [LParen <patterns> RParen <expr> | @Rest]     CommitArm(<patterns> <expr>) @Rest
   ;; [patterns] result — backtrack
-  [LBracket <patterns> RBracket <bareExpr> | @Rest] BacktrackArm(<patterns> <bareExpr>) @Rest
+  [LBracket <patterns> RBracket <expr> | @Rest] BacktrackArm(<patterns> <expr>) @Rest
   ;; [elem | @Rest] result — destructure
-  [LBracket <destructure> RBracket <bareExpr> | @Rest]
-    DestructureArm(<destructure> <bareExpr>) @Rest
+  [LBracket <destructure> RBracket <expr> | @Rest]
+    DestructureArm(<destructure> <expr>) @Rest
 }
 
 ;; ── Pattern list (one or more patterns) ──
@@ -144,7 +144,7 @@
 }
 
 <matchExprArm> {
-  [LParen <patterns> RParen <bareExpr> | @Rest]   CommitArm(<patterns> <bareExpr>) @Rest
+  [LParen <patterns> RParen <expr> | @Rest]   CommitArm(<patterns> <expr>) @Rest
 }
 
 <matchExprArms> {
@@ -198,8 +198,8 @@
 ;; ── Grammar rule arms (for self-extension) ──
 
 <ruleArm> {
-  [LBracket <rulePattern> RBracket <bareExpr> | @Rest]
-    RuleArm(<rulePattern> <bareExpr>) @Rest
+  [LBracket <rulePattern> RBracket <expr> | @Rest]
+    RuleArm(<rulePattern> <expr>) @Rest
 }
 
 <ruleArms> {

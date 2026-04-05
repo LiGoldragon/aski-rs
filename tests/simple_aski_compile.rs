@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::process::Command;
 
-use aski_rs::codegen::{CodegenConfig, generate_rust_from_db_with_config};
+use aski_rs::codegen_v3::{self, CodegenConfig};
 use aski_rs::ir;
 use aski_rs::parser::parse_source;
 
@@ -24,7 +24,7 @@ fn simple_aski_parses_stores_generates_compiles() {
 
     // 4. Generate Rust code from World
     let config = CodegenConfig { rkyv: false };
-    let rust_code = generate_rust_from_db_with_config(&world, &config).expect("failed to generate Rust from World");
+    let rust_code = codegen_v3::generate_with_config(&world, &config).expect("failed to generate Rust from World");
 
     eprintln!("=== Generated Rust ===\n{rust_code}\n=== End ===");
 
