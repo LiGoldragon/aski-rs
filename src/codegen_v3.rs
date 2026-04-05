@@ -852,12 +852,21 @@ fn emit_derive_impl(out: &mut String, world: &World, impl_body_id: i64, target_t
     out.push_str("    pub fn derive(&mut self) {\n");
     let body_exprs = child_exprs_sorted(world, derive_method.id);
     for expr in &body_exprs {
-        if expr.kind == ExprKind::MethodCall {
-            let is_fp = methods.iter().any(|m| m.name == expr.value && m.kind == NodeKind::TailMethod);
+        // Each statement is MutableSet("Self", MethodCall(name)) or MethodCall directly
+        let method_name = if expr.kind == ExprKind::MethodCall {
+            Some(expr.value.clone())
+        } else if expr.kind == ExprKind::MutableSet {
+            // Child of MutableSet is the chain result — a MethodCall or Access
+            child_exprs_sorted(world, expr.id).first()
+                .filter(|c| c.kind == ExprKind::MethodCall)
+                .map(|c| c.value.clone())
+        } else { None };
+        if let Some(name) = method_name {
+            let is_fp = methods.iter().any(|m| m.name == name && m.kind == NodeKind::TailMethod);
             if is_fp {
-                out.push_str(&format!("        self.{}_fixpoint();\n", snake(&expr.value)));
+                out.push_str(&format!("        self.{}_fixpoint();\n", snake(&name)));
             } else {
-                out.push_str(&format!("        self.{}();\n", snake(&expr.value)));
+                out.push_str(&format!("        self.{}();\n", snake(&name)));
             }
         }
     }
