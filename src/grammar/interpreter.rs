@@ -69,101 +69,17 @@ impl GrammarParser {
         Ok(items)
     }
 
-    /// Try to parse a module header: (name exports) [imports] {constraints}
+    /// Try to parse a module header via grammar rule <header>.
     fn try_parse_header(&self, tokens: &[SpannedToken], pos: usize) -> Result<(ModuleHeader, usize), String> {
-        // Header starts with ( — check if it looks like a header (PascalCase name inside)
         let cur = skip_newlines(tokens, pos);
         if cur >= tokens.len() || tokens[cur].token != Token::LParen {
             return Err("no header".to_string());
         }
-        self.parse_module_header_builtin(tokens, cur)
-            .and_then(|(v, p)| {
-                match v {
-                    Value::ModuleHeader(h) => Ok((h, p)),
-                    _ => Err("header rule did not produce ModuleHeader".to_string()),
-                }
-            })
-    }
-
-    /// Built-in: module header parser.
-    fn parse_module_header_builtin(&self, tokens: &[SpannedToken], pos: usize) -> Result<(Value, usize), String> {
-        let start = tokens[pos].span.start;
-        let mut cur = pos;
-
-        // (Name Export1 Export2 ...)
-        expect_token(tokens, cur, &Token::LParen)?;
-        cur += 1;
-        let name = expect_ident(tokens, cur)?;
-        cur += 1;
-        let mut exports = Vec::new();
-        while cur < tokens.len() && tokens[cur].token != Token::RParen {
-            cur = skip_newlines(tokens, cur);
-            if tokens[cur].token == Token::RParen { break; }
-            let export_name = expect_ident(tokens, cur)?;
-            exports.push(export_name);
-            cur += 1;
+        let (val, new_pos) = self.try_rule("header", tokens, cur)?;
+        match val {
+            Value::ModuleHeader(h) => Ok((h, new_pos)),
+            _ => Err("header rule did not produce ModuleHeader".to_string()),
         }
-        expect_token(tokens, cur, &Token::RParen)?;
-        cur += 1;
-
-        // Optional [imports]
-        cur = skip_newlines(tokens, cur);
-        let mut imports = Vec::new();
-        if cur < tokens.len() && tokens[cur].token == Token::LBracket {
-            cur += 1;
-            while cur < tokens.len() && tokens[cur].token != Token::RBracket {
-                cur = skip_newlines(tokens, cur);
-                if tokens[cur].token == Token::RBracket { break; }
-                // Module(items...)
-                let module_name = expect_ident(tokens, cur)?;
-                cur += 1;
-                expect_token(tokens, cur, &Token::LParen)?;
-                cur += 1;
-                let mut items = Vec::new();
-                let mut is_wildcard = false;
-                while cur < tokens.len() && tokens[cur].token != Token::RParen {
-                    cur = skip_newlines(tokens, cur);
-                    if tokens[cur].token == Token::RParen { break; }
-                    if tokens[cur].token == Token::Star {
-                        is_wildcard = true;
-                        cur += 1;
-                    } else {
-                        let item_name = expect_ident(tokens, cur)?;
-                        items.push(item_name);
-                        cur += 1;
-                    }
-                }
-                expect_token(tokens, cur, &Token::RParen)?;
-                cur += 1;
-                let import_span = tokens[pos].span.start..tokens[cur.saturating_sub(1)].span.end;
-                imports.push(ImportEntry {
-                    module: module_name,
-                    items: if is_wildcard { ImportItems::Wildcard } else { ImportItems::Named(items) },
-                    span: import_span,
-                });
-            }
-            expect_token(tokens, cur, &Token::RBracket)?;
-            cur += 1;
-        }
-
-        // Optional {constraints}
-        cur = skip_newlines(tokens, cur);
-        let mut constraints = Vec::new();
-        if cur < tokens.len() && tokens[cur].token == Token::LBrace {
-            cur += 1;
-            while cur < tokens.len() && tokens[cur].token != Token::RBrace {
-                cur = skip_newlines(tokens, cur);
-                if tokens[cur].token == Token::RBrace { break; }
-                let constraint = expect_ident(tokens, cur)?;
-                constraints.push(constraint);
-                cur += 1;
-            }
-            expect_token(tokens, cur, &Token::RBrace)?;
-            cur += 1;
-        }
-
-        let span = start..tokens[cur.saturating_sub(1)].span.end;
-        Ok((Value::ModuleHeader(ModuleHeader { name, exports, imports, constraints, span }), cur))
     }
 
     // ── Core PEG engine ──────────────────────────────────────
@@ -322,25 +238,6 @@ fn token_variant_name(token: &Token) -> &'static str {
     }
 }
 
-fn expect_token(tokens: &[SpannedToken], pos: usize, expected: &Token) -> Result<(), String> {
-    if pos >= tokens.len() {
-        return Err(format!("expected {:?}, got EOF", expected));
-    }
-    if std::mem::discriminant(&tokens[pos].token) != std::mem::discriminant(expected) {
-        return Err(format!("expected {:?}, got {:?} at pos {}", expected, tokens[pos].token, pos));
-    }
-    Ok(())
-}
-
-fn expect_ident(tokens: &[SpannedToken], pos: usize) -> Result<String, String> {
-    if pos >= tokens.len() {
-        return Err("expected identifier, got EOF".to_string());
-    }
-    match &tokens[pos].token {
-        Token::PascalIdent(s) | Token::CamelIdent(s) => Ok(s.clone()),
-        other => Err(format!("expected identifier, got {:?}", other)),
-    }
-}
 
 fn build_result(spec: &ResultSpec, bindings: &Bindings, span: Span) -> Result<Value, String> {
     let resolved: Vec<Value> = spec.args.iter().map(|arg| {
