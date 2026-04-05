@@ -191,12 +191,14 @@ fn parse_pattern_elem(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>)
             expect_tok(tokens, cur, &Token::GreaterThan, ">")?;
             Ok(PatElem::Rule(name))
         }
-        // @Name — identifier binding; @Lit — literal binding
+        // @Name — identifier binding; @Lit — literal binding; @Type — PascalCase only
         Token::At => {
             *cur += 1;
             let name = eat_ident(tokens, cur)?;
             if name == "Lit" {
                 Ok(PatElem::BindLit(name))
+            } else if name == "Type" {
+                Ok(PatElem::BindType(name))
             } else {
                 Ok(PatElem::Bind(name))
             }

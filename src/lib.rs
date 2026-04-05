@@ -5,6 +5,5 @@ pub mod parser;
 pub mod grammar;
 pub mod ir;
 pub mod codegen_v3;
-pub mod codegen_kernel;
 pub mod codec;
 pub mod compiler;

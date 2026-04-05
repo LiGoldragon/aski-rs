@@ -882,8 +882,8 @@ fn emit_simple_derive_method(out: &mut String, world: &World, method: &aski_core
     let body = child_exprs_sorted(world, method.id);
     let stmt = body.first().ok_or(format!("empty body in {}", method.name))?;
     let field_name = extract_set_field(&stmt.value);
-    let pc = child_exprs_sorted(world, stmt.id);
-    let pipeline = decompose_pipeline(world, pc[0].id)?;
+    let pipeline_id = find_pipeline_root(world, stmt.id)?;
+    let pipeline = decompose_pipeline(world, pipeline_id)?;
     let mut bindings = Vec::new();
     emit_pipeline_loops(out, world, &pipeline, "results", 2, &mut bindings)?;
     out.push_str(&format!("        self.{} = results;\n", field_name));
@@ -898,22 +898,41 @@ fn emit_fixpoint_method(out: &mut String, world: &World, method: &aski_core::Nod
     let field_name = extract_set_field(&set_stmt.value);
     // Initial set
     out.push_str("        {\n            let mut results = Vec::new();\n");
-    let ic = child_exprs_sorted(world, set_stmt.id);
-    let ip = decompose_pipeline(world, ic[0].id)?;
+    let ip_id = find_pipeline_root(world, set_stmt.id)?;
+    let ip = decompose_pipeline(world, ip_id)?;
     let mut bindings = Vec::new();
     emit_pipeline_loops(out, world, &ip, "results", 3, &mut bindings)?;
     out.push_str(&format!("            self.{} = results;\n        }}\n", field_name));
     // Fixpoint loop
     out.push_str("        loop {\n            let mut new_items = Vec::new();\n");
     let ext = &body[1];
-    let ec = child_exprs_sorted(world, ext.id);
-    let ep = decompose_pipeline(world, ec[0].id)?;
+    let ep_id = find_pipeline_root(world, ext.id)?;
+    let ep = decompose_pipeline(world, ep_id)?;
     let mut bindings = Vec::new();
     emit_pipeline_loops(out, world, &ep, "new_items", 3, &mut bindings)?;
     out.push_str(&format!("            new_items.retain(|item| !self.{}.contains(item));\n", field_name));
     out.push_str("            if new_items.is_empty() { break; }\n");
     out.push_str(&format!("            self.{}.extend(new_items);\n        }}\n    }}\n\n", field_name));
     Ok(())
+}
+
+/// Find the pipeline expression root by unwrapping Access/MutableSet chains.
+/// MutableSet stores Access(pipeline, field_name) as its child.
+fn find_pipeline_root(world: &World, expr_id: i64) -> Result<i64, String> {
+    let ch = child_exprs_sorted(world, expr_id);
+    if ch.is_empty() { return Err("no children for pipeline root".into()); }
+    let child = ch[0];
+    if child.kind == ExprKind::Access {
+        // Access(inner, field) — the inner is the pipeline
+        let inner = child_exprs_sorted(world, child.id);
+        if let Some(first) = inner.first() {
+            Ok(first.id)
+        } else {
+            Ok(child.id)
+        }
+    } else {
+        Ok(child.id)
+    }
 }
 
 fn decompose_pipeline(world: &World, id: i64) -> Result<Pipeline, String> {

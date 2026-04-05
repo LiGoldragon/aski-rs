@@ -134,6 +134,16 @@ impl GrammarParser {
                     bindings.insert(bind_name.clone(), value);
                     cur += 1;
                 }
+                PatElem::BindType(bind_name) => {
+                    let tok = tokens.get(cur)
+                        .ok_or_else(|| format!("expected PascalCase type for @{}, got EOF", bind_name))?;
+                    let value = match &tok.token {
+                        Token::PascalIdent(s) => Value::Str(s.clone()),
+                        _ => return Err(format!("cannot bind @{} to {:?} (expected PascalCase type)", bind_name, tok.token)),
+                    };
+                    bindings.insert(bind_name.clone(), value);
+                    cur += 1;
+                }
                 PatElem::BindLit(bind_name) => {
                     let tok = tokens.get(cur)
                         .ok_or_else(|| format!("expected literal for @{}, got EOF", bind_name))?;

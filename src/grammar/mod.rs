@@ -39,6 +39,10 @@ pub enum PatElem {
     /// Bind the next identifier token to a name.
     /// Matches: PascalIdent, CamelIdent.
     Bind(String),
+    /// Bind the next PascalCase identifier only.
+    /// Matches: PascalIdent. Does NOT match CamelIdent.
+    /// Used for type names where camelCase would be ambiguous.
+    BindType(String),
     /// Bind the next literal token to a name.
     /// Matches: Integer, Float, StringLit.
     BindLit(String),

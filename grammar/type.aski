@@ -2,12 +2,15 @@
 ;;
 ;; Type references: Self, Named, Parameterized, Borrowed, Bound.
 
+;;
+;; @Type only matches PascalCase identifiers — prevents typeRef from
+;; greedily consuming camelCase method/trait names that follow.
 <typeRef> {
   ["Self" | @Rest]                                            SelfType @Rest
   [TraitBoundOpen <traitBound> TraitBoundClose | @Rest]       BoundType(<traitBound>) @Rest
-  [Colon @Name | @Rest]                                       BorrowedType(NamedType(@Name)) @Rest
-  [@Name LBrace <typeParams> RBrace | @Rest]                  ParameterizedType(@Name <typeParams>) @Rest
-  [@Name | @Rest]                                             NamedType(@Name) @Rest
+  [Colon @Type | @Rest]                                       BorrowedType(NamedType(@Type)) @Rest
+  [@Type LBrace <typeParams> RBrace | @Rest]                  ParameterizedType(@Type <typeParams>) @Rest
+  [@Type | @Rest]                                             NamedType(@Type) @Rest
 }
 
 <traitBound> {
