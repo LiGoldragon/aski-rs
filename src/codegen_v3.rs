@@ -63,8 +63,21 @@ fn rust_type(t: &str) -> String {
         "I8" => "i8", "I16" => "i16", "I32" => "i32", "I64" => "i64",
         "U8" => "u8", "U16" => "u16", "U32" => "u32", "U64" => "u64",
         "Bool" => "bool", "String" => "String",
+        // IR stores parameterized types as Vec(T), aski syntax uses Vec{T}
         _ if t.starts_with("Vec{") && t.ends_with('}') =>
             return format!("Vec<{}>", rust_type(&t[4..t.len()-1])),
+        _ if t.starts_with("Vec(") && t.ends_with(')') =>
+            return format!("Vec<{}>", rust_type(&t[4..t.len()-1])),
+        _ if t.starts_with("Option(") && t.ends_with(')') =>
+            return format!("Option<{}>", rust_type(&t[7..t.len()-1])),
+        _ if t.starts_with("Result(") && t.ends_with(')') => {
+            let inner = &t[7..t.len()-1];
+            let parts: Vec<&str> = inner.splitn(2, ' ').collect();
+            if parts.len() == 2 {
+                return format!("Result<{}, {}>", rust_type(parts[0]), rust_type(parts[1]));
+            }
+            return format!("Result<{}>", rust_type(inner));
+        }
         _ => return t.to_string(),
     }.to_string()
 }
@@ -86,18 +99,60 @@ fn is_primitive(t: &str) -> bool {
 // ── Qualify a name: variant → Domain::Variant, other → as-is ──
 
 fn qualify(world: &World, name: &str) -> String {
-    if let Some((domain, _)) = aski_core::query_variant_domain(world, name) {
-        format!("{domain}::{name}")
-    } else {
-        name.to_string()
+    match name {
+        "True" => "true".to_string(),
+        "False" => "false".to_string(),
+        "_" => "_".to_string(),
+        _ => {
+            if let Some((domain, _)) = aski_core::query_variant_domain(world, name) {
+                format!("{domain}::{name}")
+            } else {
+                name.to_string()
+            }
+        }
+    }
+}
+
+/// Qualify a variant name for use in a match pattern.
+/// Data-carrying variants need (..) wildcard.
+fn qualify_pattern(world: &World, name: &str) -> String {
+    match name {
+        "True" => "true".to_string(),
+        "False" => "false".to_string(),
+        "_" => "_".to_string(),
+        _ => {
+            if let Some((domain, domain_id)) = aski_core::query_variant_domain(world, name) {
+                let variants = aski_core::query_domain_variants(world, &domain);
+                let has_data = variants.iter()
+                    .any(|(_, vname, wraps)| vname == name && wraps.is_some());
+                if has_data {
+                    format!("{domain}::{name}(..)")
+                } else {
+                    format!("{domain}::{name}")
+                }
+            } else {
+                name.to_string()
+            }
+        }
     }
 }
 
 // ── Domain ──
 
+fn has_data_carrying(world: &World, domain_name: &str) -> bool {
+    aski_core::query_domain_variants(world, domain_name)
+        .iter().any(|(_, _, wraps)| wraps.is_some())
+}
+
 fn emit_domain(out: &mut String, world: &World, name: &str) -> Result<(), String> {
     let variants = aski_core::query_domain_variants(world, name);
-    out.push_str(&format!("#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum {name} {{\n"));
+    let has_data = variants.iter().any(|(_, _, wraps)| wraps.is_some());
+    let derives = if has_data {
+        "#[derive(Debug, Clone, PartialEq, Eq)]"
+    } else {
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]"
+    };
+    out.push_str(&format!("{derives}\npub enum {name} {{\n"));
     for (_, vname, wraps) in &variants {
         match wraps {
             Some(w) => out.push_str(&format!("    {vname}({}),\n", rust_type(w))),
@@ -113,9 +168,27 @@ fn emit_domain(out: &mut String, world: &World, name: &str) -> Result<(), String
 
 // ── Struct ──
 
+fn is_copy_eligible(type_name: &str, world: &World) -> bool {
+    match type_name {
+        "U8"|"U16"|"U32"|"U64"|"I8"|"I16"|"I32"|"I64"|"F32"|"F64"|"Bool" => true,
+        _ => {
+            let variants = aski_core::query_domain_variants(world, type_name);
+            !variants.is_empty() && variants.iter().all(|(_, _, w)| w.is_none())
+        }
+    }
+}
+
 fn emit_struct(out: &mut String, world: &World, name: &str) -> Result<(), String> {
     let fields = aski_core::query_struct_fields(world, name);
-    out.push_str(&format!("#[derive(Debug, Clone, PartialEq)]\npub struct {name} {{\n"));
+    let all_copy = !fields.is_empty() && fields.iter().all(|(_, fname, ftype)| {
+        !aski_core::is_recursive_field(world, name, fname) && is_copy_eligible(ftype, world)
+    });
+    let derives = if all_copy {
+        "#[derive(Debug, Copy, Clone, PartialEq)]"
+    } else {
+        "#[derive(Debug, Clone, PartialEq, Eq)]"
+    };
+    out.push_str(&format!("{derives}\npub struct {name} {{\n"));
     for (_, fname, ftype) in &fields {
         let sname = snake(fname);
         let rt = rust_type(ftype);
@@ -298,7 +371,7 @@ fn emit_ffi_params(params: &[(String, Option<String>, Option<String>)]) -> (Stri
 fn emit_match_body(out: &mut String, world: &World, arms: &[(i64, Vec<String>, Option<i64>, String)]) -> Result<(), String> {
     out.push_str("        match self {\n");
     for (_, patterns, body_id, _) in arms {
-        let pat = patterns.first().map(|p| qualify(world, p)).unwrap_or("_".into());
+        let pat = patterns.first().map(|p| qualify_pattern(world, p)).unwrap_or("_".into());
         if let Some(bid) = body_id {
             let body = emit_expr(world, *bid)?;
             out.push_str(&format!("            {pat} => {body},\n"));
@@ -323,7 +396,7 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
                 match type_kind.as_deref() {
                     Some("struct") => {
                         let val = emit_struct_or_expr(world, &type_name, &children)?;
-                        out.push_str(&format!("{indent}let {svar} = {val};\n"));
+                        out.push_str(&format!("{indent}let {svar}: {type_name} = {val};\n"));
                     }
                     _ if is_primitive(&type_name) => {
                         if let Some((cid, _, _, _)) = children.first() {
@@ -429,6 +502,12 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             if let Some((cid, _, _, _)) = children.first() {
                 let base = emit_expr(world, *cid)?;
                 let s = snake(&name);
+                // Kernel primitives on access
+                if s == "len" { return Ok(format!("({base}.len() as u32)")); }
+                if s == "clone" { return Ok(format!("{base}.clone()")); }
+                if s == "to_string" { return Ok(format!("{base}.to_string()")); }
+                if s == "is_empty" { return Ok(format!("{base}.is_empty()")); }
+                if s == "unwrap" { return Ok(format!("{base}.unwrap()")); }
                 if name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
                     Ok(format!("{base}.{s}()"))
                 } else {
@@ -444,10 +523,61 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             let children = aski_core::query_child_exprs(world, expr_id);
             let base = if children.is_empty() { "self".into() }
                        else { emit_expr(world, children[0].0)? };
+            let s = snake(&method);
+
+            // Kernel primitive casts
+            if method == "toF32" { return Ok(format!("({base} as f32)")); }
+            if method == "toU32" { return Ok(format!("({base} as u32)")); }
+            if method == "toI64" { return Ok(format!("({base} as i64)")); }
+
+            // .with(Field(value)) → struct update syntax
+            if method == "with" {
+                let mut field_inits = Vec::new();
+                for (cid, ckind, _, cval) in children.iter().skip(1) {
+                    if ckind == "struct_construct" {
+                        let fname = snake(cval.as_deref().unwrap_or(""));
+                        let inner = aski_core::query_child_exprs(world, *cid);
+                        if let Some((vid, _, _, _)) = inner.first() {
+                            let gc = aski_core::query_child_exprs(world, *vid);
+                            if let Some((gid, _, _, _)) = gc.first() {
+                                field_inits.push(format!("{fname}: {}", emit_expr(world, *gid)?));
+                            } else {
+                                field_inits.push(format!("{fname}: {}", emit_expr(world, *vid)?));
+                            }
+                        }
+                    } else {
+                        let v = emit_expr(world, *cid)?;
+                        if let Some(name) = cval.as_deref() {
+                            field_inits.push(format!("{}: {v}", snake(name)));
+                        } else {
+                            field_inits.push(v);
+                        }
+                    }
+                }
+                // Infer type from the receiver — find the struct type
+                // For now use a generic approach: receiver type name
+                if field_inits.is_empty() {
+                    return Ok(format!("{base}.clone()"));
+                }
+                // Try to determine the type name from the base expression
+                let type_name = infer_self_type(world, expr_id);
+                return Ok(format!("{type_name} {{ {}, ..{base}.clone() }}", field_inits.join(", ")));
+            }
+
+            // Vec::get(index) → .get(index as usize).unwrap().clone()
+            if s == "get" && children.len() == 2 {
+                let arg = emit_expr(world, children[1].0)?;
+                return Ok(format!("{base}.get({arg} as usize).unwrap().clone()"));
+            }
+
+            // Vec::len() → .len() as u32 (aski uses U32 for lengths)
+            if s == "len" && children.len() == 1 {
+                return Ok(format!("({base}.len() as u32)"));
+            }
+
             let args: Vec<String> = children.iter().skip(1)
                 .map(|(cid, _, _, _)| emit_expr(world, *cid))
                 .collect::<Result<_, _>>()?;
-            let s = snake(&method);
             if args.is_empty() { Ok(format!("{base}.{s}()")) }
             else { Ok(format!("{base}.{s}({})", args.join(", "))) }
         }
@@ -503,7 +633,7 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             if let Some((tid, _, _, _)) = children.first() {
                 let target = emit_expr(world, *tid)?;
                 let arm_strs: Vec<String> = arms.iter().filter_map(|(_, pats, bid, _)| {
-                    let pat = pats.first().map(|p| qualify(world, p)).unwrap_or("_".into());
+                    let pat = pats.first().map(|p| qualify_pattern(world, p)).unwrap_or("_".into());
                     bid.map(|b| emit_expr(world, b).ok().map(|body| format!("{pat} => {body}")))
                         .flatten()
                 }).collect();
@@ -523,6 +653,38 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
 }
 
 // ── Struct construction from binding children ──
+
+/// Infer the self type for struct update syntax by walking up the expression tree
+/// to find the containing method's parent impl type.
+fn infer_self_type(world: &World, expr_id: i64) -> String {
+    // Walk up from expr → find the method node → find the impl → get target type
+    if let Some(expr) = world.exprs.iter().find(|e| e.id == expr_id) {
+        // Walk up parent chain to find the method node
+        let mut current_id = expr.parent_id;
+        while current_id != 0 {
+            if let Some(parent_expr) = world.exprs.iter().find(|e| e.id == current_id) {
+                current_id = parent_expr.parent_id;
+            } else {
+                // Not an expr — check if it's a node
+                if let Some(node) = world.nodes.iter().find(|n| n.id == current_id) {
+                    if node.kind == aski_core::NodeKind::Method || node.kind == aski_core::NodeKind::TailMethod {
+                        // Found the method — get the impl body parent
+                        if let Some(impl_body) = world.nodes.iter().find(|n| n.id == node.parent) {
+                            // The impl body's parent trait_impl has the type name
+                            for ti in &world.trait_impls {
+                                if ti.impl_node_id == impl_body.id {
+                                    return ti.type_name.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+    "Self".to_string()
+}
 
 fn emit_struct_or_expr(world: &World, type_name: &str, children: &[(i64, String, i64, Option<String>)]) -> Result<String, String> {
     let mut fields = Vec::new();

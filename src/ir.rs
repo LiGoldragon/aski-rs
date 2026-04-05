@@ -55,25 +55,27 @@ fn pattern_to_string(pat: &Pattern) -> String {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Grammar rule serialization
+// Grammar rule helpers
 // ═══════════════════════════════════════════════════════════════
 
-/// Serialize grammar pattern elements to a JSON string for storage.
-fn serialize_grammar_pattern(elements: &[GrammarElement]) -> String {
-    let strs: Vec<String> = elements.iter().map(|e| match e {
-        GrammarElement::Terminal(name) => format!("T:{name}"),
-        GrammarElement::NonTerminal(name) => format!("NT:{name}"),
-        GrammarElement::Binding(name) => format!("B:{name}"),
-        GrammarElement::Rest(name) => format!("R:{name}"),
-    }).collect();
-    serde_json::to_string(&strs).unwrap_or_else(|_| "[]".to_string())
+/// Map a GrammarElement to the corresponding PatElemKind.
+fn grammar_elem_kind(elem: &GrammarElement) -> aski_core::PatElemKind {
+    match elem {
+        GrammarElement::Terminal(_) => aski_core::PatElemKind::Terminal,
+        GrammarElement::NonTerminal(_) => aski_core::PatElemKind::NonTerminal,
+        GrammarElement::Binding(_) => aski_core::PatElemKind::Binding,
+        GrammarElement::Rest(_) => aski_core::PatElemKind::Rest,
+    }
 }
 
-/// Serialize grammar result expressions to a JSON string for storage.
-/// For now, stores a simplified representation of the result expressions.
-fn serialize_grammar_result(exprs: &[Spanned<Expr>]) -> String {
-    let strs: Vec<String> = exprs.iter().map(|e| format!("{:?}", e.node)).collect();
-    serde_json::to_string(&strs).unwrap_or_else(|_| "[]".to_string())
+/// Extract the name from a GrammarElement.
+fn grammar_elem_name(elem: &GrammarElement) -> &str {
+    match elem {
+        GrammarElement::Terminal(n)
+        | GrammarElement::NonTerminal(n)
+        | GrammarElement::Binding(n)
+        | GrammarElement::Rest(n) => n,
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -202,13 +204,26 @@ fn insert_item(
                 rule_name: gr.name.clone(),
             });
             for (i, arm) in gr.arms.iter().enumerate() {
-                let pattern_json = serialize_grammar_pattern(&arm.pattern);
-                let result_json = serialize_grammar_result(&arm.result);
+                // Store pattern elements as proper relations
+                for (j, elem) in arm.pattern.iter().enumerate() {
+                    world.grammar_pat_elems.push(aski_core::GrammarPatElem {
+                        rule_id: id,
+                        arm_ordinal: i as i64,
+                        elem_ordinal: j as i64,
+                        kind: grammar_elem_kind(elem),
+                        name: grammar_elem_name(elem).to_string(),
+                    });
+                }
+                // Store result expression as an Expr node in the World
+                let result_expr_id = if let Some(first) = arm.result.first() {
+                    insert_expr(world, ids, &first.node, id, i as i64)?
+                } else {
+                    0
+                };
                 world.grammar_arms.push(aski_core::GrammarArm {
                     rule_id: id,
                     ordinal: i as i64,
-                    pattern_json,
-                    result_json,
+                    result_expr_id,
                 });
             }
             Ok(id)
