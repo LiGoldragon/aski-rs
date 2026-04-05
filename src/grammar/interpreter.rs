@@ -172,18 +172,11 @@ impl GrammarParser {
                     Err(e) => last_err = e,
                 }
             }
-            // Grammar rule failed — fall through to built-in for <item> only
-            // (1 remaining: bootstrap/tokens.aski transform impl)
+            // Last remaining fallback: <item> for complex multi-item files
             if name == "item" {
-                // Fallback for items the grammar can't yet fully handle
-            } else {
-                return Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err));
+                return self.parse_item(tokens, pos);
             }
-        }
-
-        // Last built-in fallback — only <item> remains
-        if name == "item" {
-            return self.parse_item(tokens, pos);
+            return Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err));
         }
 
         Err(format!("unknown grammar rule: <{}>", name))
@@ -2242,6 +2235,29 @@ mod tests {
                     }
                     other => panic!("expected MatchBody, got {:?}", other),
                 }
+            }
+            other => panic!("expected TraitImpl, got {:?}", std::mem::discriminant(other)),
+        }
+    }
+
+    #[test]
+    fn grammar_multi_method_match_body() {
+        let parser = make_parser();
+        let src = r#"transform [Tokens [
+  advance(@Self) Tokens [ ^@Self ]
+  skipNewlines(@Self) Tokens [
+    @Done Bool/new(@Self.atEnd)
+    ^(| @Done
+      (True) @Self
+      (False) @Self.skipOneNewline
+    |)
+  ]
+  skipOneNewline(@Self) Tokens [ ^@Self ]
+]]"#;
+        let items = parser.parse_source(src).unwrap();
+        match &items[0].node {
+            Item::TraitImpl(ti) => {
+                assert_eq!(ti.impls[0].methods.len(), 3);
             }
             other => panic!("expected TraitImpl, got {:?}", std::mem::discriminant(other)),
         }
