@@ -337,6 +337,14 @@ fn emit_impl(out: &mut String, world: &World, node_id: i64) -> Result<(), String
         // Check if this is an operator trait impl via kernel
         let is_operator = aski_core::query_operator_impl(world, &trait_name, target_type).is_some();
 
+        // Derive trait → special collection pipeline emission
+        if trait_name == "derive" {
+            out.push_str(&format!("impl {target_type} {{\n"));
+            emit_derive_impl(out, world, *child_id, target_type)?;
+            out.push_str("}\n\n");
+            continue;
+        }
+
         out.push_str(&format!("impl {} for {target_type} {{\n", rust_trait(&trait_name)));
 
         // Operator traits need `type Output`
@@ -806,4 +814,356 @@ fn emit_struct_or_expr(world: &World, type_name: &str, children: &[(i64, String,
     }
     if fields.is_empty() { Ok(format!("{type_name} {{}}")) }
     else { Ok(format!("{type_name} {{ {} }}", fields.join(", "))) }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Derive rule emission — collection pipelines → nested for-loops
+// ═══════════════════════════════════════════════════════════════
+
+use aski_core::{ExprKind, NodeKind};
+
+struct DeriveBinding {
+    var_name: String,
+    type_name: String,
+}
+
+enum Pipeline {
+    Map { source: Source, constructor_id: i64 },
+    FlatMap { source: Source, inner: Box<Pipeline> },
+    Chain { left: Box<Pipeline>, right: Box<Pipeline> },
+}
+
+struct Source {
+    collection: String,
+    filter_ids: Vec<i64>,
+}
+
+/// Emit a complete derive trait impl for a container type (e.g. World).
+fn emit_derive_impl(out: &mut String, world: &World, impl_body_id: i64, target_type: &str) -> Result<(), String> {
+    let mut methods: Vec<_> = world.nodes.iter()
+        .filter(|n| n.parent == impl_body_id &&
+                (n.kind == NodeKind::Method || n.kind == NodeKind::TailMethod))
+        .collect();
+    methods.sort_by_key(|n| n.id);
+
+    // derive() dispatcher
+    let derive_method = methods.iter().find(|m| m.name == "derive")
+        .ok_or("no derive() method in derive impl")?;
+    out.push_str("    pub fn derive(&mut self) {\n");
+    let body_exprs = child_exprs_sorted(world, derive_method.id);
+    for expr in &body_exprs {
+        if expr.kind == ExprKind::MethodCall {
+            let is_fp = methods.iter().any(|m| m.name == expr.value && m.kind == NodeKind::TailMethod);
+            if is_fp {
+                out.push_str(&format!("        self.{}_fixpoint();\n", snake(&expr.value)));
+            } else {
+                out.push_str(&format!("        self.{}();\n", snake(&expr.value)));
+            }
+        }
+    }
+    out.push_str("    }\n\n");
+
+    // Each derive method
+    for method in &methods {
+        if method.name == "derive" { continue; }
+        let rn = snake(&method.name);
+        if method.kind == NodeKind::TailMethod {
+            emit_fixpoint_method(out, world, method, &rn)?;
+        } else {
+            emit_simple_derive_method(out, world, method, &rn)?;
+        }
+    }
+    Ok(())
+}
+
+fn emit_simple_derive_method(out: &mut String, world: &World, method: &aski_core::Node, rn: &str) -> Result<(), String> {
+    out.push_str(&format!("    fn {}(&mut self) {{\n", rn));
+    out.push_str("        let mut results = Vec::new();\n");
+    let body = child_exprs_sorted(world, method.id);
+    let stmt = body.first().ok_or(format!("empty body in {}", method.name))?;
+    let field_name = extract_set_field(&stmt.value);
+    let pc = child_exprs_sorted(world, stmt.id);
+    let pipeline = decompose_pipeline(world, pc[0].id)?;
+    let mut bindings = Vec::new();
+    emit_pipeline_loops(out, world, &pipeline, "results", 2, &mut bindings)?;
+    out.push_str(&format!("        self.{} = results;\n", field_name));
+    out.push_str("    }\n\n");
+    Ok(())
+}
+
+fn emit_fixpoint_method(out: &mut String, world: &World, method: &aski_core::Node, rn: &str) -> Result<(), String> {
+    out.push_str(&format!("    fn {}_fixpoint(&mut self) {{\n", rn));
+    let body = child_exprs_sorted(world, method.id);
+    let set_stmt = &body[0];
+    let field_name = extract_set_field(&set_stmt.value);
+    // Initial set
+    out.push_str("        {\n            let mut results = Vec::new();\n");
+    let ic = child_exprs_sorted(world, set_stmt.id);
+    let ip = decompose_pipeline(world, ic[0].id)?;
+    let mut bindings = Vec::new();
+    emit_pipeline_loops(out, world, &ip, "results", 3, &mut bindings)?;
+    out.push_str(&format!("            self.{} = results;\n        }}\n", field_name));
+    // Fixpoint loop
+    out.push_str("        loop {\n            let mut new_items = Vec::new();\n");
+    let ext = &body[1];
+    let ec = child_exprs_sorted(world, ext.id);
+    let ep = decompose_pipeline(world, ec[0].id)?;
+    let mut bindings = Vec::new();
+    emit_pipeline_loops(out, world, &ep, "new_items", 3, &mut bindings)?;
+    out.push_str(&format!("            new_items.retain(|item| !self.{}.contains(item));\n", field_name));
+    out.push_str("            if new_items.is_empty() { break; }\n");
+    out.push_str(&format!("            self.{}.extend(new_items);\n        }}\n    }}\n\n", field_name));
+    Ok(())
+}
+
+fn decompose_pipeline(world: &World, id: i64) -> Result<Pipeline, String> {
+    let expr = find_expr_by_id(world, id)?;
+    let ch = child_exprs_sorted(world, id);
+    if expr.kind == ExprKind::MethodCall {
+        match expr.value.as_str() {
+            "map" => Ok(Pipeline::Map { source: decompose_source(world, ch[0].id)?, constructor_id: ch[1].id }),
+            "flatMap" => Ok(Pipeline::FlatMap { source: decompose_source(world, ch[0].id)?, inner: Box::new(decompose_pipeline(world, ch[1].id)?) }),
+            "chain" => Ok(Pipeline::Chain { left: Box::new(decompose_pipeline(world, ch[0].id)?), right: Box::new(decompose_pipeline(world, ch[1].id)?) }),
+            other => Err(format!("unexpected pipeline op: {}", other))
+        }
+    } else { Err(format!("expected MethodCall in pipeline, got {:?}", expr.kind)) }
+}
+
+fn decompose_source(world: &World, id: i64) -> Result<Source, String> {
+    let expr = find_expr_by_id(world, id)?;
+    let ch = child_exprs_sorted(world, id);
+    if expr.kind == ExprKind::MethodCall && expr.value == "filter" {
+        let mut s = decompose_source(world, ch[0].id)?;
+        s.filter_ids.push(ch[1].id);
+        Ok(s)
+    } else if expr.kind == ExprKind::Access {
+        Ok(Source { collection: snake(&expr.value), filter_ids: vec![] })
+    } else { Err(format!("unexpected source: {:?}", expr.kind)) }
+}
+
+fn emit_pipeline_loops(out: &mut String, world: &World, node: &Pipeline, rv: &str, indent: usize, bindings: &mut Vec<DeriveBinding>) -> Result<(), String> {
+    let ind = "    ".repeat(indent);
+    match node {
+        Pipeline::Map { source, constructor_id } => {
+            let lv = determine_loop_var(world, source, Some(*constructor_id), bindings);
+            let et = elem_type_for(world, &source.collection);
+            out.push_str(&format!("{ind}for {lv} in &self.{} {{\n", source.collection));
+            bindings.push(DeriveBinding { var_name: lv.clone(), type_name: et });
+            let fc = source.filter_ids.len();
+            for (i, &fid) in source.filter_ids.iter().enumerate() {
+                let c = translate_derive_expr(world, fid, bindings)?;
+                out.push_str(&format!("{}if {} {{\n", "    ".repeat(indent+1+i), c));
+            }
+            let v = translate_derive_expr(world, *constructor_id, bindings)?;
+            out.push_str(&format!("{}{rv}.push({v});\n", "    ".repeat(indent+1+fc)));
+            for i in (0..fc).rev() { out.push_str(&format!("{}}}\n", "    ".repeat(indent+1+i))); }
+            out.push_str(&format!("{ind}}}\n"));
+            bindings.pop();
+            Ok(())
+        }
+        Pipeline::FlatMap { source, inner } => {
+            let lv = determine_loop_var(world, source, None, bindings);
+            let et = elem_type_for(world, &source.collection);
+            out.push_str(&format!("{ind}for {lv} in &self.{} {{\n", source.collection));
+            bindings.push(DeriveBinding { var_name: lv.clone(), type_name: et });
+            let fc = source.filter_ids.len();
+            for (i, &fid) in source.filter_ids.iter().enumerate() {
+                let c = translate_derive_expr(world, fid, bindings)?;
+                out.push_str(&format!("{}if {} {{\n", "    ".repeat(indent+1+i), c));
+            }
+            emit_pipeline_loops(out, world, inner, rv, indent+1+fc, bindings)?;
+            for i in (0..fc).rev() { out.push_str(&format!("{}}}\n", "    ".repeat(indent+1+i))); }
+            out.push_str(&format!("{ind}}}\n"));
+            bindings.pop();
+            Ok(())
+        }
+        Pipeline::Chain { left, right } => {
+            emit_pipeline_loops(out, world, left, rv, indent, bindings)?;
+            emit_pipeline_loops(out, world, right, rv, indent, bindings)
+        }
+    }
+}
+
+fn translate_derive_expr(world: &World, id: i64, bindings: &[DeriveBinding]) -> Result<String, String> {
+    let expr = find_expr_by_id(world, id)?;
+    let ch = child_exprs_sorted(world, id);
+    match expr.kind {
+        ExprKind::BinOp => {
+            let op = &expr.value;
+            let lt = derive_expr_type(world, ch[0].id, bindings);
+            let l = translate_derive_expr(world, ch[0].id, bindings)?;
+            let r = translate_derive_expr(world, ch[1].id, bindings)?;
+            if op == "!=" && r == "\"\"" { return Ok(format!("!{l}.is_empty()")); }
+            if op == "==" && r == "false" { return Ok(format!("!{l}")); }
+            if is_cmp(op) { Ok(format!("{l} {op} {r}")) } else { Ok(format!("({l} {op} {r})")) }
+        }
+        ExprKind::Access => {
+            let f = &expr.value;
+            let b = translate_derive_expr(world, ch[0].id, bindings)?;
+            match f.as_str() {
+                "beforeColon" => Ok(format!("{b}[..{b}.find(':').unwrap()].to_string()")),
+                "afterColon" => Ok(format!("{b}[{b}.find(':').unwrap()+1..].to_string()")),
+                _ => Ok(format!("{b}.{}", snake(f)))
+            }
+        }
+        ExprKind::InstanceRef => {
+            if expr.value == "Self" { Ok("self".into()) } else { Ok(snake(&expr.value)) }
+        }
+        ExprKind::BareName => {
+            match expr.value.as_str() {
+                "True" => Ok("true".into()),
+                "False" => Ok("false".into()),
+                name => {
+                    if let Some((domain, _)) = aski_core::query_variant_domain(world, name) {
+                        Ok(format!("{domain}::{name}"))
+                    } else { Ok(name.to_string()) }
+                }
+            }
+        }
+        ExprKind::IntLit => Ok(expr.value.clone()),
+        ExprKind::StringLit => {
+            if expr.value.contains("$@") {
+                translate_interpolated(&expr.value, bindings)
+            } else { Ok(format!("\"{}\"", expr.value)) }
+        }
+        ExprKind::MethodCall => {
+            let b = translate_derive_expr(world, ch[0].id, bindings)?;
+            let method = &expr.value;
+            if method == "contains" {
+                let a = translate_derive_expr(world, ch[1].id, bindings)?;
+                return Ok(format!("{b}.contains({a})"));
+            }
+            let args: Vec<String> = ch[1..].iter()
+                .map(|c| translate_derive_expr(world, c.id, bindings))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(format!("{b}.{}({})", snake(method), args.join(", ")))
+        }
+        ExprKind::StructConstruct => {
+            let tn = &expr.value;
+            let mut fs = Vec::new();
+            for fe in &ch {
+                if fe.kind != ExprKind::StructField { continue; }
+                let rf = snake(&fe.value);
+                let vc = child_exprs_sorted(world, fe.id);
+                let ft = get_struct_field_type_for(world, tn, &fe.value);
+                let v = translate_derive_expr(world, vc[0].id, bindings)?;
+                let vs = if ft.as_deref() == Some("String") { format!("{v}.clone()") } else { v };
+                fs.push(format!("{rf}: {vs}"));
+            }
+            Ok(format!("{tn} {{ {} }}", fs.join(", ")))
+        }
+        _ => Err(format!("unhandled derive expr: {:?}", expr.kind))
+    }
+}
+
+fn is_cmp(op: &str) -> bool { matches!(op, "==" | "!=" | "<" | ">" | "<=" | ">=") }
+
+fn determine_loop_var(world: &World, source: &Source, cid: Option<i64>, bindings: &[DeriveBinding]) -> String {
+    for &fid in &source.filter_ids {
+        if let Some(n) = first_new_ref(world, fid, bindings) { return n; }
+    }
+    if let Some(c) = cid {
+        if let Some(n) = first_new_ref(world, c, bindings) { return n; }
+    }
+    singularize(&source.collection)
+}
+
+fn first_new_ref(world: &World, id: i64, bindings: &[DeriveBinding]) -> Option<String> {
+    for r in scan_refs(world, id) {
+        if r == "Self" { continue; }
+        let s = snake(&r);
+        if !bindings.iter().any(|b| b.var_name == s) { return Some(s); }
+    }
+    None
+}
+
+fn scan_refs(world: &World, id: i64) -> Vec<String> {
+    let Some(e) = world.exprs.iter().find(|e| e.id == id) else { return vec![] };
+    let mut r = Vec::new();
+    if e.kind == ExprKind::InstanceRef { r.push(e.value.clone()); }
+    for c in child_exprs_sorted(world, id) { r.extend(scan_refs(world, c.id)); }
+    r
+}
+
+fn elem_type_for(world: &World, collection: &str) -> String {
+    let fields = aski_core::query_struct_fields(world, "World");
+    for (_, fname, ftype) in &fields {
+        if snake(fname) == collection {
+            if let Some(inner) = ftype.strip_prefix("Vec(").and_then(|s| s.strip_suffix(')')) {
+                return inner.to_string();
+            }
+        }
+    }
+    collection.to_string()
+}
+
+fn singularize(s: &str) -> String {
+    if s.ends_with("ies") { format!("{}y", &s[..s.len()-3]) }
+    else if s.ends_with("ses") || s.ends_with("shes") || s.ends_with("ches") { s[..s.len()-2].to_string() }
+    else if s.ends_with('s') { s[..s.len()-1].to_string() }
+    else { s.to_string() }
+}
+
+fn derive_expr_type(world: &World, id: i64, bindings: &[DeriveBinding]) -> Option<String> {
+    let e = world.exprs.iter().find(|e| e.id == id)?;
+    if e.kind == ExprKind::Access {
+        let ch = child_exprs_sorted(world, id);
+        let base = ch.first()?;
+        if base.kind == ExprKind::InstanceRef && base.value != "Self" {
+            let b = bindings.iter().find(|b| b.var_name == snake(&base.value))?;
+            let fields = aski_core::query_struct_fields(world, &b.type_name);
+            for (_, fname, ftype) in &fields {
+                if fname == &e.value { return Some(ftype.clone()); }
+            }
+        }
+    }
+    None
+}
+
+fn get_struct_field_type_for(world: &World, sn: &str, fn_: &str) -> Option<String> {
+    let fields = aski_core::query_struct_fields(world, sn);
+    for (_, fname, ftype) in &fields {
+        if fname == fn_ { return Some(ftype.clone()); }
+    }
+    None
+}
+
+fn translate_interpolated(s: &str, _bindings: &[DeriveBinding]) -> Result<String, String> {
+    let mut fmt = String::new();
+    let mut args = Vec::new();
+    let mut i = 0;
+    let chars: Vec<char> = s.chars().collect();
+    while i < chars.len() {
+        if i + 1 < chars.len() && chars[i] == '$' && chars[i+1] == '@' {
+            fmt.push_str("{}");
+            i += 2;
+            let rs = i;
+            while i < chars.len() && chars[i].is_alphanumeric() { i += 1; }
+            let rn = &s[rs..i];
+            if i < chars.len() && chars[i] == '.' { i += 1; }
+            let fs = i;
+            while i < chars.len() && chars[i].is_alphanumeric() { i += 1; }
+            let fn_ = &s[fs..i];
+            args.push(format!("{}.{}", snake(rn), snake(fn_)));
+        } else { fmt.push(chars[i]); i += 1; }
+    }
+    Ok(format!("format!(\"{fmt}\", {})", args.join(", ")))
+}
+
+fn extract_set_field(v: &str) -> String {
+    let parts: Vec<&str> = v.split('.').collect();
+    if parts.len() >= 2 { snake(parts[1]) } else { snake(v) }
+}
+
+fn child_exprs_sorted<'a>(world: &'a World, parent_id: i64) -> Vec<&'a aski_core::Expr> {
+    let mut ch: Vec<_> = world.exprs.iter()
+        .filter(|e| e.parent_id == parent_id && parent_id != 0)
+        .collect();
+    ch.sort_by_key(|e| e.ordinal);
+    ch
+}
+
+fn find_expr_by_id(world: &World, id: i64) -> Result<&aski_core::Expr, String> {
+    world.exprs.iter().find(|e| e.id == id)
+        .ok_or_else(|| format!("expr {} not found", id))
 }
