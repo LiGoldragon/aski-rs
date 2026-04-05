@@ -2,7 +2,6 @@ pub mod lexer;
 pub mod ast;
 pub mod context;
 pub mod parser;
-pub mod engine;
 pub mod grammar;
 pub mod ir;
 pub mod codegen;

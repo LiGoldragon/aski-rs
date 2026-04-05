@@ -6,7 +6,7 @@
 
 use crate::ast::*;
 use crate::lexer::{self, Token};
-use crate::engine::config::GrammarConfig;
+use crate::grammar::config::GrammarConfig;
 use super::{ParseArm, PatElem, ResultSpec, ResultArg, Value, Bindings, RuleTable};
 use super::builders;
 
@@ -26,60 +26,44 @@ impl GrammarParser {
 
     /// Parse source text into a SourceFile (optional header + items).
     pub fn parse_source_file(&self, source: &str) -> Result<SourceFile, String> {
-        let spanned = crate::lexer::lex(source).map_err(|errs| {
+        let tokens = crate::lexer::lex(source).map_err(|errs| {
             errs.into_iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join(", ")
         })?;
-        let tokens = spanned;
 
-        // Try to parse module header
-        let mut pos = 0;
-        pos = skip_newlines(&tokens, pos);
-
-        let header = self.try_parse_header(&tokens, pos);
-        let (header, pos) = match header {
-            Ok((h, new_pos)) => (Some(h), new_pos),
-            Err(_) => (None, pos),
+        // Try <header> first, then parse items
+        let mut pos = skip_newlines(&tokens, 0);
+        let header = if pos < tokens.len() && tokens[pos].token == Token::LParen {
+            match self.try_rule("header", &tokens, pos) {
+                Ok((Value::ModuleHeader(h), new_pos)) => { pos = new_pos; Some(h) }
+                _ => None,
+            }
+        } else {
+            None
         };
 
         let items = self.parse_items(&tokens, pos)?;
-
         Ok(SourceFile { header, items })
     }
 
     /// Parse source text into a list of items (no header).
     pub fn parse_source(&self, source: &str) -> Result<Vec<Spanned<Item>>, String> {
-        let spanned = crate::lexer::lex(source).map_err(|errs| {
+        let tokens = crate::lexer::lex(source).map_err(|errs| {
             errs.into_iter().map(|e| format!("{}", e)).collect::<Vec<_>>().join(", ")
         })?;
-        self.parse_items(&spanned, 0)
+        self.parse_items(&tokens, 0)
     }
 
-    /// Parse items from token stream starting at position.
+    /// Parse items from token stream.
     fn parse_items(&self, tokens: &[SpannedToken], mut pos: usize) -> Result<Vec<Spanned<Item>>, String> {
         let mut items = Vec::new();
         pos = skip_newlines(tokens, pos);
-
         while pos < tokens.len() {
             let (value, new_pos) = self.try_rule("item", tokens, pos)
                 .map_err(|e| format!("at position {}: {}", pos, e))?;
             items.push(value.as_item()?);
             pos = skip_newlines(tokens, new_pos);
         }
-
         Ok(items)
-    }
-
-    /// Try to parse a module header via grammar rule <header>.
-    fn try_parse_header(&self, tokens: &[SpannedToken], pos: usize) -> Result<(ModuleHeader, usize), String> {
-        let cur = skip_newlines(tokens, pos);
-        if cur >= tokens.len() || tokens[cur].token != Token::LParen {
-            return Err("no header".to_string());
-        }
-        let (val, new_pos) = self.try_rule("header", tokens, cur)?;
-        match val {
-            Value::ModuleHeader(h) => Ok((h, new_pos)),
-            _ => Err("header rule did not produce ModuleHeader".to_string()),
-        }
     }
 
     // ── Core PEG engine ──────────────────────────────────────
@@ -260,7 +244,7 @@ fn build_result(spec: &ResultSpec, bindings: &Bindings, span: Span) -> Result<Va
 mod tests {
     use super::*;
     use crate::grammar::bootstrap;
-    use crate::engine::config;
+    use crate::grammar::config;
 
     fn make_parser() -> GrammarParser {
         let grammar_dir = config::find_grammar_dir().expect("grammar dir");

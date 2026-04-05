@@ -6,6 +6,7 @@
 //! Builder functions construct AST nodes from match results.
 
 pub mod bootstrap;
+pub mod config;
 pub mod interpreter;
 pub mod builders;
 
@@ -273,7 +274,7 @@ pub type RuleTable = HashMap<String, ParseRule>;
 // ── Public API ──────────────────────────────────────────────
 
 use crate::ast::{SourceFile, ForeignBlockDecl, ForeignFunction};
-use crate::engine::config::{self as grammar_config, GrammarConfig};
+use crate::grammar::config::{self as grammar_config, GrammarConfig};
 
 /// Parse a full aski source file using the grammar engine.
 pub fn parse_source_file(source: &str) -> Result<SourceFile, String> {

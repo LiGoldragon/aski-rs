@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn bootstrap_load_from_grammar_dir() {
-        let grammar_dir = crate::engine::config::find_grammar_dir()
+        let grammar_dir = crate::grammar::config::find_grammar_dir()
             .expect("grammar dir should exist");
         let table = load_rules(&grammar_dir).unwrap();
         // Should load rules from any grammar rule files that exist

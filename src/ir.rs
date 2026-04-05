@@ -880,13 +880,13 @@ pub fn query_supertraits(world: &World, trait_id: i64) -> Result<Vec<String>, St
 /// This function provides the authoritative list by reading the grammar config.
 /// Like Shen's KLambda: adding a primitive = adding a line to kernel.aski + codegen.
 pub fn kernel_primitives() -> Vec<String> {
-    let config = crate::engine::config::load_or_bootstrap();
+    let config = crate::grammar::config::load_or_bootstrap();
     config.kernel_primitives().iter().map(|s| s.to_string()).collect()
 }
 
 /// Check if a name is a kernel primitive (reads from grammar config).
 pub fn is_kernel_primitive(name: &str) -> bool {
-    let config = crate::engine::config::load_or_bootstrap();
+    let config = crate::grammar::config::load_or_bootstrap();
     config.is_kernel_primitive(name)
 }
 

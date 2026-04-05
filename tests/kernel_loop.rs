@@ -3,7 +3,7 @@ use std::process::Command;
 
 use aski_rs::ir;
 use aski_rs::grammar;
-use aski_rs::engine::config as grammar_config;
+use aski_rs::grammar::config as grammar_config;
 
 fn read_aski(name: &str) -> String {
     let manifest = env!("CARGO_MANIFEST_DIR");

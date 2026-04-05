@@ -9,7 +9,7 @@
 use crate::ast::SourceFile;
 use crate::codegen::{CodegenConfig, generate_rust_from_db_with_config};
 use crate::ir;
-use crate::engine::config as grammar_config;
+use crate::grammar::config as grammar_config;
 
 /// Compile multiple .aski source files into a single Rust output.
 ///
