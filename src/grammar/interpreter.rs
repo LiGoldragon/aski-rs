@@ -178,6 +178,11 @@ impl GrammarParser {
 
 // ── Helper functions ─────────────────────────────────────────
 
+/// Public access to skip_newlines for header-only parsing.
+pub fn skip_newlines_pub(tokens: &[SpannedToken], pos: usize) -> usize {
+    skip_newlines(tokens, pos)
+}
+
 fn skip_newlines(tokens: &[SpannedToken], mut pos: usize) -> usize {
     while pos < tokens.len() && matches!(tokens[pos].token, Token::Newline | Token::Comment) {
         pos += 1;

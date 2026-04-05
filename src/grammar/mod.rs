@@ -280,6 +280,27 @@ pub type RuleTable = HashMap<String, ParseRule>;
 use crate::ast::{SourceFile, ForeignBlockDecl, ForeignFunction};
 use crate::grammar::config::{self as grammar_config, GrammarConfig};
 
+/// Parse only the module header from source text (no items).
+/// Returns None if the file has no header.
+pub fn parse_header_only(source: &str, config: &GrammarConfig) -> Option<crate::ast::ModuleHeader> {
+    let tokens = crate::lexer::lex(source).ok()?;
+    let grammar_dir = grammar_config::find_grammar_dir();
+    let rules = match grammar_dir {
+        Some(ref dir) => bootstrap::load_rules(dir).unwrap_or_default(),
+        None => RuleTable::new(),
+    };
+    let parser = interpreter::GrammarParser::new(rules, config.clone());
+    let pos = interpreter::skip_newlines_pub(&tokens, 0);
+    if pos < tokens.len() && tokens[pos].token == crate::lexer::Token::LParen {
+        match parser.try_rule("header", &tokens, pos) {
+            Ok((Value::ModuleHeader(h), _)) => Some(h),
+            _ => None,
+        }
+    } else {
+        None
+    }
+}
+
 /// Parse a full aski source file using the grammar engine.
 pub fn parse_source_file(source: &str) -> Result<SourceFile, String> {
     let mut parser = make_parser()?;
@@ -305,4 +326,53 @@ fn make_parser() -> Result<interpreter::GrammarParser, String> {
         .unwrap_or_else(|_| grammar_config::GrammarConfig::bootstrap());
     let rules = bootstrap::load_rules(&grammar_dir).unwrap_or_default();
     Ok(interpreter::GrammarParser::new(rules, config))
+}
+
+/// Parse a source file with additional grammar rules injected (from imports).
+pub fn parse_source_file_with_extra_rules(
+    source: &str,
+    config: &GrammarConfig,
+    extra_rules: &RuleTable,
+) -> Result<SourceFile, String> {
+    let grammar_dir = grammar_config::find_grammar_dir();
+    let mut rules = match grammar_dir {
+        Some(ref dir) => bootstrap::load_rules(dir).unwrap_or_default(),
+        None => RuleTable::new(),
+    };
+    // Inject imported grammar rules
+    for (name, rule) in extra_rules {
+        rules.insert(name.clone(), rule.clone());
+    }
+    let mut parser = interpreter::GrammarParser::new(rules, config.clone());
+    parser.parse_source_file(source)
+}
+
+/// Extract user-defined grammar rules from a parsed file's parser.
+/// After parsing, any <Name> { arms } items have been injected into the parser's rule table.
+/// Returns only the rules that were added during parsing (not bootstrap rules).
+pub fn extract_user_grammar_rules(
+    source: &str,
+    config: &GrammarConfig,
+    extra_rules: &RuleTable,
+) -> Result<(SourceFile, RuleTable), String> {
+    let grammar_dir = grammar_config::find_grammar_dir();
+    let bootstrap_rules = match grammar_dir {
+        Some(ref dir) => bootstrap::load_rules(dir).unwrap_or_default(),
+        None => RuleTable::new(),
+    };
+    let mut rules = bootstrap_rules.clone();
+    for (name, rule) in extra_rules {
+        rules.insert(name.clone(), rule.clone());
+    }
+    let bootstrap_keys: std::collections::HashSet<String> = rules.keys().cloned().collect();
+    let mut parser = interpreter::GrammarParser::new(rules, config.clone());
+    let sf = parser.parse_source_file(source)?;
+    // Collect rules added during parsing (not in bootstrap + extras)
+    let mut user_rules = RuleTable::new();
+    for (name, rule) in &parser.rules {
+        if !bootstrap_keys.contains(name) {
+            user_rules.insert(name.clone(), rule.clone());
+        }
+    }
+    Ok((sf, user_rules))
 }
