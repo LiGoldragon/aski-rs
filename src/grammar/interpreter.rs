@@ -93,9 +93,11 @@ impl GrammarParser {
         let mut cur = pos;
 
         for elem in &arm.pattern {
-            // Skip newlines only before rule calls — token/bind matching is position-exact.
-            // This prevents `.method\n(nextArm)` from being parsed as `.method(nextArm)`.
-            if matches!(elem, PatElem::Rule(_)) {
+            // Skip newlines before all elements EXCEPT Tok.
+            // Tok matching is position-exact — this prevents `.method\n(nextArm)`
+            // from being parsed as `.method(nextArm)`, because LParen is a Tok.
+            // But identifiers (@Name, "literal", <rule>) can freely cross newlines.
+            if !matches!(elem, PatElem::Tok(_)) {
                 cur = skip_newlines(tokens, cur);
             }
             match elem {
