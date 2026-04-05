@@ -177,9 +177,32 @@ fn emit_domain(out: &mut String, world: &World, name: &str, config: &CodegenConf
         }
     }
     out.push_str("}\n\n");
+    // Display impl
     out.push_str(&format!("impl std::fmt::Display for {name} {{\n"));
     out.push_str("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n");
     out.push_str("        write!(f, \"{:?}\", self)\n    }\n}\n\n");
+    // from_str / to_str — only for enums without data-carrying variants
+    if !has_data {
+        out.push_str(&format!("impl {name} {{\n"));
+        out.push_str("    pub fn from_str(s: &str) -> Option<Self> {\n");
+        out.push_str("        match s {\n");
+        for (_, vname, _) in &variants {
+            let sn = snake(vname);
+            out.push_str(&format!("            \"{sn}\" => Some(Self::{vname}),\n"));
+            if sn != vname.to_lowercase() {
+                out.push_str(&format!("            \"{vname}\" => Some(Self::{vname}),\n"));
+            }
+        }
+        out.push_str("            _ => None,\n");
+        out.push_str("        }\n    }\n\n");
+        out.push_str("    pub fn to_str(&self) -> &'static str {\n");
+        out.push_str("        match self {\n");
+        for (_, vname, _) in &variants {
+            out.push_str(&format!("            Self::{vname} => \"{}\",\n", snake(vname)));
+        }
+        out.push_str("        }\n    }\n");
+        out.push_str("}\n\n");
+    }
     Ok(())
 }
 
@@ -219,6 +242,48 @@ fn emit_struct(out: &mut String, world: &World, name: &str, config: &CodegenConf
         }
     }
     out.push_str("}\n\n");
+
+    // Check if this struct has Vec fields → generate accessor methods
+    let vec_fields: Vec<(String, String)> = fields.iter()
+        .filter_map(|(_, fname, ftype)| {
+            ftype.strip_prefix("Vec(").and_then(|s| s.strip_suffix(')'))
+                .map(|elem| (snake(fname), elem.to_string()))
+        })
+        .collect();
+    if !vec_fields.is_empty() {
+        // Add Default derive + new() for container structs
+        // (re-emit with Default — the struct is already emitted, so add impl)
+        out.push_str(&format!("impl Default for {name} {{ fn default() -> Self {{ Self {{"));
+        for (_, fname, _) in &fields {
+            out.push_str(&format!(" {}: Default::default(),", snake(fname)));
+        }
+        out.push_str(" } } }\n\n");
+        out.push_str(&format!("impl {name} {{\n"));
+        out.push_str("    pub fn new() -> Self { Self::default() }\n\n");
+        // For each Vec field, generate accessor methods keyed by element struct fields
+        for (vec_field, elem_type) in &vec_fields {
+            let elem_fields = aski_core::query_struct_fields(world, elem_type);
+            if elem_fields.is_empty() { continue; }
+            let type_snake = snake(elem_type);
+            for (_, ef_name, ef_type) in &elem_fields {
+                let ef_snake = snake(ef_name);
+                let rt = rust_type(ef_type);
+                let param_t = match rt.as_str() {
+                    "String" => "&str",
+                    other => other,
+                };
+                out.push_str(&format!(
+                    "    pub fn {type_snake}_by_{ef_snake}(&self, val: {param_t}) -> Vec<&{elem_type}> {{\n"
+                ));
+                out.push_str(&format!(
+                    "        self.{vec_field}.iter().filter(|r| r.{ef_snake} == val).collect()\n"
+                ));
+                out.push_str("    }\n\n");
+            }
+        }
+        out.push_str("}\n\n");
+    }
+
     Ok(())
 }
 
