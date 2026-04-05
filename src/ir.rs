@@ -578,7 +578,14 @@ fn insert_body(
                 } else {
                     arm.patterns.iter().map(pattern_to_string).collect()
                 };
-                let patterns_json = serde_json::to_string(&patterns).unwrap();
+                for (pat_ord, pat_str) in patterns.iter().enumerate() {
+                    world.match_patterns.push(aski_core::MatchPattern {
+                        match_id: owner_id,
+                        arm_ordinal: arm_ord as i64,
+                        pat_ordinal: pat_ord as i64,
+                        value: pat_str.clone(),
+                    });
+                }
 
                 let body_expr_id = if arm.body.len() == 1 {
                     let bid = insert_expr(world, ids, &arm.body[0].node, owner_id, arm_ord as i64)?;
@@ -602,7 +609,6 @@ fn insert_body(
                 world.match_arms.push(aski_core::MatchArm {
                     match_id: owner_id,
                     ordinal: arm_ord as i64,
-                    patterns_json,
                     body_expr_id: body_expr_id.unwrap_or(0),
                     kind,
                 });
@@ -707,7 +713,14 @@ fn insert_expr(
             let target_count = data.targets.len() as i64;
             for (arm_ord, arm) in data.arms.iter().enumerate() {
                 let patterns: Vec<String> = arm.patterns.iter().map(pattern_to_string).collect();
-                let patterns_json = serde_json::to_string(&patterns).unwrap();
+                for (pat_ord, pat_str) in patterns.iter().enumerate() {
+                    world.match_patterns.push(aski_core::MatchPattern {
+                        match_id: id,
+                        arm_ordinal: arm_ord as i64,
+                        pat_ordinal: pat_ord as i64,
+                        value: pat_str.clone(),
+                    });
+                }
 
                 let body_expr_id = if arm.body.len() == 1 {
                     let bid = insert_expr(world, ids, &arm.body[0].node, id, target_count + arm_ord as i64)?;
@@ -726,7 +739,6 @@ fn insert_expr(
                 world.match_arms.push(aski_core::MatchArm {
                     match_id: id,
                     ordinal: arm_ord as i64,
-                    patterns_json,
                     body_expr_id: body_expr_id.unwrap_or(0),
                     kind: aski_core::ArmKind::Commit,
                 });
