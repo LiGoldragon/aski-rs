@@ -1,81 +1,31 @@
-;; grammar/expr.aski — expression grammar (Shen-style nested precedence)
+;; grammar/expr.aski — expression grammar (flat Pratt-style)
 ;;
-;; Precedence via rule nesting. Left-associativity via FoldLeft:
-;; parse one operand, then collect (op, operand) pairs, fold left.
-;;
-;; expr → or → and → equality → comparison → additive → multiplicative → postfix → atom
+;; Single <ops> rule collects ALL infix operators. FoldLeft sorts
+;; precedence via binding power in the constructor. Three levels
+;; of rule nesting instead of eight.
 
-;; ── Top-level ──
+;; ── Top-level: atom, then optional infix chain ──
 
 <expr> {
-  [<or> / @Rest]  <or> @Rest
+  [<postfix> <ops> / @Rest]  FoldLeft(<postfix> <ops>) @Rest
 }
 
-;; ── Logical Or ──
+;; ── All infix operators in one rule ──
 
-<or> {
-  [<and> <orOps> / @Rest]  FoldLeft(<and> <orOps>) @Rest
-}
-<orOps> {
-  [LogicalOr <and> <orOps> / @Rest]   Cons(Op("||" <and>) <orOps>) @Rest
-  [/ @Rest]                                 Nil @Rest
-}
-
-;; ── Logical And ──
-
-<and> {
-  [<equality> <andOps> / @Rest]  FoldLeft(<equality> <andOps>) @Rest
-}
-<andOps> {
-  [LogicalAnd <equality> <andOps> / @Rest]   Cons(Op("&&" <equality>) <andOps>) @Rest
-  [/ @Rest]                                  Nil @Rest
-}
-
-;; ── Equality ──
-
-<equality> {
-  [<comparison> <equalityOps> / @Rest]  FoldLeft(<comparison> <equalityOps>) @Rest
-}
-<equalityOps> {
-  [DoubleEquals <comparison> <equalityOps> / @Rest]   Cons(Op("==" <comparison>) <equalityOps>) @Rest
-  [NotEqual <comparison> <equalityOps> / @Rest]        Cons(Op("!=" <comparison>) <equalityOps>) @Rest
-  [/ @Rest]                                    Nil @Rest
-}
-
-;; ── Comparison ──
-
-<comparison> {
-  [<additive> <comparisonOps> / @Rest]  FoldLeft(<additive> <comparisonOps>) @Rest
-}
-<comparisonOps> {
-  [LessThan <additive> <comparisonOps> / @Rest]              Cons(Op("<" <additive>) <comparisonOps>) @Rest
-  [GreaterThan <additive> <comparisonOps> / @Rest]            Cons(Op(">" <additive>) <comparisonOps>) @Rest
-  [LessThanOrEqual <additive> <comparisonOps> / @Rest]        Cons(Op("<=" <additive>) <comparisonOps>) @Rest
-  [GreaterThanOrEqual <additive> <comparisonOps> / @Rest]     Cons(Op(">=" <additive>) <comparisonOps>) @Rest
-  [/ @Rest]                                            Nil @Rest
-}
-
-;; ── Additive ──
-
-<additive> {
-  [<multiplicative> <additiveOps> / @Rest]  FoldLeft(<multiplicative> <additiveOps>) @Rest
-}
-<additiveOps> {
-  [Plus <multiplicative> <additiveOps> / @Rest]    Cons(Op("+" <multiplicative>) <additiveOps>) @Rest
-  [Minus <multiplicative> <additiveOps> / @Rest]   Cons(Op("-" <multiplicative>) <additiveOps>) @Rest
-  [/ @Rest]                             Nil @Rest
-}
-
-;; ── Multiplicative ──
-
-<multiplicative> {
-  [<postfix> <multiplicativeOps> / @Rest]  FoldLeft(<postfix> <multiplicativeOps>) @Rest
-}
-<multiplicativeOps> {
-  [Star <postfix> <multiplicativeOps> / @Rest]      Cons(Op("*" <postfix>) <multiplicativeOps>) @Rest
-  [Slash <postfix> <multiplicativeOps> / @Rest]     Cons(Op("/" <postfix>) <multiplicativeOps>) @Rest
-  [Percent <postfix> <multiplicativeOps> / @Rest]   Cons(Op("%" <postfix>) <multiplicativeOps>) @Rest
-  [/ @Rest]                               Nil @Rest
+<ops> {
+  [LogicalOr <postfix> <ops> / @Rest]              Cons(Op("||" <postfix>) <ops>) @Rest
+  [LogicalAnd <postfix> <ops> / @Rest]             Cons(Op("&&" <postfix>) <ops>) @Rest
+  [DoubleEquals <postfix> <ops> / @Rest]           Cons(Op("==" <postfix>) <ops>) @Rest
+  [NotEqual <postfix> <ops> / @Rest]               Cons(Op("!=" <postfix>) <ops>) @Rest
+  [LessThanOrEqual <postfix> <ops> / @Rest]        Cons(Op("<=" <postfix>) <ops>) @Rest
+  [GreaterThanOrEqual <postfix> <ops> / @Rest]     Cons(Op(">=" <postfix>) <ops>) @Rest
+  [LessThan <postfix> <ops> / @Rest]               Cons(Op("<" <postfix>) <ops>) @Rest
+  [GreaterThan <postfix> <ops> / @Rest]            Cons(Op(">" <postfix>) <ops>) @Rest
+  [Plus <postfix> <ops> / @Rest]                   Cons(Op("+" <postfix>) <ops>) @Rest
+  [Minus <postfix> <ops> / @Rest]                  Cons(Op("-" <postfix>) <ops>) @Rest
+  [Star <postfix> <ops> / @Rest]                   Cons(Op("*" <postfix>) <ops>) @Rest
+  [Percent <postfix> <ops> / @Rest]                Cons(Op("%" <postfix>) <ops>) @Rest
+  [/ @Rest]                                        Nil @Rest
 }
 
 ;; ── Postfix: dot chains, error prop, ranges ──
