@@ -1082,10 +1082,18 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
                 let target = emit_expr(world, *tid)?;
                 let arm_strs: Vec<String> = arms.iter().filter_map(|(_, pats, bid, _)| {
                     let pat = pats.first().map(|p| qualify_pattern(world, p)).unwrap_or("_".into());
-                    bid.map(|b| emit_expr(world, b).ok().map(|body| format!("{pat} => {body}")))
-                        .flatten()
+                    bid.map(|b| emit_expr(world, b).ok().map(|body| {
+                        // Auto-convert string literal bodies to .to_string() for String return contexts
+                        let body = if body.starts_with('"') && body.ends_with('"') {
+                            format!("{body}.to_string()")
+                        } else { body };
+                        format!("{pat} => {body}")
+                    })).flatten()
                 }).collect();
-                Ok(format!("match {target} {{ {} }}", arm_strs.join(", ")))
+                // If any arm matches a string literal, convert target with .as_str()
+                let has_str_pat = arm_strs.iter().any(|a| a.starts_with('"'));
+                let target_expr = if has_str_pat { format!("{target}.as_str()") } else { target };
+                Ok(format!("match {target_expr} {{ {} }}", arm_strs.join(", ")))
             } else { Ok("todo!()".into()) }
         }
 
