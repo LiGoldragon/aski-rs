@@ -523,14 +523,27 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
             }
             "mutable_set" => {
                 let children = aski_core::query_child_exprs(world, *eid);
-                // mutable_set stores the variable name in the expr's value field
                 let var_name = aski_core::query_expr_by_id(world, *eid)
                     .and_then(|(_, v)| v);
                 if let Some(name) = var_name {
                     let svar = snake(&name);
-                    if let Some((cid, _, _, _)) = children.first() {
-                        let val = emit_expr(world, *cid)?;
-                        out.push_str(&format!("{indent}{svar} = {val};\n"));
+                    if let Some((cid, ckind, _, cval)) = children.first() {
+                        if svar == "self" && ckind == "method_call" {
+                            // ~@Self.Field.set(value) → self.field = value;
+                            let mc_children = aski_core::query_child_exprs(world, *cid);
+                            if mc_children.len() > 1 {
+                                // First child is the Access chain (Self.Field), second is the value
+                                let field_chain = emit_expr(world, mc_children[0].0)?;
+                                let val = emit_expr(world, mc_children[1].0)?;
+                                out.push_str(&format!("{indent}{field_chain} = {val};\n"));
+                            } else {
+                                let val = emit_expr(world, *cid)?;
+                                out.push_str(&format!("{indent}{svar} = {val};\n"));
+                            }
+                        } else {
+                            let val = emit_expr(world, *cid)?;
+                            out.push_str(&format!("{indent}{svar} = {val};\n"));
+                        }
                     }
                 }
             }
@@ -668,6 +681,10 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             if method == "toI64" { return Ok(format!("({base} as i64)")); }
             if method == "toSnake" { return Ok(format!("to_snake(&{base})")); }
             if method == "toRustType" { return Ok(format!("to_rust_type(&{base})")); }
+            if method == "stripVec" { return Ok(format!("strip_vec(&{base})")); }
+            if method == "toParamType" { return Ok(format!("to_param_type(&{base})")); }
+            if method == "needsPascalAlias" { return Ok(format!("{base}.needs_pascal_alias()")); }
+            if method == "allFieldsCopy" { return Ok(format!("{base}.all_fields_copy()")); }
 
             // .with(Field(value)) → struct update syntax
             if method == "with" {

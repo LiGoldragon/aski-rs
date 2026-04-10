@@ -95,7 +95,7 @@ impl GrammarConfig {
             "truncate", "toF32", "toU32", "toI64",
             "fromOrdinal",
             "len", "clone", "to_string", "is_empty", "unwrap",
-            "toSnake", "toRustType",
+            "toSnake", "toRustType", "toParamType", "stripVec", "allFieldsCopy", "needsPascalAlias",
         ].iter().map(|s| s.to_string()).collect();
 
         let mut token_classes = HashMap::new();
