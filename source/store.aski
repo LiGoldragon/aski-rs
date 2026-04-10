@@ -1,0 +1,129 @@
+(Store
+  ContentHash StoreEntry
+  MemoryStore DiskStore)
+
+;; ════════════════════════════════════════════════
+;; Content hash — 32-byte blake3 digest
+;; ════════════════════════════════════════════════
+
+ContentHash { Bytes Vec{U8} }
+
+;; ════════════════════════════════════════════════
+;; Store entry — kind byte + data
+;; ════════════════════════════════════════════════
+
+StoreEntry {
+  Kind U8
+  Data Vec{U8}
+  Hash ContentHash
+}
+
+;; ════════════════════════════════════════════════
+;; FFI — Rust interop for store operations
+;; ════════════════════════════════════════════════
+
+Blake3 {|
+  hash(:@Self) Vec{U8} blake3_hash
+|}
+
+Bytes {|
+  concat(:@Self @Other Vec{U8}) Vec{U8} bytes_concat
+  eq(:@Self @Other Vec{U8}) Bool bytes_eq
+|}
+
+Hex {|
+  toHex(:@Self) String to_hex
+|}
+
+FileIO {|
+  readFile(@Path String) Vec{U8} fs_read
+  writeFile(@Path String @Data Vec{U8}) Bool fs_write
+  fileExists(@Path String) Bool fs_exists
+  mkdirAll(@Path String) Bool fs_mkdir_all
+  listDir(@Path String) Vec{String} fs_list_dir
+|}
+
+;; ════════════════════════════════════════════════
+;; In-memory store
+;; ════════════════════════════════════════════════
+
+MemoryStore {
+  Entries Vec{StoreEntry}
+}
+
+store ([
+  put(@Self @Kind U8 @Data Vec{U8}) MemoryStore
+  getByHash(:@Self @Hash ContentHash) Vec{U8}
+  containsHash(:@Self @Hash ContentHash) Bool
+  contentHash(:@Self @Data Vec{U8}) ContentHash
+])
+
+store [MemoryStore [
+
+  ;; Hash data with blake3
+  contentHash(:@Self @Data Vec{U8}) ContentHash [
+    ^ContentHash(Bytes(@Data.hash))
+  ]
+
+  ;; Store bytes, return new store with entry added (functional)
+  put(@Self @Kind U8 @Data Vec{U8}) MemoryStore [
+    ~@Hash ContentHash/new(@Self.contentHash(@Data))
+    ^MemoryStore(Entries(@Self.Entries.withPush(
+      StoreEntry(Kind(@Kind) Data(@Data) Hash(@Hash)))))
+  ]
+
+  ;; Retrieve data by hash (returns first match)
+  getByHash(:@Self @Hash ContentHash) Vec{U8} [
+    ^@Self.Entries.fromOrdinal(0).Data
+  ]
+
+  ;; Check if hash exists
+  containsHash(:@Self @Hash ContentHash) Bool [
+    ^(@Self.Entries.len > 0)
+  ]
+]]
+
+;; ════════════════════════════════════════════════
+;; Disk-backed store
+;; ════════════════════════════════════════════════
+
+DiskStore {
+  BasePath String
+}
+
+diskStore ([
+  putDisk(@Self @Kind U8 @Data Vec{U8}) DiskStore
+  getDisk(:@Self @Hash ContentHash) Vec{U8}
+  containsDisk(:@Self @Hash ContentHash) Bool
+  hashPath(:@Self @Hash ContentHash) String
+])
+
+diskStore [DiskStore [
+
+  ;; File path for a hash: basePath/ab/cdef0123...
+  hashPath(:@Self @Hash ContentHash) String [
+    ~@HexStr String/new(@Hash.Bytes.toHex)
+    ^[@Self.BasePath + "/" + @HexStr]
+  ]
+
+  ;; Store to disk
+  putDisk(@Self @Kind U8 @Data Vec{U8}) DiskStore [
+    ~@Hash ContentHash/new(ContentHash(Bytes(@Data.hash)))
+    ~@Path String/new(@Self.hashPath(@Hash))
+    ~@Self.BasePath.mkdirAll
+    ~@Path.writeFile(@Data)
+    ^@Self
+  ]
+
+  ;; Read from disk
+  getDisk(:@Self @Hash ContentHash) Vec{U8} [
+    ~@Path String/new(@Self.hashPath(@Hash))
+    ^@Path.readFile
+  ]
+
+  ;; Check existence on disk
+  containsDisk(:@Self @Hash ContentHash) Bool [
+    ~@Path String/new(@Self.hashPath(@Hash))
+    ^@Path.fileExists
+  ]
+]]
