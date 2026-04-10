@@ -1,4 +1,6 @@
-(Codegen TypeForm TypeEntry VariantDef FieldDef RustSpan FfiEntry CodeWorld)
+(Codegen TypeForm TypeEntry VariantDef FieldDef RustSpan FfiEntry
+  ParamKind Param MethodSig BodyKind ExprKind Expr MethodDef TraitDecl TraitImpl
+  CodeWorld)
 
 ;; ════════════════════════════════════════════════
 ;; World types for codegen input
@@ -36,11 +38,65 @@ FfiEntry {
   ReturnType String
 }
 
+ParamKind (BorrowSelf MutBorrowSelf OwnedSelf Named)
+
+Param {
+  Kind ParamKind
+  Name String
+  ParamType String
+}
+
+MethodSig {
+  Name String
+  Params Vec{Param}
+  ReturnType String
+}
+
+BodyKind (Block TailBlock MatchBody)
+
+ExprKind (
+  StringLit IntLit BareName
+  InstanceRef Return Access MethodCall
+  BinOp InlineEval Group
+  MutableNew MutableSet SameTypeNew SubTypeNew
+  StructConstruct StructField
+  Match MatchArm Yield StdOut
+)
+
+Expr {
+  Id I64
+  Kind ExprKind
+  Name String
+  Value String
+  Children Vec{Expr}
+}
+
+MethodDef {
+  Name String
+  Params Vec{Param}
+  ReturnType String
+  BodyKind BodyKind
+  Body Vec{Expr}
+}
+
+TraitDecl {
+  Name String
+  Methods Vec{MethodSig}
+}
+
+TraitImpl {
+  TraitName String
+  TargetType String
+  Methods Vec{MethodDef}
+}
+
 CodeWorld {
   Types Vec{TypeEntry}
   Variants Vec{VariantDef}
   Fields Vec{FieldDef}
   FfiEntries Vec{FfiEntry}
+  TraitDecls Vec{TraitDecl}
+  TraitImpls Vec{TraitImpl}
 }
 
 ;; ════════════════════════════════════════════════
@@ -52,6 +108,8 @@ generate ([
   emitDomains(:@Self) String
   emitStructs(:@Self) String
   emitWorldStruct(:@Self) String
+  emitTraitDecls(:@Self) String
+  emitTraitImpls(:@Self) String
   emitDerive(:@Self) String
 ])
 
@@ -63,6 +121,8 @@ generate [CodeWorld [
     ~@Out.set([@Out + @Self.emitDomains])
     ~@Out.set([@Out + @Self.emitStructs])
     ~@Out.set([@Out + @Self.emitWorldStruct])
+    ~@Out.set([@Out + @Self.emitTraitDecls])
+    ~@Out.set([@Out + @Self.emitTraitImpls])
     ~@Out.set([@Out + @Self.emitDerive])
     ^@Out
   ]
@@ -148,6 +208,30 @@ generate [CodeWorld [
         ])
       ])
 
+      ~@Out.set([@Out + "}\n\n"])
+    ])
+    ^@Out
+  ]
+
+  ;; ── Trait declarations → pub trait Name { fn method(&self) -> Type; } ──
+  emitTraitDecls(:@Self) String [
+    ~@Out String/new("")
+    #@Self.TraitDecls.traitDecl([
+      ~@Out.set([@Out + "pub trait " + @TraitDecl.Name.toSnake + " {\n"])
+      #@TraitDecl.Methods.methodSig([
+        ~@Out.set([@Out + "    fn " + @MethodSig.Name.toSnake + "(&self) -> " + @MethodSig.ReturnType.toRustType + ";\n"])
+      ])
+      ~@Out.set([@Out + "}\n\n"])
+    ])
+    ^@Out
+  ]
+
+  ;; ── Trait impls → impl Trait for Type { fn method(&self) -> Type { body } } ──
+  emitTraitImpls(:@Self) String [
+    ~@Out String/new("")
+    #@Self.TraitImpls.traitImpl([
+      ~@Out.set([@Out + "impl " + @TraitImpl.TraitName.toSnake + " for " + @TraitImpl.TargetType + " {\n"])
+      ;; TODO: emit method bodies
       ~@Out.set([@Out + "}\n\n"])
     ])
     ^@Out

@@ -1,7 +1,7 @@
 (Parser
   TokenKind Token
   TypeForm TypeEntry VariantDef FieldDef
-  RustSpan FfiEntry
+  RustSpan FfiEntry RawBlock
   CodeWorld ParseState)
 
 ;; ════════════════════════════════════════════════
@@ -66,11 +66,69 @@ FfiEntry {
   ReturnType String
 }
 
+;; ════════════════════════════════════════════════
+;; Behavior — traits, impls, methods, expressions
+;; ════════════════════════════════════════════════
+
+ParamKind (BorrowSelf MutBorrowSelf OwnedSelf Named)
+
+Param {
+  Kind ParamKind
+  Name String
+  ParamType String
+}
+
+MethodSig {
+  Name String
+  Params Vec{Param}
+  ReturnType String
+}
+
+BodyKind (Block TailBlock MatchBody)
+
+ExprKind (
+  StringLit IntLit BareName
+  InstanceRef Return Access MethodCall
+  BinOp InlineEval Group
+  MutableNew MutableSet SameTypeNew SubTypeNew
+  StructConstruct StructField
+  Match MatchArm Yield StdOut
+)
+
+Expr {
+  Id I64
+  Kind ExprKind
+  Name String
+  Value String
+  Children Vec{Expr}
+}
+
+MethodDef {
+  Name String
+  Params Vec{Param}
+  ReturnType String
+  BodyKind BodyKind
+  Body Vec{Expr}
+}
+
+TraitDecl {
+  Name String
+  Methods Vec{MethodSig}
+}
+
+TraitImpl {
+  TraitName String
+  TargetType String
+  Methods Vec{MethodDef}
+}
+
 CodeWorld {
   Types Vec{TypeEntry}
   Variants Vec{VariantDef}
   Fields Vec{FieldDef}
   FfiEntries Vec{FfiEntry}
+  TraitDecls Vec{TraitDecl}
+  TraitImpls Vec{TraitImpl}
 }
 
 ;; ════════════════════════════════════════════════
@@ -85,6 +143,9 @@ ParseState {
   Variants Vec{VariantDef}
   Fields Vec{FieldDef}
   FfiEntries Vec{FfiEntry}
+  TraitDecls Vec{TraitDecl}
+  TraitImpls Vec{TraitImpl}
+  ExprStack Vec{Expr}
 }
 
 ;; ════════════════════════════════════════════════
@@ -104,6 +165,10 @@ parse ([
   addType(@Self @Name String @Form TypeForm) ParseState
   addVariant(@Self @TypeId I64 @Ordinal I64 @VName String) ParseState
   addField(@Self @TypeId I64 @Ordinal I64 @FName String @FType String) ParseState
+  parseTraitDecl(@Self @Name String) ParseState
+  parseTraitImpl(@Self @Name String) ParseState
+  parseMethodDefs(@Self @TraitName String @TargetType String) ParseState
+  skipToRParen(@Self) ParseState
   parseFfiBlock(@Self @Library String) ParseState
   parseFfiEntries(@Self @Library String) ParseState
   addFfi(@Self @Library String @AskiName String @RustName String @Span RustSpan @RetType String) ParseState
@@ -140,10 +205,11 @@ parse [ParseState [
     ~@S ParseState/new(@Self.skipWs)
     ^(| @S.peek
       (CamelIdent) [
+        ~@Name String/new(@S.peekText)
         ~@S2 ParseState/new(@S.advance.skipWs)
         ^(| @S2.peek
-          (LParen) @S2.skipBalancedParens(1).skipWs.skipBalancedBrackets(1)
-          (LBracket) @S2.skipBalancedBrackets(1)
+          (LParen) @S2.parseTraitDecl(@Name)
+          (LBracket) @S2.parseTraitImpl(@Name)
           (_) @S2
         |)
       ]
@@ -247,6 +313,87 @@ parse [ParseState [
     |)
   |]
 
+  ;; ── Trait declaration: name ([method sigs]) ──
+  parseTraitDecl(@Self @Name String) ParseState [
+    ;; At LParen — consume ([ ... ])
+    ;; For now capture as empty decl — codegen reads method info from impls
+    ^@Self.skipBalancedParens(1)
+  ]
+
+  ;; ── Trait impl: name [Type [methods]] ──
+  parseTraitImpl(@Self @Name String) ParseState [
+    ;; At LBracket — name [TargetType [methods]]
+    ~@S ParseState/new(@Self.advance.skipWs)
+    ~@TargetType String/new(@S.peekText)
+    ~@S2 ParseState/new(@S.advance.skipWs)
+    ;; At inner LBracket — consume [methods]
+    ~@S3 ParseState/new(@S2.advance.skipWs)
+    ;; Parse method definitions
+    ~@S4 ParseState/new(@S3.parseMethodDefs(@Name @TargetType))
+    ;; Consume inner RBracket (already consumed by parseMethodDefs)
+    ;; Consume outer RBracket
+    ^@S4.advance
+  ]
+
+  ;; ── Method definitions until RBracket ──
+  parseMethodDefs(@Self @TraitName String @TargetType String) ParseState [|
+    ~@S ParseState/new(@Self.skipWs)
+    ^(| @S.peek
+      (RBracket) @S
+      (CamelIdent) [
+        ~@MethodName String/new(@S.peekText)
+        ~@S2 ParseState/new(@S.advance.skipWs)
+        ;; Consume LParen for params
+        ~@S3 ParseState/new(@S2.advance.skipWs)
+        ;; Parse params — simplified: skip to RParen, capture self kind
+        ~@SelfKind String/new(@S3.peekText)
+        ~@S4 ParseState/new(@S3.skipToRParen)
+        ;; After RParen, check for return type
+        ~@S5 ParseState/new(@S4.skipWs)
+        ~@RetType String/new("")
+        ^(| @S5.peek
+          (LBracket) [
+            ;; No return type, body follows
+            ~@S6 ParseState/new(@S5.skipBalancedBrackets(1))
+            ^@S6.parseMethodDefs(@TraitName @TargetType)
+          ]
+          (IterOpen) [
+            ;; No return type, tail body follows
+            ~@S6 ParseState/new(@S5.skipBalancedBrackets(1))
+            ^@S6.parseMethodDefs(@TraitName @TargetType)
+          ]
+          (CompositionOpen) [
+            ;; No return type, match body follows
+            ~@S6 ParseState/new(@S5.skipBalancedParens(1))
+            ^@S6.parseMethodDefs(@TraitName @TargetType)
+          ]
+          (PascalIdent) [
+            ;; Return type, then body
+            ~@RetType String/new(@S5.peekText)
+            ~@S6 ParseState/new(@S5.advance.skipWs)
+            ^(| @S6.peek
+              (LBracket) @S6.skipBalancedBrackets(1).parseMethodDefs(@TraitName @TargetType)
+              (IterOpen) @S6.skipBalancedBrackets(1).parseMethodDefs(@TraitName @TargetType)
+              (CompositionOpen) @S6.skipBalancedParens(1).parseMethodDefs(@TraitName @TargetType)
+              (_) @S6.parseMethodDefs(@TraitName @TargetType)
+            |)
+          ]
+          (_) @S5.parseMethodDefs(@TraitName @TargetType)
+        |)
+      ]
+      (_) @S.advance.parseMethodDefs(@TraitName @TargetType)
+    |)
+  |]
+
+  ;; ── Skip to RParen (consume params) ──
+  skipToRParen(@Self) ParseState [|
+    ^(| @Self.peek
+      (RParen) @Self.advance
+      (EOF) @Self
+      (_) @Self.advance.skipToRParen
+    |)
+  |]
+
   ;; ── FFI block: Library {| funcs |} ──
   parseFfiBlock(@Self @Library String) ParseState [
     ;; Consume TraitBoundOpen
@@ -287,7 +434,10 @@ parse [ParseState [
       Types(@Self.Types.withPush(TypeEntry(Id([@Self.NextId - 1]) Name(@Name) Form(@Form))))
       Variants(@Self.Variants)
       Fields(@Self.Fields)
-      FfiEntries(@Self.FfiEntries))
+      FfiEntries(@Self.FfiEntries)
+      TraitDecls(@Self.TraitDecls)
+      TraitImpls(@Self.TraitImpls)
+      ExprStack(@Self.ExprStack))
   ]
 
   addVariant(@Self @TypeId I64 @Ordinal I64 @VName String) ParseState [
@@ -298,7 +448,10 @@ parse [ParseState [
       Types(@Self.Types)
       Variants(@Self.Variants.withPush(VariantDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@VName) ContainsType(""))))
       Fields(@Self.Fields)
-      FfiEntries(@Self.FfiEntries))
+      FfiEntries(@Self.FfiEntries)
+      TraitDecls(@Self.TraitDecls)
+      TraitImpls(@Self.TraitImpls)
+      ExprStack(@Self.ExprStack))
   ]
 
   addField(@Self @TypeId I64 @Ordinal I64 @FName String @FType String) ParseState [
@@ -309,7 +462,10 @@ parse [ParseState [
       Types(@Self.Types)
       Variants(@Self.Variants)
       Fields(@Self.Fields.withPush(FieldDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@FName) FieldType(@FType))))
-      FfiEntries(@Self.FfiEntries))
+      FfiEntries(@Self.FfiEntries)
+      TraitDecls(@Self.TraitDecls)
+      TraitImpls(@Self.TraitImpls)
+      ExprStack(@Self.ExprStack))
   ]
 
   addFfi(@Self @Library String @AskiName String @RustName String @Span RustSpan @RetType String) ParseState [
@@ -320,7 +476,10 @@ parse [ParseState [
       Types(@Self.Types)
       Variants(@Self.Variants)
       Fields(@Self.Fields)
-      FfiEntries(@Self.FfiEntries.withPush(FfiEntry(Library(@Library) AskiName(@AskiName) RustName(@RustName) Span(@Span) ReturnType(@RetType)))))
+      FfiEntries(@Self.FfiEntries.withPush(FfiEntry(Library(@Library) AskiName(@AskiName) RustName(@RustName) Span(@Span) ReturnType(@RetType))))
+      TraitDecls(@Self.TraitDecls)
+      TraitImpls(@Self.TraitImpls)
+      ExprStack(@Self.ExprStack))
   ]
 
   bumpId(@Self) ParseState [
@@ -331,7 +490,10 @@ parse [ParseState [
       Types(@Self.Types)
       Variants(@Self.Variants)
       Fields(@Self.Fields)
-      FfiEntries(@Self.FfiEntries))
+      FfiEntries(@Self.FfiEntries)
+      TraitDecls(@Self.TraitDecls)
+      TraitImpls(@Self.TraitImpls)
+      ExprStack(@Self.ExprStack))
   ]
 
   ;; ── Utilities ──
@@ -358,7 +520,10 @@ parse [ParseState [
       Types(@Self.Types)
       Variants(@Self.Variants)
       Fields(@Self.Fields)
-      FfiEntries(@Self.FfiEntries))
+      FfiEntries(@Self.FfiEntries)
+      TraitDecls(@Self.TraitDecls)
+      TraitImpls(@Self.TraitImpls)
+      ExprStack(@Self.ExprStack))
   ]
 
   toWorld(:@Self) CodeWorld [
@@ -366,6 +531,9 @@ parse [ParseState [
       Types(@Self.Types)
       Variants(@Self.Variants)
       Fields(@Self.Fields)
-      FfiEntries(@Self.FfiEntries))
+      FfiEntries(@Self.FfiEntries)
+      TraitDecls(@Self.TraitDecls)
+      TraitImpls(@Self.TraitImpls)
+      ExprStack(@Self.ExprStack))
   ]
 ]]
