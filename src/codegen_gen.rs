@@ -1,4 +1,3 @@
-use crate::helpers::{StringExt, VecExt, ToI64, WithPush};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum TypeForm {
     Domain,
@@ -26,29 +25,6 @@ impl TypeForm {
             Self::Struct => "struct",
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct TypeEntry {
-    pub id: i64,
-    pub name: String,
-    pub form: TypeForm,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct VariantDef {
-    pub type_id: i64,
-    pub ordinal: i64,
-    pub name: String,
-    pub contains_type: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct FieldDef {
-    pub type_id: i64,
-    pub ordinal: i64,
-    pub name: String,
-    pub field_type: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -93,6 +69,199 @@ impl RustSpan {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum ParamKind {
+    BorrowSelf,
+    MutBorrowSelf,
+    OwnedSelf,
+    Named,
+}
+
+impl std::fmt::Display for ParamKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl ParamKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "borrow_self" => Some(Self::BorrowSelf),
+            "BorrowSelf" => Some(Self::BorrowSelf),
+            "mut_borrow_self" => Some(Self::MutBorrowSelf),
+            "MutBorrowSelf" => Some(Self::MutBorrowSelf),
+            "owned_self" => Some(Self::OwnedSelf),
+            "OwnedSelf" => Some(Self::OwnedSelf),
+            "named" => Some(Self::Named),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::BorrowSelf => "borrow_self",
+            Self::MutBorrowSelf => "mut_borrow_self",
+            Self::OwnedSelf => "owned_self",
+            Self::Named => "named",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum BodyKind {
+    Block,
+    TailBlock,
+    MatchBody,
+}
+
+impl std::fmt::Display for BodyKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl BodyKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "block" => Some(Self::Block),
+            "tail_block" => Some(Self::TailBlock),
+            "TailBlock" => Some(Self::TailBlock),
+            "match_body" => Some(Self::MatchBody),
+            "MatchBody" => Some(Self::MatchBody),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::Block => "block",
+            Self::TailBlock => "tail_block",
+            Self::MatchBody => "match_body",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum ExprKind {
+    StringLit,
+    IntLit,
+    BareName,
+    InstanceRef,
+    Return,
+    Access,
+    MethodCall,
+    BinOp,
+    InlineEval,
+    Group,
+    MutableNew,
+    MutableSet,
+    SameTypeNew,
+    SubTypeNew,
+    StructConstruct,
+    StructField,
+    Match,
+    MatchArm,
+    Yield,
+    StdOut,
+}
+
+impl std::fmt::Display for ExprKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl ExprKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "string_lit" => Some(Self::StringLit),
+            "StringLit" => Some(Self::StringLit),
+            "int_lit" => Some(Self::IntLit),
+            "IntLit" => Some(Self::IntLit),
+            "bare_name" => Some(Self::BareName),
+            "BareName" => Some(Self::BareName),
+            "instance_ref" => Some(Self::InstanceRef),
+            "InstanceRef" => Some(Self::InstanceRef),
+            "return" => Some(Self::Return),
+            "access" => Some(Self::Access),
+            "method_call" => Some(Self::MethodCall),
+            "MethodCall" => Some(Self::MethodCall),
+            "bin_op" => Some(Self::BinOp),
+            "BinOp" => Some(Self::BinOp),
+            "inline_eval" => Some(Self::InlineEval),
+            "InlineEval" => Some(Self::InlineEval),
+            "group" => Some(Self::Group),
+            "mutable_new" => Some(Self::MutableNew),
+            "MutableNew" => Some(Self::MutableNew),
+            "mutable_set" => Some(Self::MutableSet),
+            "MutableSet" => Some(Self::MutableSet),
+            "same_type_new" => Some(Self::SameTypeNew),
+            "SameTypeNew" => Some(Self::SameTypeNew),
+            "sub_type_new" => Some(Self::SubTypeNew),
+            "SubTypeNew" => Some(Self::SubTypeNew),
+            "struct_construct" => Some(Self::StructConstruct),
+            "StructConstruct" => Some(Self::StructConstruct),
+            "struct_field" => Some(Self::StructField),
+            "StructField" => Some(Self::StructField),
+            "match" => Some(Self::Match),
+            "match_arm" => Some(Self::MatchArm),
+            "MatchArm" => Some(Self::MatchArm),
+            "yield" => Some(Self::Yield),
+            "std_out" => Some(Self::StdOut),
+            "StdOut" => Some(Self::StdOut),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::StringLit => "string_lit",
+            Self::IntLit => "int_lit",
+            Self::BareName => "bare_name",
+            Self::InstanceRef => "instance_ref",
+            Self::Return => "return",
+            Self::Access => "access",
+            Self::MethodCall => "method_call",
+            Self::BinOp => "bin_op",
+            Self::InlineEval => "inline_eval",
+            Self::Group => "group",
+            Self::MutableNew => "mutable_new",
+            Self::MutableSet => "mutable_set",
+            Self::SameTypeNew => "same_type_new",
+            Self::SubTypeNew => "sub_type_new",
+            Self::StructConstruct => "struct_construct",
+            Self::StructField => "struct_field",
+            Self::Match => "match",
+            Self::MatchArm => "match_arm",
+            Self::Yield => "yield",
+            Self::StdOut => "std_out",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct TypeEntry {
+    pub id: i64,
+    pub name: String,
+    pub form: TypeForm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct VariantDef {
+    pub type_id: i64,
+    pub ordinal: i64,
+    pub name: String,
+    pub contains_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct FieldDef {
+    pub type_id: i64,
+    pub ordinal: i64,
+    pub name: String,
+    pub field_type: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct FfiEntry {
     pub library: String,
@@ -103,381 +272,144 @@ pub struct FfiEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Param {
+    pub kind: ParamKind,
+    pub name: String,
+    pub param_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct MethodSig {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Expr {
+    pub id: i64,
+    pub kind: ExprKind,
+    pub name: String,
+    pub value: String,
+    pub children: Vec<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct MethodDef {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: String,
+    pub body_kind: BodyKind,
+    pub body: Vec<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct TraitDecl {
+    pub name: String,
+    pub methods: Vec<MethodSig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct TraitImpl {
+    pub trait_name: String,
+    pub target_type: String,
+    pub methods: Vec<MethodDef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct CodeWorld {
     pub types: Vec<TypeEntry>,
     pub variants: Vec<VariantDef>,
     pub fields: Vec<FieldDef>,
     pub ffi_entries: Vec<FfiEntry>,
+    pub trait_decls: Vec<TraitDecl>,
+    pub trait_impls: Vec<TraitImpl>,
 }
 
-impl Default for CodeWorld { fn default() -> Self { Self { types: Default::default(), variants: Default::default(), fields: Default::default(), ffi_entries: Default::default(), } } }
-
-impl CodeWorld {
-    pub fn new() -> Self { Self::default() }
-
-    pub fn type_entry_by_id(&self, val: i64) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.id == val).collect()
-    }
-
-    pub fn type_entry_by_name(&self, val: &str) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.name == val).collect()
-    }
-
-    pub fn type_entry_by_form(&self, val: TypeForm) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.form == val).collect()
-    }
-
-    pub fn variant_def_by_type_id(&self, val: i64) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.type_id == val).collect()
-    }
-
-    pub fn variant_def_by_ordinal(&self, val: i64) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.ordinal == val).collect()
-    }
-
-    pub fn variant_def_by_name(&self, val: &str) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.name == val).collect()
-    }
-
-    pub fn variant_def_by_contains_type(&self, val: &str) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.contains_type == val).collect()
-    }
-
-    pub fn field_def_by_type_id(&self, val: i64) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.type_id == val).collect()
-    }
-
-    pub fn field_def_by_ordinal(&self, val: i64) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.ordinal == val).collect()
-    }
-
-    pub fn field_def_by_name(&self, val: &str) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.name == val).collect()
-    }
-
-    pub fn field_def_by_field_type(&self, val: &str) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.field_type == val).collect()
-    }
-
-    pub fn ffi_entry_by_library(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.library == val).collect()
-    }
-
-    pub fn ffi_entry_by_aski_name(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.aski_name == val).collect()
-    }
-
-    pub fn ffi_entry_by_rust_name(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.rust_name == val).collect()
-    }
-
-    pub fn ffi_entry_by_span(&self, val: RustSpan) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.span == val).collect()
-    }
-
-    pub fn ffi_entry_by_return_type(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.return_type == val).collect()
-    }
-
+pub trait Derive {
+    fn derive(&mut self);
+    fn derive_variant_of(&mut self);
+    fn derive_type_kind(&mut self);
+    fn derive_contained_type(&mut self);
+    fn derive_recursive_type(&mut self);
 }
 
-pub trait Generate {
-    fn generate(&self) -> String;
-    fn emit_domains(&self) -> String;
-    fn emit_structs(&self) -> String;
-    fn emit_world_struct(&self) -> String;
-    fn emit_derive(&self) -> String;
-}
-
-impl Generate for CodeWorld {
-    fn generate(&self) -> String {
-        let mut out: String = String::new();
-        out = (out + &self.emit_domains());
-        out = (out + &self.emit_structs());
-        out = (out + &self.emit_world_struct());
-        out = (out + &self.emit_derive());
-        out
-    }
-    fn emit_domains(&self) -> String {
-        let mut out: String = String::new();
-        for type_entry in self.type_entry_by_form(TypeForm::Domain).iter() {
-            out = (((out + "#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub enum ") + &type_entry.name) + " {
-");
-            for variant_def in self.variant_def_by_type_id(type_entry.id).iter() {
-                out = (((out + "    ") + &variant_def.name) + ",
-");
-            }
-            out = (out + "}
-
-");
-            out = (((out + "impl std::fmt::Display for ") + &type_entry.name) + " {
-");
-            out = (out + "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-");
-            out = (out + "        write!(f, \"{:?}\", self)
-    }
-}
-
-");
-            out = (((out + "impl ") + &type_entry.name) + " {
-");
-            out = (out + "    pub fn from_str(s: &str) -> Option<Self> {
-");
-            out = (out + "        match s {
-");
-            for variant_def in self.variant_def_by_type_id(type_entry.id).iter() {
-                out = (((((out + "            \"") + &variant_def.name.to_snake()) + "\" => Some(Self::") + &variant_def.name) + "),
-");
-                out = (out + &variant_def.name.needs_pascal_alias());
-            }
-            out = (out + "            _ => None,
-        }
+impl World {
+    pub fn derive(&mut self) {
+        self.derive_variant_of();
+        self.derive_type_kind();
+        self.derive_contained_type();
+        self.derive_recursive_type_fixpoint();
     }
 
-");
-            out = (out + "    pub fn to_str(&self) -> &'static str {
-        match self {
-");
-            for variant_def in self.variant_def_by_type_id(type_entry.id).iter() {
-                out = (((((out + "            Self::") + &variant_def.name) + " => \"") + &variant_def.name.to_snake()) + "\",
-");
-            }
-            out = (out + "        }
-    }
-}
-
-");
-        }
-        out
-    }
-    fn emit_structs(&self) -> String {
-        let mut out: String = String::new();
-        for type_entry in self.type_entry_by_form(TypeForm::Struct).iter() {
-            let mut field_types: String = String::new();
-            for field_def in self.field_def_by_type_id(type_entry.id).iter() {
-                field_types = ((field_types + &field_def.field_type) + ",");
-            }
-            out = (((((out + "#[derive(Debug, ") + &field_types.all_fields_copy()) + "Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct ") + &type_entry.name) + " {
-");
-            for field_def in self.field_def_by_type_id(type_entry.id).iter() {
-                out = (((((out + "    pub ") + &field_def.name.to_snake()) + ": ") + &field_def.field_type.to_rust_type()) + ",
-");
-            }
-            out = (out + "}
-
-");
-        }
-        out
-    }
-    fn emit_world_struct(&self) -> String {
-        let mut out: String = String::new();
-        for type_entry in self.type_entry_by_name("World").iter() {
-            out = (out + "impl Default for World { fn default() -> Self { Self {");
-            for field_def in self.field_def_by_type_id(type_entry.id).iter() {
-                out = (((out + " ") + &field_def.name.to_snake()) + ": Default::default(),");
-            }
-            out = (out + " } } }
-
-");
-            out = (out + "impl World {
-");
-            out = (out + "    pub fn new() -> Self { Self::default() }
-
-");
-            for field_def in self.field_def_by_type_id(type_entry.id).iter() {
-                let mut elem_type: String = field_def.field_type.strip_vec();
-                for elem_type_entry in self.type_entry_by_name(&elem_type).iter() {
-                    for elem_field_def in self.field_def_by_type_id(elem_type_entry.id).iter() {
-                        out = ((((out + "    pub fn ") + &elem_type.to_snake()) + "_by_") + &elem_field_def.name.to_snake());
-                        out = (((((out + "(&self, val: ") + &elem_field_def.field_type.to_param_type()) + ") -> Vec<&") + &elem_type) + "> {
-");
-                        out = (((((out + "        self.") + &field_def.name.to_snake()) + ".iter().filter(|r| r.") + &elem_field_def.name.to_snake()) + " == val).collect()
-");
-                        out = (out + "    }
-
-");
+    fn derive_variant_of(&mut self) {
+        let mut results = Vec::new();
+        for type_entry in &self.types {
+            if type_entry.form == TypeForm::Domain {
+                for variant in &self.variants {
+                    if variant.type_id == type_entry.id {
+                        results.push(VariantOf { variant_name: variant.name.clone(), type_name: type_entry.name.clone(), type_id: type_entry.id });
                     }
                 }
             }
-            out = (out + "}
-
-");
         }
-        out
+        self.variant_ofs = results;
     }
-    fn emit_derive(&self) -> String {
-        let mut out: String = String::new();
-        out = (out + "pub trait Derive {
-");
-        out = (out + "    fn derive(&mut self);
-");
-        out = (out + "    fn derive_variant_of(&mut self);
-");
-        out = (out + "    fn derive_type_kind(&mut self);
-");
-        out = (out + "    fn derive_contained_type(&mut self);
-");
-        out = (out + "    fn derive_recursive_type(&mut self);
-");
-        out = (out + "}
 
-");
-        out = (out + "impl World {
-");
-        out = (out + "    pub fn derive(&mut self) {
-");
-        out = (out + "        self.derive_variant_of();
-");
-        out = (out + "        self.derive_type_kind();
-");
-        out = (out + "        self.derive_contained_type();
-");
-        out = (out + "        self.derive_recursive_type_fixpoint();
-");
-        out = (out + "    }
-
-");
-        out = (out + "    fn derive_variant_of(&mut self) {
-");
-        out = (out + "        let mut results = Vec::new();
-");
-        out = (out + "        for type_entry in &self.types {
-");
-        out = (out + "            if type_entry.form == TypeForm::Domain {
-");
-        out = (out + "                for variant in &self.variants {
-");
-        out = (out + "                    if variant.type_id == type_entry.id {
-");
-        out = (out + "                        results.push(VariantOf { variant_name: variant.name.clone(), type_name: type_entry.name.clone(), type_id: type_entry.id });
-");
-        out = (out + "                    }
-");
-        out = (out + "                }
-");
-        out = (out + "            }
-");
-        out = (out + "        }
-");
-        out = (out + "        self.variant_ofs = results;
-");
-        out = (out + "    }
-
-");
-        out = (out + "    fn derive_type_kind(&mut self) {
-");
-        out = (out + "        let mut results = Vec::new();
-");
-        out = (out + "        for type_entry in &self.types {
-");
-        out = (out + "            results.push(TypeKind { type_name: type_entry.name.clone(), category: type_entry.form });
-");
-        out = (out + "        }
-");
-        out = (out + "        self.type_kinds = results;
-");
-        out = (out + "    }
-
-");
-        out = (out + "    fn derive_contained_type(&mut self) {
-");
-        out = (out + "        let mut results = Vec::new();
-");
-        out = (out + "        for type_entry in &self.types {
-");
-        out = (out + "            if type_entry.form == TypeForm::Struct {
-");
-        out = (out + "                for field in &self.fields {
-");
-        out = (out + "                    if field.type_id == type_entry.id {
-");
-        out = (out + "                        results.push(ContainedType { parent_type: type_entry.name.clone(), child_type: field.field_type.clone() });
-");
-        out = (out + "                    }
-");
-        out = (out + "                }
-");
-        out = (out + "            }
-");
-        out = (out + "        }
-");
-        out = (out + "        for type_entry in &self.types {
-");
-        out = (out + "            if type_entry.form == TypeForm::Domain {
-");
-        out = (out + "                for variant in &self.variants {
-");
-        out = (out + "                    if variant.type_id == type_entry.id {
-");
-        out = (out + "                        if !variant.contains_type.is_empty() {
-");
-        out = (out + "                            results.push(ContainedType { parent_type: type_entry.name.clone(), child_type: variant.contains_type.clone() });
-");
-        out = (out + "                        }
-");
-        out = (out + "                    }
-");
-        out = (out + "                }
-");
-        out = (out + "            }
-");
-        out = (out + "        }
-");
-        out = (out + "        self.contained_types = results;
-");
-        out = (out + "    }
-
-");
-        out = (out + "    fn derive_recursive_type_fixpoint(&mut self) {
-");
-        out = (out + "        {
-");
-        out = (out + "            let mut results = Vec::new();
-");
-        out = (out + "            for contained_type in &self.contained_types {
-");
-        out = (out + "                results.push(RecursiveType { parent_type: contained_type.parent_type.clone(), child_type: contained_type.child_type.clone() });
-");
-        out = (out + "            }
-");
-        out = (out + "            self.recursive_types = results;
-");
-        out = (out + "        }
-");
-        out = (out + "        loop {
-");
-        out = (out + "            let mut new_items = Vec::new();
-");
-        out = (out + "            for contained_type in &self.contained_types {
-");
-        out = (out + "                for reach in &self.recursive_types {
-");
-        out = (out + "                    if reach.parent_type == contained_type.child_type {
-");
-        out = (out + "                        new_items.push(RecursiveType { parent_type: contained_type.parent_type.clone(), child_type: reach.child_type.clone() });
-");
-        out = (out + "                    }
-");
-        out = (out + "                }
-");
-        out = (out + "            }
-");
-        out = (out + "            new_items.retain(|item| !self.recursive_types.contains(item));
-");
-        out = (out + "            if new_items.is_empty() { break; }
-");
-        out = (out + "            self.recursive_types.extend(new_items);
-");
-        out = (out + "        }
-");
-        out = (out + "    }
-
-");
-        out = (out + "}
-");
-        out
+    fn derive_type_kind(&mut self) {
+        let mut results = Vec::new();
+        for type_entry in &self.types {
+            results.push(TypeKind { type_name: type_entry.name.clone(), category: type_entry.form });
+        }
+        self.type_kinds = results;
     }
+
+    fn derive_contained_type(&mut self) {
+        let mut results = Vec::new();
+        for type_entry in &self.types {
+            if type_entry.form == TypeForm::Struct {
+                for field in &self.fields {
+                    if field.type_id == type_entry.id {
+                        results.push(ContainedType { parent_type: type_entry.name.clone(), child_type: field.field_type.clone() });
+                    }
+                }
+            }
+        }
+        for type_entry in &self.types {
+            if type_entry.form == TypeForm::Domain {
+                for variant in &self.variants {
+                    if variant.type_id == type_entry.id {
+                        if !variant.contains_type.is_empty() {
+                            results.push(ContainedType { parent_type: type_entry.name.clone(), child_type: variant.contains_type.clone() });
+                        }
+                    }
+                }
+            }
+        }
+        self.contained_types = results;
+    }
+
+    fn derive_recursive_type_fixpoint(&mut self) {
+        {
+            let mut results = Vec::new();
+            for contained_type in &self.contained_types {
+                results.push(RecursiveType { parent_type: contained_type.parent_type.clone(), child_type: contained_type.child_type.clone() });
+            }
+            self.recursive_types = results;
+        }
+        loop {
+            let mut new_items = Vec::new();
+            for contained_type in &self.contained_types {
+                for reach in &self.recursive_types {
+                    if reach.parent_type == contained_type.child_type {
+                        new_items.push(RecursiveType { parent_type: contained_type.parent_type.clone(), child_type: reach.child_type.clone() });
+                    }
+                }
+            }
+            new_items.retain(|item| !self.recursive_types.contains(item));
+            if new_items.is_empty() { break; }
+            self.recursive_types.extend(new_items);
+        }
+    }
+
 }
-

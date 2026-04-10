@@ -1,4 +1,3 @@
-use crate::helpers::{StringExt, VecExt, ToI64, WithPush};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum TokenKind {
     PascalIdent,
@@ -201,12 +200,6 @@ impl TokenKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Token {
-    pub kind: TokenKind,
-    pub text: String,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum TypeForm {
     Domain,
@@ -234,29 +227,6 @@ impl TypeForm {
             Self::Struct => "struct",
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct TypeEntry {
-    pub id: i64,
-    pub name: String,
-    pub form: TypeForm,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct VariantDef {
-    pub type_id: i64,
-    pub ordinal: i64,
-    pub name: String,
-    pub contains_type: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct FieldDef {
-    pub type_id: i64,
-    pub ordinal: i64,
-    pub name: String,
-    pub field_type: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -301,6 +271,205 @@ impl RustSpan {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum ParamKind {
+    BorrowSelf,
+    MutBorrowSelf,
+    OwnedSelf,
+    Named,
+}
+
+impl std::fmt::Display for ParamKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl ParamKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "borrow_self" => Some(Self::BorrowSelf),
+            "BorrowSelf" => Some(Self::BorrowSelf),
+            "mut_borrow_self" => Some(Self::MutBorrowSelf),
+            "MutBorrowSelf" => Some(Self::MutBorrowSelf),
+            "owned_self" => Some(Self::OwnedSelf),
+            "OwnedSelf" => Some(Self::OwnedSelf),
+            "named" => Some(Self::Named),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::BorrowSelf => "borrow_self",
+            Self::MutBorrowSelf => "mut_borrow_self",
+            Self::OwnedSelf => "owned_self",
+            Self::Named => "named",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum BodyKind {
+    Block,
+    TailBlock,
+    MatchBody,
+}
+
+impl std::fmt::Display for BodyKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl BodyKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "block" => Some(Self::Block),
+            "tail_block" => Some(Self::TailBlock),
+            "TailBlock" => Some(Self::TailBlock),
+            "match_body" => Some(Self::MatchBody),
+            "MatchBody" => Some(Self::MatchBody),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::Block => "block",
+            Self::TailBlock => "tail_block",
+            Self::MatchBody => "match_body",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum ExprKind {
+    StringLit,
+    IntLit,
+    BareName,
+    InstanceRef,
+    Return,
+    Access,
+    MethodCall,
+    BinOp,
+    InlineEval,
+    Group,
+    MutableNew,
+    MutableSet,
+    SameTypeNew,
+    SubTypeNew,
+    StructConstruct,
+    StructField,
+    Match,
+    MatchArm,
+    Yield,
+    StdOut,
+}
+
+impl std::fmt::Display for ExprKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl ExprKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "string_lit" => Some(Self::StringLit),
+            "StringLit" => Some(Self::StringLit),
+            "int_lit" => Some(Self::IntLit),
+            "IntLit" => Some(Self::IntLit),
+            "bare_name" => Some(Self::BareName),
+            "BareName" => Some(Self::BareName),
+            "instance_ref" => Some(Self::InstanceRef),
+            "InstanceRef" => Some(Self::InstanceRef),
+            "return" => Some(Self::Return),
+            "access" => Some(Self::Access),
+            "method_call" => Some(Self::MethodCall),
+            "MethodCall" => Some(Self::MethodCall),
+            "bin_op" => Some(Self::BinOp),
+            "BinOp" => Some(Self::BinOp),
+            "inline_eval" => Some(Self::InlineEval),
+            "InlineEval" => Some(Self::InlineEval),
+            "group" => Some(Self::Group),
+            "mutable_new" => Some(Self::MutableNew),
+            "MutableNew" => Some(Self::MutableNew),
+            "mutable_set" => Some(Self::MutableSet),
+            "MutableSet" => Some(Self::MutableSet),
+            "same_type_new" => Some(Self::SameTypeNew),
+            "SameTypeNew" => Some(Self::SameTypeNew),
+            "sub_type_new" => Some(Self::SubTypeNew),
+            "SubTypeNew" => Some(Self::SubTypeNew),
+            "struct_construct" => Some(Self::StructConstruct),
+            "StructConstruct" => Some(Self::StructConstruct),
+            "struct_field" => Some(Self::StructField),
+            "StructField" => Some(Self::StructField),
+            "match" => Some(Self::Match),
+            "match_arm" => Some(Self::MatchArm),
+            "MatchArm" => Some(Self::MatchArm),
+            "yield" => Some(Self::Yield),
+            "std_out" => Some(Self::StdOut),
+            "StdOut" => Some(Self::StdOut),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::StringLit => "string_lit",
+            Self::IntLit => "int_lit",
+            Self::BareName => "bare_name",
+            Self::InstanceRef => "instance_ref",
+            Self::Return => "return",
+            Self::Access => "access",
+            Self::MethodCall => "method_call",
+            Self::BinOp => "bin_op",
+            Self::InlineEval => "inline_eval",
+            Self::Group => "group",
+            Self::MutableNew => "mutable_new",
+            Self::MutableSet => "mutable_set",
+            Self::SameTypeNew => "same_type_new",
+            Self::SubTypeNew => "sub_type_new",
+            Self::StructConstruct => "struct_construct",
+            Self::StructField => "struct_field",
+            Self::Match => "match",
+            Self::MatchArm => "match_arm",
+            Self::Yield => "yield",
+            Self::StdOut => "std_out",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Token {
+    pub kind: TokenKind,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct TypeEntry {
+    pub id: i64,
+    pub name: String,
+    pub form: TypeForm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct VariantDef {
+    pub type_id: i64,
+    pub ordinal: i64,
+    pub name: String,
+    pub contains_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct FieldDef {
+    pub type_id: i64,
+    pub ordinal: i64,
+    pub name: String,
+    pub field_type: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct FfiEntry {
     pub library: String,
@@ -311,82 +480,58 @@ pub struct FfiEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Param {
+    pub kind: ParamKind,
+    pub name: String,
+    pub param_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct MethodSig {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Expr {
+    pub id: i64,
+    pub kind: ExprKind,
+    pub name: String,
+    pub value: String,
+    pub children: Vec<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct MethodDef {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: String,
+    pub body_kind: BodyKind,
+    pub body: Vec<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct TraitDecl {
+    pub name: String,
+    pub methods: Vec<MethodSig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct TraitImpl {
+    pub trait_name: String,
+    pub target_type: String,
+    pub methods: Vec<MethodDef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct CodeWorld {
     pub types: Vec<TypeEntry>,
     pub variants: Vec<VariantDef>,
     pub fields: Vec<FieldDef>,
     pub ffi_entries: Vec<FfiEntry>,
-}
-
-impl Default for CodeWorld { fn default() -> Self { Self { types: Default::default(), variants: Default::default(), fields: Default::default(), ffi_entries: Default::default(), } } }
-
-impl CodeWorld {
-    pub fn new() -> Self { Self::default() }
-
-    pub fn type_entry_by_id(&self, val: i64) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.id == val).collect()
-    }
-
-    pub fn type_entry_by_name(&self, val: &str) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.name == val).collect()
-    }
-
-    pub fn type_entry_by_form(&self, val: TypeForm) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.form == val).collect()
-    }
-
-    pub fn variant_def_by_type_id(&self, val: i64) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.type_id == val).collect()
-    }
-
-    pub fn variant_def_by_ordinal(&self, val: i64) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.ordinal == val).collect()
-    }
-
-    pub fn variant_def_by_name(&self, val: &str) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.name == val).collect()
-    }
-
-    pub fn variant_def_by_contains_type(&self, val: &str) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.contains_type == val).collect()
-    }
-
-    pub fn field_def_by_type_id(&self, val: i64) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.type_id == val).collect()
-    }
-
-    pub fn field_def_by_ordinal(&self, val: i64) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.ordinal == val).collect()
-    }
-
-    pub fn field_def_by_name(&self, val: &str) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.name == val).collect()
-    }
-
-    pub fn field_def_by_field_type(&self, val: &str) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.field_type == val).collect()
-    }
-
-    pub fn ffi_entry_by_library(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.library == val).collect()
-    }
-
-    pub fn ffi_entry_by_aski_name(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.aski_name == val).collect()
-    }
-
-    pub fn ffi_entry_by_rust_name(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.rust_name == val).collect()
-    }
-
-    pub fn ffi_entry_by_span(&self, val: RustSpan) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.span == val).collect()
-    }
-
-    pub fn ffi_entry_by_return_type(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.return_type == val).collect()
-    }
-
+    pub trait_decls: Vec<TraitDecl>,
+    pub trait_impls: Vec<TraitImpl>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -398,182 +543,95 @@ pub struct ParseState {
     pub variants: Vec<VariantDef>,
     pub fields: Vec<FieldDef>,
     pub ffi_entries: Vec<FfiEntry>,
+    pub trait_decls: Vec<TraitDecl>,
+    pub trait_impls: Vec<TraitImpl>,
+    pub expr_stack: Vec<Expr>,
 }
 
-impl Default for ParseState { fn default() -> Self { Self { tokens: Default::default(), pos: Default::default(), next_id: Default::default(), types: Default::default(), variants: Default::default(), fields: Default::default(), ffi_entries: Default::default(), } } }
+pub trait Derive {
+    fn derive(&mut self);
+    fn derive_variant_of(&mut self);
+    fn derive_type_kind(&mut self);
+    fn derive_contained_type(&mut self);
+    fn derive_recursive_type(&mut self);
+}
 
-impl ParseState {
-    pub fn new() -> Self { Self::default() }
-
-    pub fn token_by_kind(&self, val: TokenKind) -> Vec<&Token> {
-        self.tokens.iter().filter(|r| r.kind == val).collect()
+impl World {
+    pub fn derive(&mut self) {
+        self.derive_variant_of();
+        self.derive_type_kind();
+        self.derive_contained_type();
+        self.derive_recursive_type_fixpoint();
     }
 
-    pub fn token_by_text(&self, val: &str) -> Vec<&Token> {
-        self.tokens.iter().filter(|r| r.text == val).collect()
+    fn derive_variant_of(&mut self) {
+        let mut results = Vec::new();
+        for type_entry in &self.types {
+            if type_entry.form == TypeForm::Domain {
+                for variant in &self.variants {
+                    if variant.type_id == type_entry.id {
+                        results.push(VariantOf { variant_name: variant.name.clone(), type_name: type_entry.name.clone(), type_id: type_entry.id });
+                    }
+                }
+            }
+        }
+        self.variant_ofs = results;
     }
 
-    pub fn type_entry_by_id(&self, val: i64) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.id == val).collect()
+    fn derive_type_kind(&mut self) {
+        let mut results = Vec::new();
+        for type_entry in &self.types {
+            results.push(TypeKind { type_name: type_entry.name.clone(), category: type_entry.form });
+        }
+        self.type_kinds = results;
     }
 
-    pub fn type_entry_by_name(&self, val: &str) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.name == val).collect()
+    fn derive_contained_type(&mut self) {
+        let mut results = Vec::new();
+        for type_entry in &self.types {
+            if type_entry.form == TypeForm::Struct {
+                for field in &self.fields {
+                    if field.type_id == type_entry.id {
+                        results.push(ContainedType { parent_type: type_entry.name.clone(), child_type: field.field_type.clone() });
+                    }
+                }
+            }
+        }
+        for type_entry in &self.types {
+            if type_entry.form == TypeForm::Domain {
+                for variant in &self.variants {
+                    if variant.type_id == type_entry.id {
+                        if !variant.contains_type.is_empty() {
+                            results.push(ContainedType { parent_type: type_entry.name.clone(), child_type: variant.contains_type.clone() });
+                        }
+                    }
+                }
+            }
+        }
+        self.contained_types = results;
     }
 
-    pub fn type_entry_by_form(&self, val: TypeForm) -> Vec<&TypeEntry> {
-        self.types.iter().filter(|r| r.form == val).collect()
-    }
-
-    pub fn variant_def_by_type_id(&self, val: i64) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.type_id == val).collect()
-    }
-
-    pub fn variant_def_by_ordinal(&self, val: i64) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.ordinal == val).collect()
-    }
-
-    pub fn variant_def_by_name(&self, val: &str) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.name == val).collect()
-    }
-
-    pub fn variant_def_by_contains_type(&self, val: &str) -> Vec<&VariantDef> {
-        self.variants.iter().filter(|r| r.contains_type == val).collect()
-    }
-
-    pub fn field_def_by_type_id(&self, val: i64) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.type_id == val).collect()
-    }
-
-    pub fn field_def_by_ordinal(&self, val: i64) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.ordinal == val).collect()
-    }
-
-    pub fn field_def_by_name(&self, val: &str) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.name == val).collect()
-    }
-
-    pub fn field_def_by_field_type(&self, val: &str) -> Vec<&FieldDef> {
-        self.fields.iter().filter(|r| r.field_type == val).collect()
-    }
-
-    pub fn ffi_entry_by_library(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.library == val).collect()
-    }
-
-    pub fn ffi_entry_by_aski_name(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.aski_name == val).collect()
-    }
-
-    pub fn ffi_entry_by_rust_name(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.rust_name == val).collect()
-    }
-
-    pub fn ffi_entry_by_span(&self, val: RustSpan) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.span == val).collect()
-    }
-
-    pub fn ffi_entry_by_return_type(&self, val: &str) -> Vec<&FfiEntry> {
-        self.ffi_entries.iter().filter(|r| r.return_type == val).collect()
+    fn derive_recursive_type_fixpoint(&mut self) {
+        {
+            let mut results = Vec::new();
+            for contained_type in &self.contained_types {
+                results.push(RecursiveType { parent_type: contained_type.parent_type.clone(), child_type: contained_type.child_type.clone() });
+            }
+            self.recursive_types = results;
+        }
+        loop {
+            let mut new_items = Vec::new();
+            for contained_type in &self.contained_types {
+                for reach in &self.recursive_types {
+                    if reach.parent_type == contained_type.child_type {
+                        new_items.push(RecursiveType { parent_type: contained_type.parent_type.clone(), child_type: reach.child_type.clone() });
+                    }
+                }
+            }
+            new_items.retain(|item| !self.recursive_types.contains(item));
+            if new_items.is_empty() { break; }
+            self.recursive_types.extend(new_items);
+        }
     }
 
 }
-
-pub trait Parse {
-    fn parse_all(self) -> ParseState;
-    fn skip_ws(self) -> ParseState;
-    fn parse_item(self) -> ParseState;
-    fn parse_domain(self, name: String) -> ParseState;
-    fn parse_variants(self, type_id: i64, ordinal: i64) -> ParseState;
-    fn parse_struct(self, name: String) -> ParseState;
-    fn parse_fields(self, type_id: i64, ordinal: i64) -> ParseState;
-    fn skip_balanced_parens(self, depth: i64) -> ParseState;
-    fn skip_balanced_brackets(self, depth: i64) -> ParseState;
-    fn add_type(self, name: String, form: TypeForm) -> ParseState;
-    fn add_variant(self, type_id: i64, ordinal: i64, v_name: String) -> ParseState;
-    fn add_field(self, type_id: i64, ordinal: i64, f_name: String, f_type: String) -> ParseState;
-    fn parse_ffi_block(self, library: String) -> ParseState;
-    fn parse_ffi_entries(self, library: String) -> ParseState;
-    fn add_ffi(self, library: String, aski_name: String, rust_name: String, span: RustSpan, ret_type: String) -> ParseState;
-    fn peek(&self) -> TokenKind;
-    fn peek_text(&self) -> String;
-    fn advance(self) -> ParseState;
-    fn bump_id(self) -> ParseState;
-    fn to_world(&self) -> CodeWorld;
-}
-
-impl Parse for ParseState {
-    fn parse_all(self) -> ParseState {
-        let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::LParen => s.skip_balanced_parens(1).parse_all(), TokenKind::EOF => s, _ => s.parse_item().parse_all() }
-    }
-    fn skip_ws(self) -> ParseState {
-        match self.peek() { TokenKind::Newline => self.advance().skip_ws(), TokenKind::Comment => self.advance().skip_ws(), _ => self }
-    }
-    fn parse_item(self) -> ParseState {
-        let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::CamelIdent => { let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.skip_balanced_parens(1).skip_ws().skip_balanced_brackets(1), TokenKind::LBracket => s2.skip_balanced_brackets(1), _ => s2 } }, TokenKind::PascalIdent => { let mut name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.parse_domain(name), TokenKind::LBrace => s2.parse_struct(name), TokenKind::TraitBoundOpen => s2.parse_ffi_block(name), _ => s2.advance().skip_ws() } }, TokenKind::Bang => s.advance().skip_ws().advance().skip_ws().advance().skip_ws().skip_balanced_parens(1), _ => s.advance() }
-    }
-    fn parse_domain(self, name: String) -> ParseState {
-        let mut s: ParseState = self.advance();
-        let mut type_id: i64 = s.next_id;
-        s.bump_id().add_type(name, TypeForm::Domain).parse_variants(type_id, 0).advance()
-    }
-    fn parse_variants(self, type_id: i64, ordinal: i64) -> ParseState {
-        let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::RParen => s, TokenKind::PascalIdent => { let mut v_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.skip_balanced_parens(1).add_variant(type_id, ordinal, v_name).parse_variants(type_id, (ordinal + 1)), _ => s2.add_variant(type_id, ordinal, v_name).parse_variants(type_id, (ordinal + 1)) } }, _ => s }
-    }
-    fn parse_struct(self, name: String) -> ParseState {
-        let mut s: ParseState = self.advance();
-        let mut type_id: i64 = s.next_id;
-        s.bump_id().add_type(name, TypeForm::Struct).parse_fields(type_id, 0).advance()
-    }
-    fn parse_fields(self, type_id: i64, ordinal: i64) -> ParseState {
-        let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::RBrace => s, TokenKind::PascalIdent => { let mut f_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); let mut f_type: String = s2.peek_text(); let mut s3: ParseState = s2.advance().skip_ws(); match s3.peek() { TokenKind::LBrace => { let mut s4: ParseState = s3.advance().skip_ws(); let mut inner_type: String = s4.peek_text(); let mut s5: ParseState = s4.advance().skip_ws().advance(); let mut full_type: String = (((f_type + "{") + &inner_type) + "}"); s5.add_field(type_id, ordinal, f_name, full_type).parse_fields(type_id, (ordinal + 1)) }, _ => s3.add_field(type_id, ordinal, f_name, f_type).parse_fields(type_id, (ordinal + 1)) } }, TokenKind::Comment => s.advance().parse_fields(type_id, ordinal), _ => s }
-    }
-    fn skip_balanced_parens(self, depth: i64) -> ParseState {
-        let mut s: ParseState = self.advance();
-        match s.peek() { TokenKind::LParen => s.skip_balanced_parens((depth + 1)), TokenKind::RParen => match ((depth == 1)) { true => s.advance(), false => s.skip_balanced_parens((depth - 1)) }, TokenKind::EOF => s, _ => s.skip_balanced_parens(depth) }
-    }
-    fn skip_balanced_brackets(self, depth: i64) -> ParseState {
-        let mut s: ParseState = self.advance();
-        match s.peek() { TokenKind::LBracket => s.skip_balanced_brackets((depth + 1)), TokenKind::RBracket => match ((depth == 1)) { true => s.advance(), false => s.skip_balanced_brackets((depth - 1)) }, TokenKind::EOF => s, _ => s.skip_balanced_brackets(depth) }
-    }
-    fn parse_ffi_block(self, library: String) -> ParseState {
-        let mut s: ParseState = self.advance();
-        s.parse_ffi_entries(library).advance()
-    }
-    fn parse_ffi_entries(self, library: String) -> ParseState {
-        let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::TraitBoundClose => s, TokenKind::CamelIdent => { let mut aski_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); let mut s3: ParseState = s2.skip_balanced_parens(1).skip_ws(); let mut ret_type: String = s3.peek_text(); let mut s4: ParseState = s3.advance().skip_ws(); let mut rust_name: String = s4.peek_text(); let mut s5: ParseState = s4.advance(); s5.add_ffi(library.clone(), aski_name.clone(), rust_name.clone(), RustSpan::MethodCall, ret_type).parse_ffi_entries(library) }, _ => s.advance().parse_ffi_entries(library) }
-    }
-    fn add_type(self, name: String, form: TypeForm) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.with_push(TypeEntry { id: (self.next_id - 1), name: name.clone(), form: form }), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
-    }
-    fn add_variant(self, type_id: i64, ordinal: i64, v_name: String) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.with_push(VariantDef { type_id: type_id, ordinal: ordinal, name: v_name.clone(), contains_type: String::new() }), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
-    }
-    fn add_field(self, type_id: i64, ordinal: i64, f_name: String, f_type: String) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.with_push(FieldDef { type_id: type_id, ordinal: ordinal, name: f_name.clone(), field_type: f_type.clone() }), ffi_entries: self.ffi_entries.clone() }
-    }
-    fn add_ffi(self, library: String, aski_name: String, rust_name: String, span: RustSpan, ret_type: String) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.with_push(FfiEntry { library: library.clone(), aski_name: aski_name.clone(), rust_name: rust_name.clone(), span: span, return_type: ret_type.clone() }) }
-    }
-    fn bump_id(self) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: (self.next_id + 1), types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
-    }
-    fn peek(&self) -> TokenKind {
-        match ((self.pos >= (self.tokens.len() as u32).to_i64())) { true => TokenKind::EOF, false => self.tokens.from_ordinal(self.pos).kind }
-    }
-    fn peek_text(&self) -> String {
-        match ((self.pos >= (self.tokens.len() as u32).to_i64())) { true => String::new(), false => self.tokens.from_ordinal(self.pos).text.clone() }
-    }
-    fn advance(self) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: (self.pos + 1), next_id: self.next_id, types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
-    }
-    fn to_world(&self) -> CodeWorld {
-        CodeWorld { types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
-    }
-}
-

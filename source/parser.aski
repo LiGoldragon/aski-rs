@@ -168,6 +168,14 @@ parse ([
   parseTraitDecl(@Self @Name String) ParseState
   parseTraitImpl(@Self @Name String) ParseState
   parseMethodDefs(@Self @TraitName String @TargetType String) ParseState
+  parseParams(@Self) ParseState
+  parseMethodBody(@Self) ParseState
+  parseStmts(@Self) ParseState
+  parseExpr(@Self) ParseState
+  parseAtom(@Self) ParseState
+  parsePostfix(@Self) ParseState
+  pushExpr(@Self @E Expr) ParseState
+  popExpr(@Self) Expr
   skipToRParen(@Self) ParseState
   parseFfiBlock(@Self @Library String) ParseState
   parseFfiEntries(@Self @Library String) ParseState
@@ -384,6 +392,140 @@ parse [ParseState [
       (_) @S.advance.parseMethodDefs(@TraitName @TargetType)
     |)
   |]
+
+  ;; ── Expression stack operations ──
+  ;; Build Expr with no children (Default gives empty Vec)
+  mkExpr(@Self @Kind ExprKind @Name String @Value String) ParseState [
+    ^@Self.pushExpr(Expr(Id(0) Kind(@Kind) Name(@Name) Value(@Value) Children()))
+  ]
+
+  pushExpr(@Self @E Expr) ParseState [
+    ^ParseState(
+      Tokens(@Self.Tokens) Pos(@Self.Pos) NextId(@Self.NextId)
+      Types(@Self.Types) Variants(@Self.Variants) Fields(@Self.Fields)
+      FfiEntries(@Self.FfiEntries)
+      TraitDecls(@Self.TraitDecls) TraitImpls(@Self.TraitImpls)
+      ExprStack(@Self.ExprStack.withPush(@E)))
+  ]
+
+  popExpr(@Self) Expr [
+    ^@Self.ExprStack.fromOrdinal([@Self.ExprStack.len.toI64 - 1])
+  ]
+
+  ;; ── Expression parser ──
+  ;; Dispatches on current token, pushes Expr to ExprStack
+  parseExpr(@Self) ParseState [
+    ~@S ParseState/new(@Self.skipWs)
+    ^(| @S.peek
+      ;; ^expr — return
+      (Caret) [
+        ~@S2 ParseState/new(@S.advance.parseExpr)
+        ~@Inner Expr/new(@S2.popExpr)
+        ^@S2.pushExpr(Expr(Id(0) Kind(Return) Name("") Value("") Children(@Inner)))
+      ]
+      ;; #expr — yield/iteration
+      (Hash) [
+        ~@S2 ParseState/new(@S.advance.parseExpr)
+        ~@Inner Expr/new(@S2.popExpr)
+        ^@S2.pushExpr(Expr(Id(0) Kind(Yield) Name("") Value("") Children(@Inner)))
+      ]
+      ;; ~@Name — mutable binding or set
+      (Tilde) [
+        ~@S2 ParseState/new(@S.advance.skipWs)
+        ;; Expect At
+        ~@S3 ParseState/new(@S2.advance.skipWs)
+        ~@VarName String/new(@S3.peekText)
+        ~@S4 ParseState/new(@S3.advance.skipWs)
+        ^(| @S4.peek
+          ;; ~@Name Type/new(...) — mutable new with type
+          (PascalIdent) [
+            ~@TypeName String/new(@S4.peekText)
+            ~@S5 ParseState/new(@S4.advance.skipWs)
+            ;; Skip /new or .set
+            ~@S6 ParseState/new(@S5.advance.skipWs)
+            ~@MethodName String/new(@S6.peekText)
+            ~@S7 ParseState/new(@S6.advance.skipWs)
+            ;; Parse ( args )
+            ~@S8 ParseState/new(@S7.advance.skipWs.parseStmts)
+            ^@S8.pushExpr(Expr(Id(0) Kind(MutableNew) Name(@VarName) Value(@TypeName) Children()))
+          ]
+          ;; ~@Name.set([expr]) — mutable set
+          (Dot) [
+            ~@S5 ParseState/new(@S4.advance.skipWs)
+            ~@S6 ParseState/new(@S5.advance.skipWs)
+            ;; Skip (
+            ~@S7 ParseState/new(@S6.advance.skipWs.parseStmts)
+            ^@S7.pushExpr(Expr(Id(0) Kind(MutableSet) Name(@VarName) Value("") Children()))
+          ]
+          (_) @S4.pushExpr(Expr(Id(0) Kind(MutableNew) Name(@VarName) Value("") Children()))
+        |)
+      ]
+      ;; @Name — instance ref or binding
+      (At) [
+        ~@S2 ParseState/new(@S.advance.skipWs)
+        ~@Name String/new(@S2.peekText)
+        ~@S3 ParseState/new(@S2.advance)
+        ^@S3.pushExpr(Expr(Id(0) Kind(InstanceRef) Name(@Name) Value("") Children()))
+      ]
+      ;; "string" — string literal
+      (StringLit) [
+        ~@Val String/new(@S.peekText)
+        ^@S.advance.pushExpr(Expr(Id(0) Kind(StringLit) Name("") Value(@Val) Children()))
+      ]
+      ;; integer — int literal
+      (Integer) [
+        ~@Val String/new(@S.peekText)
+        ^@S.advance.pushExpr(Expr(Id(0) Kind(IntLit) Name("") Value(@Val) Children()))
+      ]
+      ;; PascalIdent — bare name or struct construction
+      (PascalIdent) [
+        ~@Name String/new(@S.peekText)
+        ^@S.advance.pushExpr(Expr(Id(0) Kind(BareName) Name(@Name) Value("") Children()))
+      ]
+      ;; [expr expr ...] — inline eval
+      (LBracket) [
+        ~@S2 ParseState/new(@S.advance.skipWs.parseStmts)
+        ^@S2.pushExpr(Expr(Id(0) Kind(InlineEval) Name("") Value("") Children()))
+      ]
+      ;; StdOut
+      (CamelIdent) [
+        ~@Name String/new(@S.peekText)
+        ~@S2 ParseState/new(@S.advance.skipWs.parseExpr)
+        ~@Inner Expr/new(@S2.popExpr)
+        ^@S2.pushExpr(Expr(Id(0) Kind(StdOut) Name(@Name) Value("") Children(@Inner)))
+      ]
+      ;; Default — skip
+      (_) @S.advance
+    |)
+  ]
+
+  ;; ── Parse statement list until RBracket/IterClose ──
+  parseStmts(@Self) ParseState [|
+    ~@S ParseState/new(@Self.skipWs)
+    ^(| @S.peek
+      (RBracket) @S.advance
+      (IterClose) @S.advance
+      (RParen) @S.advance
+      (EOF) @S
+      (_) @S.parseExpr.parseStmts
+    |)
+  |]
+
+  ;; ── Parse method body — [ stmts ] or [| stmts |] or (| arms |) ──
+  parseMethodBody(@Self) ParseState [
+    ^(| @Self.peek
+      (LBracket) @Self.advance.skipWs.parseStmts
+      (IterOpen) @Self.advance.skipWs.parseStmts
+      (CompositionOpen) @Self.advance.skipWs.parseStmts
+      (Stub) @Self.advance
+      (_) @Self
+    |)
+  ]
+
+  ;; ── Parse params — skip to RParen ──
+  parseParams(@Self) ParseState [
+    ^@Self.skipToRParen
+  ]
 
   ;; ── Skip to RParen (consume params) ──
   skipToRParen(@Self) ParseState [|

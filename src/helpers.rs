@@ -110,10 +110,8 @@ pub fn needs_pascal_alias(name: &str) -> String {
 }
 
 pub fn to_param_type(t: &str) -> String {
-    match t {
-        "String" => "&str".into(),
-        _ => to_rust_type(t),
-    }
+    // All params by value — consistent with aski's ownership model
+    to_rust_type(t)
 }
 
 pub fn strip_vec(t: &str) -> String {
@@ -196,6 +194,16 @@ pub fn rkyv_to_bytes(val: &impl for<'a> rkyv::Serialize<
     rkyv::api::high::HighSerializer<rkyv::util::AlignedVec, rkyv::ser::allocator::ArenaHandle<'a>, rkyv::rancor::Error>,
 >) -> Vec<u8> {
     rkyv::api::high::to_bytes::<rkyv::rancor::Error>(val).unwrap().to_vec()
+}
+
+/// Empty Vec construction (used by aski struct construction for Vec fields)
+pub fn empty_vec<T>() -> Vec<T> {
+    Vec::new()
+}
+
+/// Single-element Vec construction
+pub fn single_vec<T>(item: T) -> Vec<T> {
+    vec![item]
 }
 
 /// Hex encoding
