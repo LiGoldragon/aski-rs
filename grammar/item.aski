@@ -24,8 +24,8 @@
   [@Name LBrace <fields> RBrace | @Rest]
     Struct(@Name <fields>) @Rest
 
-  ;; {| Library funcs |} — foreign block
-  [TraitBoundOpen @Library <ffiFunctions> TraitBoundClose | @Rest]
+  ;; Name {| funcs |} — foreign block (v0.13: name before delimiters)
+  [@Library TraitBoundOpen <ffiFunctions> TraitBoundClose | @Rest]
     ForeignBlock(@Library <ffiFunctions>) @Rest
 
   ;; name (supertraits [methodSigs]) — trait declaration

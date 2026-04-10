@@ -1,10 +1,10 @@
 ;; grammar/ffi.aski — foreign function interface declarations
 ;;
-;; FFI blocks use the {||} (Bound) delimiter at top level.
-;; Syntax: {| crateName funcName(params) ReturnType externName |}
+;; v0.13: Name before delimiters, consistent with all aski syntax.
+;; Syntax: crateName {| funcName(params) ReturnType externName |}
 ;;
 ;; Example:
-;;   {| swisseph
+;;   swisseph {|
 ;;     julianDay(@Year I32 @Month I32 @Day I32 @Hour F64 @Flag I32) F64 swe_julday
 ;;     calculate(@JulDay F64 @Planet I32 @Flag I64) F64 swe_calc_ut
 ;;   |}
