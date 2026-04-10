@@ -61,7 +61,7 @@ fn main() {
     let source = fs::read_to_string(path).unwrap_or_else(|e| { eprintln!("askic: {path}: {e}"); process::exit(1); });
     let lexer_tokens = lexer::lex(&source).unwrap_or_else(|errs| { for e in &errs { eprintln!("askic: {e}"); } process::exit(1); });
     let tokens = convert_tokens(&lexer_tokens);
-    let state = ParseState { tokens, pos: 0, next_id: 1, types: Vec::new(), variants: Vec::new(), fields: Vec::new() };
+    let state = ParseState { tokens, pos: 0, next_id: 1, types: Vec::new(), variants: Vec::new(), fields: Vec::new(), ffi_entries: Vec::new() };
     let result = state.parse_all();
     let pw = result.to_world();
     // Convert parser_gen::CodeWorld to codegen_gen::CodeWorld
@@ -75,6 +75,17 @@ fn main() {
         }).collect(),
         fields: pw.fields.into_iter().map(|f| aski_rs::codegen_gen::FieldDef {
             type_id: f.type_id, ordinal: f.ordinal, name: f.name, field_type: f.field_type,
+        }).collect(),
+        ffi_entries: pw.ffi_entries.into_iter().map(|e| aski_rs::codegen_gen::FfiEntry {
+            library: e.library, aski_name: e.aski_name, rust_name: e.rust_name,
+            span: match e.span {
+                aski_rs::parser_gen::RustSpan::Cast => aski_rs::codegen_gen::RustSpan::Cast,
+                aski_rs::parser_gen::RustSpan::MethodCall => aski_rs::codegen_gen::RustSpan::MethodCall,
+                aski_rs::parser_gen::RustSpan::FreeCall => aski_rs::codegen_gen::RustSpan::FreeCall,
+                aski_rs::parser_gen::RustSpan::BlockExpr => aski_rs::codegen_gen::RustSpan::BlockExpr,
+                aski_rs::parser_gen::RustSpan::IndexAccess => aski_rs::codegen_gen::RustSpan::IndexAccess,
+            },
+            return_type: e.return_type,
         }).collect(),
     };
     print!("{}", world.generate());

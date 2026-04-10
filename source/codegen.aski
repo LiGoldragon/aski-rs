@@ -1,4 +1,4 @@
-(Codegen TypeForm TypeEntry VariantDef FieldDef CodeWorld)
+(Codegen TypeForm TypeEntry VariantDef FieldDef RustSpan FfiEntry CodeWorld)
 
 ;; ════════════════════════════════════════════════
 ;; World types for codegen input
@@ -26,10 +26,21 @@ FieldDef {
   FieldType String
 }
 
+RustSpan (Cast MethodCall FreeCall BlockExpr IndexAccess)
+
+FfiEntry {
+  Library String
+  AskiName String
+  RustName String
+  Span RustSpan
+  ReturnType String
+}
+
 CodeWorld {
   Types Vec{TypeEntry}
   Variants Vec{VariantDef}
   Fields Vec{FieldDef}
+  FfiEntries Vec{FfiEntry}
 }
 
 ;; ════════════════════════════════════════════════

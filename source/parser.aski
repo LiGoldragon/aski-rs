@@ -1,6 +1,7 @@
 (Parser
   TokenKind Token
   TypeForm TypeEntry VariantDef FieldDef
+  RustSpan FfiEntry
   CodeWorld ParseState)
 
 ;; ════════════════════════════════════════════════
@@ -55,10 +56,21 @@ FieldDef {
   FieldType String
 }
 
+RustSpan (Cast MethodCall FreeCall BlockExpr IndexAccess)
+
+FfiEntry {
+  Library String
+  AskiName String
+  RustName String
+  Span RustSpan
+  ReturnType String
+}
+
 CodeWorld {
   Types Vec{TypeEntry}
   Variants Vec{VariantDef}
   Fields Vec{FieldDef}
+  FfiEntries Vec{FfiEntry}
 }
 
 ;; ════════════════════════════════════════════════
@@ -72,6 +84,7 @@ ParseState {
   Types Vec{TypeEntry}
   Variants Vec{VariantDef}
   Fields Vec{FieldDef}
+  FfiEntries Vec{FfiEntry}
 }
 
 ;; ════════════════════════════════════════════════
@@ -91,6 +104,9 @@ parse ([
   addType(@Self @Name String @Form TypeForm) ParseState
   addVariant(@Self @TypeId I64 @Ordinal I64 @VName String) ParseState
   addField(@Self @TypeId I64 @Ordinal I64 @FName String @FType String) ParseState
+  parseFfiBlock(@Self @Library String) ParseState
+  parseFfiEntries(@Self @Library String) ParseState
+  addFfi(@Self @Library String @AskiName String @RustName String @Span RustSpan @RetType String) ParseState
   peek(:@Self) TokenKind
   peekText(:@Self) String
   advance(@Self) ParseState
@@ -137,6 +153,7 @@ parse [ParseState [
         ^(| @S2.peek
           (LParen) @S2.parseDomain(@Name)
           (LBrace) @S2.parseStruct(@Name)
+          (TraitBoundOpen) @S2.parseFfiBlock(@Name)
           (_) @S2.advance.skipWs
         |)
       ]
@@ -230,6 +247,36 @@ parse [ParseState [
     |)
   |]
 
+  ;; ── FFI block: Library {| funcs |} ──
+  parseFfiBlock(@Self @Library String) ParseState [
+    ;; Consume TraitBoundOpen
+    ~@S ParseState/new(@Self.advance)
+    ^@S.parseFfiEntries(@Library).advance
+  ]
+
+  ;; ── FFI entries until TraitBoundClose ──
+  parseFfiEntries(@Self @Library String) ParseState [|
+    ~@S ParseState/new(@Self.skipWs)
+    ^(| @S.peek
+      (TraitBoundClose) @S
+      (CamelIdent) [
+        ;; funcName ( params ) RetType externName
+        ~@AskiName String/new(@S.peekText)
+        ~@S2 ParseState/new(@S.advance.skipWs)
+        ;; Skip params: consume ( ... )
+        ~@S3 ParseState/new(@S2.skipBalancedParens(1).skipWs)
+        ;; RetType
+        ~@RetType String/new(@S3.peekText)
+        ~@S4 ParseState/new(@S3.advance.skipWs)
+        ;; externName
+        ~@RustName String/new(@S4.peekText)
+        ~@S5 ParseState/new(@S4.advance)
+        ^@S5.addFfi(@Library @AskiName @RustName MethodCall @RetType).parseFfiEntries(@Library)
+      ]
+      (_) @S.advance.parseFfiEntries(@Library)
+    |)
+  |]
+
   ;; ── State builders ──
 
   addType(@Self @Name String @Form TypeForm) ParseState [
@@ -239,7 +286,8 @@ parse [ParseState [
       NextId(@Self.NextId)
       Types(@Self.Types.withPush(TypeEntry(Id([@Self.NextId - 1]) Name(@Name) Form(@Form))))
       Variants(@Self.Variants)
-      Fields(@Self.Fields))
+      Fields(@Self.Fields)
+      FfiEntries(@Self.FfiEntries))
   ]
 
   addVariant(@Self @TypeId I64 @Ordinal I64 @VName String) ParseState [
@@ -249,7 +297,8 @@ parse [ParseState [
       NextId(@Self.NextId)
       Types(@Self.Types)
       Variants(@Self.Variants.withPush(VariantDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@VName) ContainsType(""))))
-      Fields(@Self.Fields))
+      Fields(@Self.Fields)
+      FfiEntries(@Self.FfiEntries))
   ]
 
   addField(@Self @TypeId I64 @Ordinal I64 @FName String @FType String) ParseState [
@@ -259,7 +308,19 @@ parse [ParseState [
       NextId(@Self.NextId)
       Types(@Self.Types)
       Variants(@Self.Variants)
-      Fields(@Self.Fields.withPush(FieldDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@FName) FieldType(@FType)))))
+      Fields(@Self.Fields.withPush(FieldDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@FName) FieldType(@FType))))
+      FfiEntries(@Self.FfiEntries))
+  ]
+
+  addFfi(@Self @Library String @AskiName String @RustName String @Span RustSpan @RetType String) ParseState [
+    ^ParseState(
+      Tokens(@Self.Tokens)
+      Pos(@Self.Pos)
+      NextId(@Self.NextId)
+      Types(@Self.Types)
+      Variants(@Self.Variants)
+      Fields(@Self.Fields)
+      FfiEntries(@Self.FfiEntries.withPush(FfiEntry(Library(@Library) AskiName(@AskiName) RustName(@RustName) Span(@Span) ReturnType(@RetType)))))
   ]
 
   bumpId(@Self) ParseState [
@@ -269,7 +330,8 @@ parse [ParseState [
       NextId([@Self.NextId + 1])
       Types(@Self.Types)
       Variants(@Self.Variants)
-      Fields(@Self.Fields))
+      Fields(@Self.Fields)
+      FfiEntries(@Self.FfiEntries))
   ]
 
   ;; ── Utilities ──
@@ -295,13 +357,15 @@ parse [ParseState [
       NextId(@Self.NextId)
       Types(@Self.Types)
       Variants(@Self.Variants)
-      Fields(@Self.Fields))
+      Fields(@Self.Fields)
+      FfiEntries(@Self.FfiEntries))
   ]
 
   toWorld(:@Self) CodeWorld [
     ^CodeWorld(
       Types(@Self.Types)
       Variants(@Self.Variants)
-      Fields(@Self.Fields))
+      Fields(@Self.Fields)
+      FfiEntries(@Self.FfiEntries))
   ]
 ]]

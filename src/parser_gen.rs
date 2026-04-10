@@ -259,14 +259,66 @@ pub struct FieldDef {
     pub field_type: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustSpan {
+    Cast,
+    MethodCall,
+    FreeCall,
+    BlockExpr,
+    IndexAccess,
+}
+
+impl std::fmt::Display for RustSpan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl RustSpan {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "cast" => Some(Self::Cast),
+            "method_call" => Some(Self::MethodCall),
+            "MethodCall" => Some(Self::MethodCall),
+            "free_call" => Some(Self::FreeCall),
+            "FreeCall" => Some(Self::FreeCall),
+            "block_expr" => Some(Self::BlockExpr),
+            "BlockExpr" => Some(Self::BlockExpr),
+            "index_access" => Some(Self::IndexAccess),
+            "IndexAccess" => Some(Self::IndexAccess),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::Cast => "cast",
+            Self::MethodCall => "method_call",
+            Self::FreeCall => "free_call",
+            Self::BlockExpr => "block_expr",
+            Self::IndexAccess => "index_access",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FfiEntry {
+    pub library: String,
+    pub aski_name: String,
+    pub rust_name: String,
+    pub span: RustSpan,
+    pub return_type: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeWorld {
     pub types: Vec<TypeEntry>,
     pub variants: Vec<VariantDef>,
     pub fields: Vec<FieldDef>,
+    pub ffi_entries: Vec<FfiEntry>,
 }
 
-impl Default for CodeWorld { fn default() -> Self { Self { types: Default::default(), variants: Default::default(), fields: Default::default(), } } }
+impl Default for CodeWorld { fn default() -> Self { Self { types: Default::default(), variants: Default::default(), fields: Default::default(), ffi_entries: Default::default(), } } }
 
 impl CodeWorld {
     pub fn new() -> Self { Self::default() }
@@ -315,6 +367,26 @@ impl CodeWorld {
         self.fields.iter().filter(|r| r.field_type == val).collect()
     }
 
+    pub fn ffi_entry_by_library(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.library == val).collect()
+    }
+
+    pub fn ffi_entry_by_aski_name(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.aski_name == val).collect()
+    }
+
+    pub fn ffi_entry_by_rust_name(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.rust_name == val).collect()
+    }
+
+    pub fn ffi_entry_by_span(&self, val: RustSpan) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.span == val).collect()
+    }
+
+    pub fn ffi_entry_by_return_type(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.return_type == val).collect()
+    }
+
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,9 +397,10 @@ pub struct ParseState {
     pub types: Vec<TypeEntry>,
     pub variants: Vec<VariantDef>,
     pub fields: Vec<FieldDef>,
+    pub ffi_entries: Vec<FfiEntry>,
 }
 
-impl Default for ParseState { fn default() -> Self { Self { tokens: Default::default(), pos: Default::default(), next_id: Default::default(), types: Default::default(), variants: Default::default(), fields: Default::default(), } } }
+impl Default for ParseState { fn default() -> Self { Self { tokens: Default::default(), pos: Default::default(), next_id: Default::default(), types: Default::default(), variants: Default::default(), fields: Default::default(), ffi_entries: Default::default(), } } }
 
 impl ParseState {
     pub fn new() -> Self { Self::default() }
@@ -384,6 +457,26 @@ impl ParseState {
         self.fields.iter().filter(|r| r.field_type == val).collect()
     }
 
+    pub fn ffi_entry_by_library(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.library == val).collect()
+    }
+
+    pub fn ffi_entry_by_aski_name(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.aski_name == val).collect()
+    }
+
+    pub fn ffi_entry_by_rust_name(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.rust_name == val).collect()
+    }
+
+    pub fn ffi_entry_by_span(&self, val: RustSpan) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.span == val).collect()
+    }
+
+    pub fn ffi_entry_by_return_type(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.return_type == val).collect()
+    }
+
 }
 
 pub trait Parse {
@@ -399,6 +492,9 @@ pub trait Parse {
     fn add_type(self, name: &String, form: &TypeForm) -> ParseState;
     fn add_variant(self, type_id: &i64, ordinal: &i64, v_name: &String) -> ParseState;
     fn add_field(self, type_id: &i64, ordinal: &i64, f_name: &String, f_type: &String) -> ParseState;
+    fn parse_ffi_block(self, library: &String) -> ParseState;
+    fn parse_ffi_entries(self, library: &String) -> ParseState;
+    fn add_ffi(self, library: &String, aski_name: &String, rust_name: &String, span: &RustSpan, ret_type: &String) -> ParseState;
     fn peek(&self) -> TokenKind;
     fn peek_text(&self) -> String;
     fn advance(self) -> ParseState;
@@ -416,7 +512,7 @@ impl Parse for ParseState {
     }
     fn parse_item(self) -> ParseState {
         let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::CamelIdent => { let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.skip_balanced_parens(&1).skip_ws().skip_balanced_brackets(&1), TokenKind::LBracket => s2.skip_balanced_brackets(&1), _ => s2 } }, TokenKind::PascalIdent => { let mut name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.parse_domain(&name), TokenKind::LBrace => s2.parse_struct(&name), _ => s2.advance().skip_ws() } }, TokenKind::Bang => s.advance().skip_ws().advance().skip_ws().advance().skip_ws().skip_balanced_parens(&1), _ => s.advance() }
+        match s.peek() { TokenKind::CamelIdent => { let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.skip_balanced_parens(&1).skip_ws().skip_balanced_brackets(&1), TokenKind::LBracket => s2.skip_balanced_brackets(&1), _ => s2 } }, TokenKind::PascalIdent => { let mut name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.parse_domain(&name), TokenKind::LBrace => s2.parse_struct(&name), TokenKind::TraitBoundOpen => s2.parse_ffi_block(&name), _ => s2.advance().skip_ws() } }, TokenKind::Bang => s.advance().skip_ws().advance().skip_ws().advance().skip_ws().skip_balanced_parens(&1), _ => s.advance() }
     }
     fn parse_domain(self, name: &String) -> ParseState {
         let mut s: ParseState = self.advance();
@@ -444,29 +540,40 @@ impl Parse for ParseState {
         let mut s: ParseState = self.advance();
         match s.peek() { TokenKind::LBracket => s.skip_balanced_brackets(&(depth + 1)), TokenKind::RBracket => match ((*depth == 1)) { true => s.advance(), false => s.skip_balanced_brackets(&(*depth - 1)) }, TokenKind::EOF => s, _ => s.skip_balanced_brackets(&depth) }
     }
+    fn parse_ffi_block(self, library: &String) -> ParseState {
+        let mut s: ParseState = self.advance();
+        s.parse_ffi_entries(&library).advance()
+    }
+    fn parse_ffi_entries(self, library: &String) -> ParseState {
+        let mut s: ParseState = self.skip_ws();
+        match s.peek() { TokenKind::TraitBoundClose => s, TokenKind::CamelIdent => { let mut aski_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); let mut s3: ParseState = s2.skip_balanced_parens(&1).skip_ws(); let mut ret_type: String = s3.peek_text(); let mut s4: ParseState = s3.advance().skip_ws(); let mut rust_name: String = s4.peek_text(); let mut s5: ParseState = s4.advance(); s5.add_ffi(&library, &aski_name, &rust_name, &RustSpan::MethodCall, &ret_type).parse_ffi_entries(&library) }, _ => s.advance().parse_ffi_entries(&library) }
+    }
     fn add_type(self, name: &String, form: &TypeForm) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: { let mut v = self.types; v.push(TypeEntry { id: (self.next_id - 1), name: name.clone(), form: *form }); v }, variants: self.variants, fields: self.fields }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: { let mut v = self.types; v.push(TypeEntry { id: (self.next_id - 1), name: name.clone(), form: *form }); v }, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries }
     }
     fn add_variant(self, type_id: &i64, ordinal: &i64, v_name: &String) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: { let mut v = self.variants; v.push(VariantDef { type_id: *type_id, ordinal: *ordinal, name: v_name.clone(), contains_type: String::new() }); v }, fields: self.fields }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: { let mut v = self.variants; v.push(VariantDef { type_id: *type_id, ordinal: *ordinal, name: v_name.clone(), contains_type: String::new() }); v }, fields: self.fields, ffi_entries: self.ffi_entries }
     }
     fn add_field(self, type_id: &i64, ordinal: &i64, f_name: &String, f_type: &String) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: { let mut v = self.fields; v.push(FieldDef { type_id: *type_id, ordinal: *ordinal, name: f_name.clone(), field_type: f_type.clone() }); v } }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: { let mut v = self.fields; v.push(FieldDef { type_id: *type_id, ordinal: *ordinal, name: f_name.clone(), field_type: f_type.clone() }); v }, ffi_entries: self.ffi_entries }
+    }
+    fn add_ffi(self, library: &String, aski_name: &String, rust_name: &String, span: &RustSpan, ret_type: &String) -> ParseState {
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields, ffi_entries: { let mut v = self.ffi_entries; v.push(FfiEntry { library: library.clone(), aski_name: aski_name.clone(), rust_name: rust_name.clone(), span: *span, return_type: ret_type.clone() }); v } }
     }
     fn bump_id(self) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: (self.next_id + 1), types: self.types, variants: self.variants, fields: self.fields }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: (self.next_id + 1), types: self.types, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries }
     }
     fn peek(&self) -> TokenKind {
-        match (((self.pos as usize) >= ((self.tokens.len())))) { true => TokenKind::EOF, false => self.tokens.from_ordinal(&self.pos).kind }
+        match ((self.pos >= (self.tokens.len() as u32).to_i64())) { true => TokenKind::EOF, false => self.tokens.from_ordinal(&self.pos).kind }
     }
     fn peek_text(&self) -> String {
-        match (((self.pos as usize) >= ((self.tokens.len())))) { true => String::new(), false => self.tokens.from_ordinal(&self.pos).text.clone() }
+        match ((self.pos >= (self.tokens.len() as u32).to_i64())) { true => String::new(), false => self.tokens.from_ordinal(&self.pos).text.clone() }
     }
     fn advance(self) -> ParseState {
-        ParseState { tokens: self.tokens, pos: (self.pos + 1), next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields }
+        ParseState { tokens: self.tokens, pos: (self.pos + 1), next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries }
     }
     fn to_world(&self) -> CodeWorld {
-        CodeWorld { types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone() }
+        CodeWorld { types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
     }
 }
 

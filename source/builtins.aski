@@ -1,0 +1,36 @@
+;; builtins.aski — Rust interop declarations (v0.13 syntax)
+;;
+;; Each block declares functions the compiler inlines as Rust.
+;; Syntax: libraryName {| funcName(@Params) ReturnType rustName |}
+
+;; ── Type casts ──
+Cast {|
+  toF32(@Self) F32 as_f32
+  toU32(@Self) U32 as_u32
+  toI64(@Self) I64 as_i64
+|}
+
+;; ── Standard methods ──
+Std {|
+  len(:@Self) U32 len
+  clone(:@Self) Self clone
+  toString(:@Self) String to_string
+  isEmpty(:@Self) Bool is_empty
+  unwrap(:@Self) Self unwrap
+|}
+
+;; ── String helpers (provided by helpers.rs) ──
+Helpers {|
+  toSnake(:@Self) String to_snake
+  toRustType(:@Self) String to_rust_type
+  toParamType(:@Self) String to_param_type
+  stripVec(:@Self) String strip_vec
+  allFieldsCopy(:@Self) String all_fields_copy
+  needsPascalAlias(:@Self) String needs_pascal_alias
+|}
+
+;; ── Vec operations ──
+VecOps {|
+  withPush(@Self @Item Self) Self with_push
+  fromOrdinal(:@Self @Index I64) Self from_ordinal
+|}

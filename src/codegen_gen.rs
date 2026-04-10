@@ -51,14 +51,66 @@ pub struct FieldDef {
     pub field_type: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RustSpan {
+    Cast,
+    MethodCall,
+    FreeCall,
+    BlockExpr,
+    IndexAccess,
+}
+
+impl std::fmt::Display for RustSpan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl RustSpan {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "cast" => Some(Self::Cast),
+            "method_call" => Some(Self::MethodCall),
+            "MethodCall" => Some(Self::MethodCall),
+            "free_call" => Some(Self::FreeCall),
+            "FreeCall" => Some(Self::FreeCall),
+            "block_expr" => Some(Self::BlockExpr),
+            "BlockExpr" => Some(Self::BlockExpr),
+            "index_access" => Some(Self::IndexAccess),
+            "IndexAccess" => Some(Self::IndexAccess),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::Cast => "cast",
+            Self::MethodCall => "method_call",
+            Self::FreeCall => "free_call",
+            Self::BlockExpr => "block_expr",
+            Self::IndexAccess => "index_access",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FfiEntry {
+    pub library: String,
+    pub aski_name: String,
+    pub rust_name: String,
+    pub span: RustSpan,
+    pub return_type: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeWorld {
     pub types: Vec<TypeEntry>,
     pub variants: Vec<VariantDef>,
     pub fields: Vec<FieldDef>,
+    pub ffi_entries: Vec<FfiEntry>,
 }
 
-impl Default for CodeWorld { fn default() -> Self { Self { types: Default::default(), variants: Default::default(), fields: Default::default(), } } }
+impl Default for CodeWorld { fn default() -> Self { Self { types: Default::default(), variants: Default::default(), fields: Default::default(), ffi_entries: Default::default(), } } }
 
 impl CodeWorld {
     pub fn new() -> Self { Self::default() }
@@ -105,6 +157,26 @@ impl CodeWorld {
 
     pub fn field_def_by_field_type(&self, val: &str) -> Vec<&FieldDef> {
         self.fields.iter().filter(|r| r.field_type == val).collect()
+    }
+
+    pub fn ffi_entry_by_library(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.library == val).collect()
+    }
+
+    pub fn ffi_entry_by_aski_name(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.aski_name == val).collect()
+    }
+
+    pub fn ffi_entry_by_rust_name(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.rust_name == val).collect()
+    }
+
+    pub fn ffi_entry_by_span(&self, val: RustSpan) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.span == val).collect()
+    }
+
+    pub fn ffi_entry_by_return_type(&self, val: &str) -> Vec<&FfiEntry> {
+        self.ffi_entries.iter().filter(|r| r.return_type == val).collect()
     }
 
 }
