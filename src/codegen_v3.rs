@@ -514,7 +514,13 @@ fn emit_params(params: &[(String, Option<String>, Option<String>)]) -> String {
         "named" | "borrow" => {
             let t = typ.as_deref()?;
             let n = name.as_deref().unwrap_or(t);
-            Some(format!("{}: &{}", snake(n), rust_type(t)))
+            let rt = rust_type(t);
+            // Copy types pass by value, String/Vec by reference
+            if is_primitive(t) || (!t.starts_with("Vec") && t != "String" && !t.starts_with("&")) {
+                Some(format!("{}: {rt}", snake(n)))
+            } else {
+                Some(format!("{}: &{rt}", snake(n)))
+            }
         }
         _ => None,
     }).collect::<Vec<_>>().join(", ")
@@ -593,16 +599,15 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
             }
             "mutable_new" => {
                 let children = aski_core::query_child_exprs(world, *eid);
-                if let Some((var_name, type_name)) = aski_core::query_mutable_binding(world, *eid) {
+                if let Some((var_name, type_name)) = aski_core::query_mutable_binding(world, *eid)
+                    .or_else(|| aski_core::query_binding_info(world, *eid)) {
                     let svar = snake(&var_name);
                     if let Some((cid, _, _, _)) = children.first() {
                         let val = emit_expr(world, *cid)?;
-                        out.push_str(&format!("{indent}let mut {svar}: {} = {val};\n", rust_type(&type_name)));
-                    }
-                } else if let Some((var_name, type_name)) = aski_core::query_binding_info(world, *eid) {
-                    let svar = snake(&var_name);
-                    if let Some((cid, _, _, _)) = children.first() {
-                        let val = emit_expr(world, *cid)?;
+                        // String::new() for empty string literals
+                        let val = if val == "\"\"" && type_name == "String" {
+                            "String::new()".to_string()
+                        } else { val };
                         out.push_str(&format!("{indent}let mut {svar}: {} = {val};\n", rust_type(&type_name)));
                     }
                 }
@@ -718,7 +723,22 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             if children.len() >= 2 {
                 let l = emit_expr(world, children[0].0)?;
                 let r = emit_expr(world, children[1].0)?;
-                Ok(format!("({l} {op} {r})"))
+                if op == "+" {
+                    // String + requires &str on right side.
+                    // If right side returns String (method call, field access, variable),
+                    // wrap with &. Skip for literals and numeric expressions.
+                    let rk = &children[1].1;
+                    let needs_ref = matches!(rk.as_str(),
+                        "access" | "method_call" | "instance_ref" | "same_type_new" |
+                        "sub_type_new" | "inline_eval" | "bin_op" | "bare_name");
+                    if needs_ref {
+                        Ok(format!("({l} + &{r})"))
+                    } else {
+                        Ok(format!("({l} + {r})"))
+                    }
+                } else {
+                    Ok(format!("({l} {op} {r})"))
+                }
             } else { Ok("todo!()".into()) }
         }
 
@@ -890,7 +910,7 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             }
 
             let args: Vec<String> = children.iter().skip(1)
-                .map(|(cid, _, _, _)| emit_expr(world, *cid).map(|v| format!("&{v}")))
+                .map(|(cid, _, _, _)| emit_expr(world, *cid))
                 .collect::<Result<_, _>>()?;
             if args.is_empty() { Ok(format!("{base}.{s}()")) }
             else { Ok(format!("{base}.{s}({})", args.join(", "))) }
@@ -936,7 +956,7 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             let name = value.unwrap_or_default();
             let children = aski_core::query_child_exprs(world, expr_id);
             let args: Vec<String> = children.iter()
-                .map(|(cid, _, _, _)| emit_expr(world, *cid).map(|v| format!("&{v}")))
+                .map(|(cid, _, _, _)| emit_expr(world, *cid))
                 .collect::<Result<_, _>>()?;
             Ok(format!("{}({})", snake(&name), args.join(", ")))
         }
