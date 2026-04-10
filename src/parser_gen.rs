@@ -1,4 +1,4 @@
-use crate::helpers::{StringExt, VecExt, ToI64};
+use crate::helpers::{StringExt, VecExt, ToI64, WithPush};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     PascalIdent,
@@ -549,16 +549,16 @@ impl Parse for ParseState {
         match s.peek() { TokenKind::TraitBoundClose => s, TokenKind::CamelIdent => { let mut aski_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); let mut s3: ParseState = s2.skip_balanced_parens(&1).skip_ws(); let mut ret_type: String = s3.peek_text(); let mut s4: ParseState = s3.advance().skip_ws(); let mut rust_name: String = s4.peek_text(); let mut s5: ParseState = s4.advance(); s5.add_ffi(&library, &aski_name, &rust_name, &RustSpan::MethodCall, &ret_type).parse_ffi_entries(&library) }, _ => s.advance().parse_ffi_entries(&library) }
     }
     fn add_type(self, name: &String, form: &TypeForm) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: { let mut v = self.types; v.push(TypeEntry { id: (self.next_id - 1), name: name.clone(), form: *form }); v }, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types.with_push(TypeEntry { id: (self.next_id - 1), name: name.clone(), form: *form }), variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries }
     }
     fn add_variant(self, type_id: &i64, ordinal: &i64, v_name: &String) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: { let mut v = self.variants; v.push(VariantDef { type_id: *type_id, ordinal: *ordinal, name: v_name.clone(), contains_type: String::new() }); v }, fields: self.fields, ffi_entries: self.ffi_entries }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants.with_push(VariantDef { type_id: *type_id, ordinal: *ordinal, name: v_name.clone(), contains_type: String::new() }), fields: self.fields, ffi_entries: self.ffi_entries }
     }
     fn add_field(self, type_id: &i64, ordinal: &i64, f_name: &String, f_type: &String) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: { let mut v = self.fields; v.push(FieldDef { type_id: *type_id, ordinal: *ordinal, name: f_name.clone(), field_type: f_type.clone() }); v }, ffi_entries: self.ffi_entries }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields.with_push(FieldDef { type_id: *type_id, ordinal: *ordinal, name: f_name.clone(), field_type: f_type.clone() }), ffi_entries: self.ffi_entries }
     }
     fn add_ffi(self, library: &String, aski_name: &String, rust_name: &String, span: &RustSpan, ret_type: &String) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields, ffi_entries: { let mut v = self.ffi_entries; v.push(FfiEntry { library: library.clone(), aski_name: aski_name.clone(), rust_name: rust_name.clone(), span: *span, return_type: ret_type.clone() }); v } }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries.with_push(FfiEntry { library: library.clone(), aski_name: aski_name.clone(), rust_name: rust_name.clone(), span: *span, return_type: ret_type.clone() }) }
     }
     fn bump_id(self) -> ParseState {
         ParseState { tokens: self.tokens, pos: self.pos, next_id: (self.next_id + 1), types: self.types, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries }

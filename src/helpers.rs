@@ -123,3 +123,15 @@ pub fn strip_vec(t: &str) -> String {
         t.to_string()
     }
 }
+
+/// Functional Vec push — used by aski's withPush.
+pub trait WithPush<T> {
+    fn with_push(self, item: T) -> Self;
+}
+
+impl<T> WithPush<T> for Vec<T> {
+    fn with_push(mut self, item: T) -> Self {
+        self.push(item);
+        self
+    }
+}
