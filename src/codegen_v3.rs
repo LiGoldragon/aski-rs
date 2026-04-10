@@ -666,6 +666,8 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             if method == "toF32" { return Ok(format!("({base} as f32)")); }
             if method == "toU32" { return Ok(format!("({base} as u32)")); }
             if method == "toI64" { return Ok(format!("({base} as i64)")); }
+            if method == "toSnake" { return Ok(format!("to_snake(&{base})")); }
+            if method == "toRustType" { return Ok(format!("to_rust_type(&{base})")); }
 
             // .with(Field(value)) → struct update syntax
             if method == "with" {
