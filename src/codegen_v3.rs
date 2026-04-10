@@ -640,9 +640,67 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             let children = aski_core::query_child_exprs(world, expr_id);
             if children.len() == 1 {
                 emit_expr(world, children[0].0)
+            } else if children.len() > 1 {
+                // Multi-statement block: emit as { stmt; stmt; result_expr }
+                let mut parts = Vec::new();
+                for (i, (cid, ckind, _, _)) in children.iter().enumerate() {
+                    if i == children.len() - 1 {
+                        // Last child is the result expression
+                        parts.push(emit_expr(world, *cid)?);
+                    } else {
+                        // Preceding children are statements
+                        match ckind.as_str() {
+                            "same_type_new" | "sub_type_new" => {
+                                if let Some((var_name, type_name)) = aski_core::query_binding_info(world, *cid) {
+                                    let svar = snake(&var_name);
+                                    let inner = aski_core::query_child_exprs(world, *cid);
+                                    if let Some((iid, _, _, _)) = inner.first() {
+                                        let val = emit_expr(world, *iid)?;
+                                        parts.push(format!("let mut {svar}: {} = {val}", rust_type(&type_name)));
+                                    }
+                                }
+                            }
+                            "mutable_new" => {
+                                if let Some((var_name, type_name)) = aski_core::query_mutable_binding(world, *cid)
+                                    .or_else(|| aski_core::query_binding_info(world, *cid)) {
+                                    let svar = snake(&var_name);
+                                    let inner = aski_core::query_child_exprs(world, *cid);
+                                    if let Some((iid, _, _, _)) = inner.first() {
+                                        let val = emit_expr(world, *iid)?;
+                                        parts.push(format!("let mut {svar}: {} = {val}", rust_type(&type_name)));
+                                    }
+                                }
+                            }
+                            "mutable_set" => {
+                                let var_name = aski_core::query_expr_by_id(world, *cid)
+                                    .and_then(|(_, v)| v);
+                                if let Some(name) = var_name {
+                                    let svar = snake(&name);
+                                    let inner = aski_core::query_child_exprs(world, *cid);
+                                    if let Some((iid, _, _, _)) = inner.first() {
+                                        let val = emit_expr(world, *iid)?;
+                                        parts.push(format!("{svar} = {val}"));
+                                    }
+                                }
+                            }
+                            _ => {
+                                let val = emit_expr(world, *cid)?;
+                                if !val.is_empty() {
+                                    parts.push(val);
+                                }
+                            }
+                        }
+                    }
+                }
+                if parts.len() == 1 {
+                    Ok(parts.into_iter().next().unwrap())
+                } else {
+                    let last = parts.pop().unwrap_or_default();
+                    let stmts = parts.join("; ");
+                    Ok(format!("{{ {stmts}; {last} }}"))
+                }
             } else {
-                children.last().map(|(id, _, _, _)| emit_expr(world, *id))
-                    .unwrap_or(Ok(String::new()))
+                Ok(String::new())
             }
         }
 
@@ -685,6 +743,10 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             if method == "toParamType" { return Ok(format!("to_param_type(&{base})")); }
             if method == "needsPascalAlias" { return Ok(format!("{base}.needs_pascal_alias()")); }
             if method == "allFieldsCopy" { return Ok(format!("{base}.all_fields_copy()")); }
+            if method == "withPush" {
+                let arg = if children.len() > 1 { emit_expr(world, children[1].0)? } else { "todo!()".into() };
+                return Ok(format!("{{ let mut v = {base}; v.push({arg}); v }}"));
+            }
 
             // .with(Field(value)) → struct update syntax
             if method == "with" {
