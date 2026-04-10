@@ -3,11 +3,11 @@
     "aski-core-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1775389232,
-        "narHash": "sha256-Cz1RNzBkpH1ApNGC7lILf7s9y1hMO5AzA7DmhYvLy8g=",
+        "lastModified": 1775784922,
+        "narHash": "sha256-byYajxYT4zGyCJZRcO04UWz1SMMF53svm+qyv3Qbhi8=",
         "owner": "LiGoldragon",
         "repo": "aski-core",
-        "rev": "2252ceae54ff55d1308a93e36a822111abce1bed",
+        "rev": "c8a773267599b41330d220dbf66fd17b7fcdeccf",
         "type": "github"
       },
       "original": {
