@@ -72,16 +72,46 @@ impl GrammarParser {
                                 self.rules.insert(parse_rule.name.clone(), parse_rule);
                             }
                         }
-                        items.push(item);
+                        // Skip leaked artifacts: zero/single-variant domains, duplicate names
+                        let skip = match &item.node {
+                            Item::Domain(ref d) => d.variants.len() <= 1
+                                || items.iter().any(|existing: &Spanned<Item>| {
+                                    match &existing.node {
+                                        Item::Domain(ed) => ed.name == d.name,
+                                        Item::Struct(es) => es.name == d.name,
+                                        _ => false,
+                                    }
+                                }),
+                            Item::Struct(ref s) => items.iter().any(|existing: &Spanned<Item>| {
+                                match &existing.node {
+                                    Item::Struct(es) => es.name == s.name,
+                                    Item::Domain(ed) => ed.name == s.name,
+                                    _ => false,
+                                }
+                            }),
+                            _ => false,
+                        };
+                        if !skip {
+                            items.push(item);
+                        }
                         pos = skip_newlines(tokens, new_pos);
                     } else {
                         pos = skip_newlines(tokens, new_pos);
                     }
                 }
                 Err(_) => {
-                    // Skip unparseable item — advance to next newline-delimited item
+                    // Skip unparseable item — advance to next top-level item
+                    // (PascalCase or camelCase ident after a newline)
                     pos += 1;
-                    pos = skip_newlines(tokens, pos);
+                    loop {
+                        pos = skip_newlines(tokens, pos);
+                        if pos >= tokens.len() { break; }
+                        match &tokens[pos].token {
+                            crate::lexer::Token::PascalIdent(_) |
+                            crate::lexer::Token::CamelIdent(_) => break,
+                            _ => { pos += 1; }
+                        }
+                    }
                 }
             }
         }
