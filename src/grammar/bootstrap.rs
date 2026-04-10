@@ -142,19 +142,19 @@ fn parse_arm(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>) -> Resul
     // Normal arm: [
     expect_tok(tokens, cur, &Token::LBracket, "[")?;
 
-    // Pattern elements until | or ]
+    // Pattern elements until / or ]
     let mut pattern = Vec::new();
     while *cur < tokens.len()
-        && tokens[*cur] != &Token::Pipe
+        && tokens[*cur] != &Token::Slash
         && tokens[*cur] != &Token::RBracket
     {
         let elem = parse_pattern_elem(tokens, cur, known)?;
         pattern.push(elem);
     }
 
-    // Optional: | @Rest
-    if *cur < tokens.len() && tokens[*cur] == &Token::Pipe {
-        *cur += 1; // skip |
+    // Optional: / @Rest
+    if *cur < tokens.len() && tokens[*cur] == &Token::Slash {
+        *cur += 1; // skip /
         // @Rest binding — consume but don't store (position is implicit)
         if *cur < tokens.len() && tokens[*cur] == &Token::At {
             *cur += 1; // skip @

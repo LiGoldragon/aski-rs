@@ -765,7 +765,7 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
                             match v.as_str() {
                                 Ok(s) if s.starts_with('@') => Some(GrammarElement::Binding(s[1..].to_string())),
                                 Ok(s) if s.starts_with('<') => Some(GrammarElement::NonTerminal(s[1..s.len()-1].to_string())),
-                                Ok(s) if s.starts_with("|@") => Some(GrammarElement::Rest(s[2..].to_string())),
+                                Ok(s) if s.starts_with("/@") => Some(GrammarElement::Rest(s[2..].to_string())),
                                 Ok(s) => Some(GrammarElement::Terminal(s)),
                                 _ => None,
                             }
@@ -786,7 +786,7 @@ pub fn construct(name: &str, args: &[Value], span: Span) -> Result<Value, String
         "NonTerminal" => Ok(Value::Str(format!("<{}>", args[0].as_str()?))),
         "Terminal" => Ok(Value::Str(args[0].as_str()?)),
         "Binding" => Ok(Value::Str(format!("@{}", args[0].as_str()?))),
-        "RestBind" => Ok(Value::Str(format!("|@{}", args[0].as_str()?))),
+        "RestBind" => Ok(Value::Str(format!("/@{}", args[0].as_str()?))),
         "Bound" => Ok(Value::Str(args[0].as_str()?)),
         "RuleRef" => Ok(Value::Str(args[0].as_str()?)),
         "Constructor" => {

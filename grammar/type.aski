@@ -6,19 +6,19 @@
 ;; @Type only matches PascalCase identifiers — prevents typeRef from
 ;; greedily consuming camelCase method/trait names that follow.
 <typeRef> {
-  ["Self" | @Rest]                                            SelfType @Rest
-  [TraitBoundOpen <traitBound> TraitBoundClose | @Rest]       BoundType(<traitBound>) @Rest
-  [Colon @Type | @Rest]                                       BorrowedType(NamedType(@Type)) @Rest
-  [@Type LBrace <typeParams> RBrace | @Rest]                  ParameterizedType(@Type <typeParams>) @Rest
-  [@Type | @Rest]                                             NamedType(@Type) @Rest
+  ["Self" / @Rest]                                            SelfType @Rest
+  [TraitBoundOpen <traitBound> TraitBoundClose / @Rest]       BoundType(<traitBound>) @Rest
+  [Colon @Type / @Rest]                                       BorrowedType(NamedType(@Type)) @Rest
+  [@Type LBrace <typeParams> RBrace / @Rest]                  ParameterizedType(@Type <typeParams>) @Rest
+  [@Type / @Rest]                                             NamedType(@Type) @Rest
 }
 
 <traitBound> {
-  [@Name Ampersand <traitBound> | @Rest]   CompoundBound(@Name <traitBound>) @Rest
-  [@Name | @Rest]                           SingleBound(@Name) @Rest
+  [@Name Ampersand <traitBound> / @Rest]   CompoundBound(@Name <traitBound>) @Rest
+  [@Name / @Rest]                           SingleBound(@Name) @Rest
 }
 
 <typeParams> {
-  [<typeRef> <typeParams> | @Rest]   Cons(<typeRef> <typeParams>) @Rest
-  [| @Rest]                          Nil @Rest
+  [<typeRef> <typeParams> / @Rest]   Cons(<typeRef> <typeParams>) @Rest
+  [/ @Rest]                          Nil @Rest
 }

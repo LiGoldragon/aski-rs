@@ -10,11 +10,11 @@
 ;;   |}
 
 <ffiFunction> {
-  [@Name LParen <params> RParen <typeRef> @ExternName | @Rest]
+  [@Name LParen <params> RParen <typeRef> @ExternName / @Rest]
     ForeignFunc(@Name <params> <typeRef> @ExternName) @Rest
 }
 
 <ffiFunctions> {
-  [<ffiFunction> <ffiFunctions> | @Rest]  Cons(<ffiFunction> <ffiFunctions>) @Rest
-  [| @Rest]                                Nil @Rest
+  [<ffiFunction> <ffiFunctions> / @Rest]  Cons(<ffiFunction> <ffiFunctions>) @Rest
+  [/ @Rest]                                Nil @Rest
 }

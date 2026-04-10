@@ -4,47 +4,47 @@
 ;; All three sections use different delimiters.
 
 <header> {
-  [LParen @Name <exports> RParen <imports> <constraints> | @Rest]
+  [LParen @Name <exports> RParen <imports> <constraints> / @Rest]
     ModuleHeader(@Name <exports> <imports> <constraints>) @Rest
 }
 
 ;; ── Export list (identifiers until RParen) ──
 
 <exports> {
-  [@Name <exports> | @Rest]   Cons(@Name <exports>) @Rest
-  [| @Rest]                    Nil @Rest
+  [@Name <exports> / @Rest]   Cons(@Name <exports>) @Rest
+  [/ @Rest]                    Nil @Rest
 }
 
 ;; ── Import list: optional [Module(items) ...] ──
 
 <imports> {
-  [LBracket <importEntries> RBracket | @Rest]   <importEntries> @Rest
-  [| @Rest]                                      Nil @Rest
+  [LBracket <importEntries> RBracket / @Rest]   <importEntries> @Rest
+  [/ @Rest]                                      Nil @Rest
 }
 
 <importEntries> {
-  [<importEntry> <importEntries> | @Rest]   Cons(<importEntry> <importEntries>) @Rest
-  [| @Rest]                                  Nil @Rest
+  [<importEntry> <importEntries> / @Rest]   Cons(<importEntry> <importEntries>) @Rest
+  [/ @Rest]                                  Nil @Rest
 }
 
 <importEntry> {
-  [@Module LParen Star RParen | @Rest]          WildcardImport(@Module) @Rest
-  [@Module LParen <importItems> RParen | @Rest]  NamedImport(@Module <importItems>) @Rest
+  [@Module LParen Star RParen / @Rest]          WildcardImport(@Module) @Rest
+  [@Module LParen <importItems> RParen / @Rest]  NamedImport(@Module <importItems>) @Rest
 }
 
 <importItems> {
-  [@Name <importItems> | @Rest]   Cons(@Name <importItems>) @Rest
-  [| @Rest]                        Nil @Rest
+  [@Name <importItems> / @Rest]   Cons(@Name <importItems>) @Rest
+  [/ @Rest]                        Nil @Rest
 }
 
 ;; ── Constraint list: optional {names...} ──
 
 <constraints> {
-  [LBrace <constraintNames> RBrace | @Rest]   <constraintNames> @Rest
-  [| @Rest]                                    Nil @Rest
+  [LBrace <constraintNames> RBrace / @Rest]   <constraintNames> @Rest
+  [/ @Rest]                                    Nil @Rest
 }
 
 <constraintNames> {
-  [@Name <constraintNames> | @Rest]   Cons(@Name <constraintNames>) @Rest
-  [| @Rest]                            Nil @Rest
+  [@Name <constraintNames> / @Rest]   Cons(@Name <constraintNames>) @Rest
+  [/ @Rest]                            Nil @Rest
 }

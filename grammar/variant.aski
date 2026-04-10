@@ -4,17 +4,17 @@
 ;; StructVariant (with fields), UnitVariant (bare name).
 
 <variant> {
-  [@Name LParen <innerVariants> RParen | @Rest]   ParenVariant(@Name <innerVariants>) @Rest
-  [@Name LBrace <fields> RBrace | @Rest]           StructVariant(@Name <fields>) @Rest
-  [@Name | @Rest]                                   UnitVariant(@Name) @Rest
+  [@Name LParen <innerVariants> RParen / @Rest]   ParenVariant(@Name <innerVariants>) @Rest
+  [@Name LBrace <fields> RBrace / @Rest]           StructVariant(@Name <fields>) @Rest
+  [@Name / @Rest]                                   UnitVariant(@Name) @Rest
 }
 
 <innerVariants> {
-  [<variant> <innerVariants> | @Rest]   Cons(<variant> <innerVariants>) @Rest
-  [| @Rest]                              Nil @Rest
+  [<variant> <innerVariants> / @Rest]   Cons(<variant> <innerVariants>) @Rest
+  [/ @Rest]                              Nil @Rest
 }
 
 <variants> {
-  [<variant> <variants> | @Rest]   Cons(<variant> <variants>) @Rest
-  [| @Rest]                        Nil @Rest
+  [<variant> <variants> / @Rest]   Cons(<variant> <variants>) @Rest
+  [/ @Rest]                        Nil @Rest
 }
