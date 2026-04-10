@@ -2,7 +2,9 @@
 
 pub mod lexer;
 pub mod helpers;
-pub mod kernel_parser;
+
+// Generated from source/parser.aski by v0.1-bootstrap askic
+pub mod parser_gen;
 
 // Generated from source/codegen.aski by v0.1-bootstrap askic
 pub mod codegen_gen;
