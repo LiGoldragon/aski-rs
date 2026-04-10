@@ -102,6 +102,44 @@ pub fn generate(world: &World) -> Result<String, String> {
     generate_with_config(world, &CodegenConfig::default())
 }
 
+/// Compute the set of struct names that cannot derive rkyv because they
+/// transitively contain a recursive type (e.g. Expr has Vec<Expr>).
+fn compute_no_rkyv_set(world: &World) -> std::collections::HashSet<String> {
+    let mut no_rkyv = std::collections::HashSet::new();
+    let structs = aski_core::query_all_top_level_nodes(world);
+
+    // Pass 1: directly recursive (field type after stripping Vec() is self)
+    for (_, kind, name) in &structs {
+        if kind != "struct" { continue; }
+        let fields = aski_core::query_struct_fields(world, name);
+        for (_, _, ftype) in &fields {
+            let inner = ftype.strip_prefix("Vec(").and_then(|s| s.strip_suffix(')')).unwrap_or(ftype);
+            if inner == name {
+                no_rkyv.insert(name.clone());
+            }
+        }
+    }
+
+    // Pass 2: propagate — any struct containing a no_rkyv type
+    loop {
+        let mut changed = false;
+        for (_, kind, name) in &structs {
+            if kind != "struct" || no_rkyv.contains(name.as_str()) { continue; }
+            let fields = aski_core::query_struct_fields(world, name);
+            for (_, _, ftype) in &fields {
+                let inner = ftype.strip_prefix("Vec(").and_then(|s| s.strip_suffix(')')).unwrap_or(ftype);
+                if no_rkyv.contains(inner) {
+                    no_rkyv.insert(name.clone());
+                    changed = true;
+                    break;
+                }
+            }
+        }
+        if !changed { break; }
+    }
+    no_rkyv
+}
+
 pub fn generate_with_config(world: &World, config: &CodegenConfig) -> Result<String, String> {
     let mut out = String::new();
 
@@ -120,6 +158,9 @@ pub fn generate_with_config(world: &World, config: &CodegenConfig) -> Result<Str
     }
     if !imports.is_empty() { out.push('\n'); }
 
+    // Compute types that cannot derive rkyv (contain recursive types)
+    let no_rkyv = compute_no_rkyv_set(world);
+
     let mut nodes = aski_core::query_all_top_level_nodes(world);
     nodes.sort_by_key(|(_, kind, _)| match kind.as_str() {
         "foreign_block" | "domain" | "struct" | "const" => 0u8,
@@ -132,7 +173,7 @@ pub fn generate_with_config(world: &World, config: &CodegenConfig) -> Result<Str
     for (node_id, kind, name) in &nodes {
         match kind.as_str() {
             "domain" => emit_domain(&mut out, world, name, config)?,
-            "struct" => emit_struct(&mut out, world, name, config)?,
+            "struct" => emit_struct(&mut out, world, name, config, &no_rkyv)?,
             "const" => emit_const(&mut out, world, *node_id)?,
             "trait" => emit_trait(&mut out, world, *node_id, name)?,
             "impl" => emit_impl(&mut out, world, *node_id)?,
@@ -254,15 +295,16 @@ fn emit_domain(out: &mut String, world: &World, name: &str, config: &CodegenConf
     let has_data = variants.iter().any(|(_, _, wraps)| wraps.is_some());
     let rkyv = rkyv_suffix(config);
     let derives = if has_data {
-        format!("#[derive(Debug, Clone, PartialEq, Eq{rkyv})]")
+        format!("#[derive(Default, Debug, Clone, PartialEq, Eq{rkyv})]")
     } else {
-        format!("#[derive(Debug, Clone, Copy, PartialEq, Eq{rkyv})]")
+        format!("#[derive(Default, Debug, Clone, Copy, PartialEq, Eq{rkyv})]")
     };
     out.push_str(&format!("{derives}\npub enum {name} {{\n"));
-    for (_, vname, wraps) in &variants {
+    for (i, (_, vname, wraps)) in variants.iter().enumerate() {
+        let default_attr = if i == 0 { "#[default]\n    " } else { "" };
         match wraps {
-            Some(w) => out.push_str(&format!("    {vname}({}),\n", rust_type(w))),
-            None => out.push_str(&format!("    {vname},\n")),
+            Some(w) => out.push_str(&format!("    {default_attr}{vname}({}),\n", rust_type(w))),
+            None => out.push_str(&format!("    {default_attr}{vname},\n")),
         }
     }
     out.push_str("}\n\n");
@@ -307,12 +349,12 @@ fn is_copy_eligible(type_name: &str, world: &World) -> bool {
     }
 }
 
-fn emit_struct(out: &mut String, world: &World, name: &str, config: &CodegenConfig) -> Result<(), String> {
+fn emit_struct(out: &mut String, world: &World, name: &str, config: &CodegenConfig, no_rkyv: &std::collections::HashSet<String>) -> Result<(), String> {
     let fields = aski_core::query_struct_fields(world, name);
     let all_copy = !fields.is_empty() && fields.iter().all(|(_, fname, ftype)| {
         !aski_core::is_recursive_field(world, name, fname) && is_copy_eligible(ftype, world)
     });
-    let rkyv = rkyv_suffix(config);
+    let rkyv = if no_rkyv.contains(name) { "" } else { rkyv_suffix(config) };
     let has_float = fields.iter().any(|(_, _, ftype)| matches!(ftype.as_str(), "F32" | "F64"));
     let eq_str = if has_float { "" } else { ", Eq" };
     let derives = if all_copy {
@@ -839,6 +881,9 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
                 if s == "len" { return Ok(format!("({base}.len() as u32)")); }
                 if name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
                     Ok(format!("{base}.{s}()"))
+                } else if base.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) && !base.contains('.') {
+                    // Type::Variant path (e.g. ExprKind::StringLit)
+                    Ok(format!("{base}::{name}"))
                 } else {
                     Ok(format!("{base}.{s}"))
                 }
@@ -917,20 +962,21 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
                 return Ok(format!("({base}.len() as u32)"));
             }
 
+            // Auto-borrow String args for accessor methods (type_by_name etc.)
+            // Only borrow non-numeric instance_ref/access args — i64/enum are Copy
+            let is_accessor = s.contains("_by_") && (base == "self" || base.starts_with("self."));
             let args: Vec<String> = children.iter().skip(1)
-                .map(|(cid, ckind, _, _)| -> Result<String, String> {
+                .map(|(cid, ckind, _, _)| {
                     let v = emit_expr(world, *cid)?;
-                    // String/Vec args need & for &str/&Vec params
-                    // Copy types (int, float, bool, enum variants) pass by value
-                    match ckind.as_str() {
-                        "int_lit" | "float_lit" | "bare_name" => Ok(v),
-                        _ if v.parse::<i64>().is_ok() || v.parse::<f64>().is_ok() => Ok(v),
-                        _ if v.starts_with('(') && v.contains(" + ") => Ok(v), // bin_op result
-                        _ if v.starts_with("String::new") => Ok(v),
-                        _ => Ok(v), // let Rust handle coercion
+                    if is_accessor && matches!(ckind.as_str(), "instance_ref" | "access") {
+                        // Don't borrow numeric or Copy values
+                        let is_numeric = v.parse::<i64>().is_ok() || v.contains(".id") || v.contains(".type_id") || v.contains(".ordinal");
+                        if is_numeric { Ok(v) } else { Ok(format!("&{v}")) }
+                    } else {
+                        Ok(v)
                     }
                 })
-                .collect::<Result<_, _>>()?;
+                .collect::<Result<Vec<_>, String>>()?;
             if args.is_empty() { Ok(format!("{base}.{s}()")) }
             else { Ok(format!("{base}.{s}({})", args.join(", "))) }
         }
@@ -948,29 +994,59 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             }
 
             let mut fields = Vec::new();
-            // Look up struct field types for clone/deref decisions
             let struct_fields = aski_core::query_struct_fields(world, &name);
-            for (cid, _, _, cval) in &children {
-                let fname = snake(cval.as_deref().unwrap_or(""));
+            for (cid, ckind, _, cval) in &children {
+                let mut fname = snake(cval.as_deref().unwrap_or(""));
                 let inner = aski_core::query_child_exprs(world, *cid);
-                if let Some((vid, vkind, _, _)) = inner.first() {
+                // Positional arg that's a struct_construct with no children
+                // and name matches a field → treat as empty field (e.g. Children())
+                let mut use_default = false;
+                if fname.is_empty() && ckind == "struct_field" {
+                    if let Some((inner_id, inner_kind, _, inner_val)) = inner.first() {
+                        if inner_kind == "struct_construct" {
+                            let sc_name = inner_val.as_deref().unwrap_or("");
+                            let sc_children = aski_core::query_child_exprs(world, *inner_id);
+                            if sc_children.is_empty() {
+                                fname = snake(sc_name);
+                                use_default = true;
+                            }
+                        }
+                    }
+                }
+                let field_type = struct_fields.iter()
+                    .find(|(_, fn_, _)| snake(fn_) == fname)
+                    .map(|(_, _, ft)| ft.as_str());
+                let is_vec = field_type.map(|ft| ft.starts_with("Vec")).unwrap_or(false);
+                let is_string = field_type == Some("String");
+
+                if inner.is_empty() || use_default {
+                    // No value — use default
+                    if is_vec { fields.push(format!("{fname}: Vec::new()")); }
+                    else if is_string { fields.push(format!("{fname}: String::new()")); }
+                    else { fields.push(format!("{fname}: Default::default()")); }
+                } else if let Some((vid, vkind, _, _)) = inner.first() {
                     let val = emit_expr(world, *vid)?;
-                    // Check if this field's type needs special handling
-                    let field_type = struct_fields.iter()
-                        .find(|(_, fn_, _)| snake(fn_) == fname)
-                        .map(|(_, _, ft)| ft.as_str());
-                    let needs_clone = match field_type {
-                        Some("String") => true,
-                        Some(ft) if ft.starts_with("Vec") => true,
-                        _ => false,
-                    };
-                    let val = if val == "\"\"" && needs_clone {
-                        "String::new()".to_string()
-                    } else if needs_clone && matches!(vkind.as_str(), "instance_ref" | "access") {
-                        format!("{val}.clone()")
-                    } else {
-                        val
-                    };
+                    let val = if is_vec {
+                        // Vec field: wrap single value in vec![], pass Vec through
+                        if val == "String::new()" || val.starts_with("Vec::") || val.starts_with("vec![")
+                            || val.contains(".with_push(") {
+                            val
+                        } else if vkind == "access" || vkind == "method_call" {
+                            // Field access or method call — likely already a Vec, clone it
+                            format!("{val}.clone()")
+                        } else if vkind == "instance_ref" {
+                            // Local variable — likely a single value, wrap in vec![]
+                            format!("vec![{val}]")
+                        } else {
+                            // Single value — wrap in vec![]
+                            format!("vec![{val}]")
+                        }
+                    } else if is_string {
+                        if val == "\"\"" { "String::new()".to_string() }
+                        else if matches!(vkind.as_str(), "instance_ref" | "access") {
+                            format!("{val}.clone()")
+                        } else { val }
+                    } else { val };
                     fields.push(format!("{fname}: {val}"));
                 }
             }
