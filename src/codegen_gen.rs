@@ -1,4 +1,4 @@
-use crate::helpers::StringExt;
+use crate::helpers::{StringExt, VecExt, ToI64, WithPush};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum TypeForm {
     Domain,
