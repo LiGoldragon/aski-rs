@@ -63,17 +63,27 @@ impl GrammarParser {
         let mut items = Vec::new();
         pos = skip_newlines(tokens, pos);
         while pos < tokens.len() {
-            let (value, new_pos) = self.try_rule("item", tokens, pos)
-                .map_err(|e| format!("at position {}: {}", pos, e))?;
-            let item = value.as_item()?;
-            // Live grammar rule injection: user-defined rules extend the parser
-            if let Item::GrammarRule(ref gr) = item.node {
-                if let Some(parse_rule) = grammar_rule_to_parse_rule(gr) {
-                    self.rules.insert(parse_rule.name.clone(), parse_rule);
+            match self.try_rule("item", tokens, pos) {
+                Ok((value, new_pos)) => {
+                    if let Ok(item) = value.as_item() {
+                        // Live grammar rule injection: user-defined rules extend the parser
+                        if let Item::GrammarRule(ref gr) = item.node {
+                            if let Some(parse_rule) = grammar_rule_to_parse_rule(gr) {
+                                self.rules.insert(parse_rule.name.clone(), parse_rule);
+                            }
+                        }
+                        items.push(item);
+                        pos = skip_newlines(tokens, new_pos);
+                    } else {
+                        pos = skip_newlines(tokens, new_pos);
+                    }
+                }
+                Err(_) => {
+                    // Skip unparseable item — advance to next newline-delimited item
+                    pos += 1;
+                    pos = skip_newlines(tokens, pos);
                 }
             }
-            items.push(item);
-            pos = skip_newlines(tokens, new_pos);
         }
         Ok(items)
     }
