@@ -191,6 +191,13 @@ pub fn fs_list_dir(path: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Sema serialization (rkyv 0.8)
+pub fn rkyv_to_bytes(val: &impl for<'a> rkyv::Serialize<
+    rkyv::api::high::HighSerializer<rkyv::util::AlignedVec, rkyv::ser::allocator::ArenaHandle<'a>, rkyv::rancor::Error>,
+>) -> Vec<u8> {
+    rkyv::api::high::to_bytes::<rkyv::rancor::Error>(val).unwrap().to_vec()
+}
+
 /// Hex encoding
 pub fn to_hex(data: &[u8]) -> String {
     data.iter().map(|b| format!("{b:02x}")).collect()

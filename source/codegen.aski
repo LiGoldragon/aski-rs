@@ -71,7 +71,7 @@ generate [CodeWorld [
   emitDomains(:@Self) String [
     ~@Out String/new("")
     #@Self.typeEntryByForm(Domain).typeEntry([
-      ~@Out.set([@Out + "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum " + @TypeEntry.Name + " {\n"])
+      ~@Out.set([@Out + "#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\npub enum " + @TypeEntry.Name + " {\n"])
       #@Self.variantDefByTypeId(@TypeEntry.Id).variantDef([
         ~@Out.set([@Out + "    " + @VariantDef.Name + ",\n"])
       ])
@@ -109,7 +109,7 @@ generate [CodeWorld [
         ~@FieldTypes.set([@FieldTypes + @FieldDef.FieldType + ","])
       ])
       ;; Emit derive with Copy if eligible
-      ~@Out.set([@Out + "#[derive(Debug, " + @FieldTypes.allFieldsCopy + "Clone, PartialEq, Eq)]\npub struct " + @TypeEntry.Name + " {\n"])
+      ~@Out.set([@Out + "#[derive(Debug, " + @FieldTypes.allFieldsCopy + "Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]\npub struct " + @TypeEntry.Name + " {\n"])
       #@Self.fieldDefByTypeId(@TypeEntry.Id).fieldDef([
         ~@Out.set([@Out + "    pub " + @FieldDef.Name.toSnake + ": " + @FieldDef.FieldType.toRustType + ",\n"])
       ])

@@ -201,7 +201,7 @@ impl Generate for CodeWorld {
     fn emit_domains(&self) -> String {
         let mut out: String = String::new();
         for type_entry in self.type_entry_by_form(TypeForm::Domain).iter() {
-            out = (((out + "#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+            out = (((out + "#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum ") + &type_entry.name) + " {
 ");
             for variant_def in self.variant_def_by_type_id(type_entry.id).iter() {
@@ -258,7 +258,7 @@ pub enum ") + &type_entry.name) + " {
             for field_def in self.field_def_by_type_id(type_entry.id).iter() {
                 field_types = ((field_types + &field_def.field_type) + ",");
             }
-            out = (((((out + "#[derive(Debug, ") + &field_types.all_fields_copy()) + "Clone, PartialEq, Eq)]
+            out = (((((out + "#[derive(Debug, ") + &field_types.all_fields_copy()) + "Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct ") + &type_entry.name) + " {
 ");
             for field_def in self.field_def_by_type_id(type_entry.id).iter() {

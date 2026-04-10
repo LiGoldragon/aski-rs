@@ -68,6 +68,12 @@ FileIO {|
   listDir(@Path String) Vec{String} fs_list_dir
 |}
 
+;; ── Sema serialization (rkyv behind the scenes) ──
+Sema {|
+  toBytes(:@Self) Vec{U8} rkyv_to_bytes
+  fromBytes(@Data Vec{U8}) Self rkyv_from_bytes
+|}
+
 ;; ── Hex encoding (for hash display) ──
 Hex {|
   toHex(:@Self) String to_hex

@@ -552,13 +552,13 @@ impl Parse for ParseState {
         ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types.with_push(TypeEntry { id: (self.next_id - 1), name: name.clone(), form: *form }), variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries }
     }
     fn add_variant(self, type_id: &i64, ordinal: &i64, v_name: &String) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants.with_push(VariantDef { type_id: *type_id, ordinal: *ordinal, name: v_name.clone(), contains_type: String::new() }), fields: self.fields, ffi_entries: self.ffi_entries }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants.with_push(VariantDef { type_id: *type_id, ordinal: *ordinal, name: v_name.clone().clone(), contains_type: String::new() }), fields: self.fields, ffi_entries: self.ffi_entries }
     }
     fn add_field(self, type_id: &i64, ordinal: &i64, f_name: &String, f_type: &String) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields.with_push(FieldDef { type_id: *type_id, ordinal: *ordinal, name: f_name.clone(), field_type: f_type.clone() }), ffi_entries: self.ffi_entries }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields.with_push(FieldDef { type_id: *type_id, ordinal: *ordinal, name: f_name.clone().clone(), field_type: f_type.clone().clone() }), ffi_entries: self.ffi_entries }
     }
     fn add_ffi(self, library: &String, aski_name: &String, rust_name: &String, span: &RustSpan, ret_type: &String) -> ParseState {
-        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries.with_push(FfiEntry { library: library.clone(), aski_name: aski_name.clone(), rust_name: rust_name.clone(), span: *span, return_type: ret_type.clone() }) }
+        ParseState { tokens: self.tokens, pos: self.pos, next_id: self.next_id, types: self.types, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries.with_push(FfiEntry { library: library.clone().clone(), aski_name: aski_name.clone().clone(), rust_name: rust_name.clone().clone(), span: *span, return_type: ret_type.clone().clone() }) }
     }
     fn bump_id(self) -> ParseState {
         ParseState { tokens: self.tokens, pos: self.pos, next_id: (self.next_id + 1), types: self.types, variants: self.variants, fields: self.fields, ffi_entries: self.ffi_entries }
