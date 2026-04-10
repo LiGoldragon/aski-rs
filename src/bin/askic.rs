@@ -32,7 +32,7 @@ fn main() {
 
     let file_args: Vec<&String> = args.iter().enumerate()
         .filter(|(i, a)| {
-            if *a == "--grammar-dir" { return false; }
+            if *a == "--grammar-dir" || *a == "--rkyv" { return false; }
             if *i > 0 && args[i - 1] == "--grammar-dir" { return false; }
             true
         })
@@ -59,7 +59,8 @@ fn main() {
         .map(|(p, s)| (p.as_str(), s.as_str()))
         .collect();
 
-    let config = CodegenConfig { rkyv: false };
+    let rkyv = args.contains(&"--rkyv".to_string());
+    let config = CodegenConfig { rkyv };
     match compile_files_to_world(&refs) {
         Ok(world) => {
             // Load FFI registry from parsed foreign blocks

@@ -105,6 +105,9 @@ pub fn generate(world: &World) -> Result<String, String> {
 pub fn generate_with_config(world: &World, config: &CodegenConfig) -> Result<String, String> {
     let mut out = String::new();
 
+    // Emit helper imports
+    out.push_str("use crate::helpers::{StringExt, VecExt, ToI64, WithPush};\n");
+
     // Emit operator trait imports from kernel
     let op_impls = aski_core::query_all_operator_impls(world);
     let imports: Vec<String> = op_impls.iter()
@@ -515,12 +518,10 @@ fn emit_params(params: &[(String, Option<String>, Option<String>)]) -> String {
             let t = typ.as_deref()?;
             let n = name.as_deref().unwrap_or(t);
             let rt = rust_type(t);
-            // Copy types pass by value, String/Vec by reference
-            if is_primitive(t) || (!t.starts_with("Vec") && t != "String" && !t.starts_with("&")) {
-                Some(format!("{}: {rt}", snake(n)))
-            } else {
-                Some(format!("{}: &{rt}", snake(n)))
-            }
+            // Value params: Copy types by value, String by &str, Vec by &Vec
+            // Value params for user-defined traits
+            // Derive methods use &mut self with & params — handled separately
+            Some(format!("{}: {rt}", snake(n)))
         }
         _ => None,
     }).collect::<Vec<_>>().join(", ")
@@ -708,7 +709,14 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
     match kind.as_str() {
         "int_lit" => Ok(value.unwrap_or("0".into())),
         "float_lit" => Ok(value.unwrap_or("0.0".into())),
-        "string_lit" => Ok(format!("\"{}\"", value.unwrap_or_default())),
+        "string_lit" => {
+            let s = value.unwrap_or_default();
+            if s.is_empty() {
+                Ok("String::new()".into())
+            } else {
+                Ok(format!("\"{s}\""))
+            }
+        }
         "const_ref" => Ok(screaming(&value.unwrap_or_default())),
         "instance_ref" => {
             let name = value.unwrap_or_default();
@@ -910,7 +918,18 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             }
 
             let args: Vec<String> = children.iter().skip(1)
-                .map(|(cid, _, _, _)| emit_expr(world, *cid))
+                .map(|(cid, ckind, _, _)| -> Result<String, String> {
+                    let v = emit_expr(world, *cid)?;
+                    // String/Vec args need & for &str/&Vec params
+                    // Copy types (int, float, bool, enum variants) pass by value
+                    match ckind.as_str() {
+                        "int_lit" | "float_lit" | "bare_name" => Ok(v),
+                        _ if v.parse::<i64>().is_ok() || v.parse::<f64>().is_ok() => Ok(v),
+                        _ if v.starts_with('(') && v.contains(" + ") => Ok(v), // bin_op result
+                        _ if v.starts_with("String::new") => Ok(v),
+                        _ => Ok(v), // let Rust handle coercion
+                    }
+                })
                 .collect::<Result<_, _>>()?;
             if args.is_empty() { Ok(format!("{base}.{s}()")) }
             else { Ok(format!("{base}.{s}({})", args.join(", "))) }
@@ -929,11 +948,30 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             }
 
             let mut fields = Vec::new();
+            // Look up struct field types for clone/deref decisions
+            let struct_fields = aski_core::query_struct_fields(world, &name);
             for (cid, _, _, cval) in &children {
                 let fname = snake(cval.as_deref().unwrap_or(""));
                 let inner = aski_core::query_child_exprs(world, *cid);
-                if let Some((vid, _, _, _)) = inner.first() {
-                    fields.push(format!("{fname}: {}", emit_expr(world, *vid)?));
+                if let Some((vid, vkind, _, _)) = inner.first() {
+                    let val = emit_expr(world, *vid)?;
+                    // Check if this field's type needs special handling
+                    let field_type = struct_fields.iter()
+                        .find(|(_, fn_, _)| snake(fn_) == fname)
+                        .map(|(_, _, ft)| ft.as_str());
+                    let needs_clone = match field_type {
+                        Some("String") => true,
+                        Some(ft) if ft.starts_with("Vec") => true,
+                        _ => false,
+                    };
+                    let val = if val == "\"\"" && needs_clone {
+                        "String::new()".to_string()
+                    } else if needs_clone && matches!(vkind.as_str(), "instance_ref" | "access") {
+                        format!("{val}.clone()")
+                    } else {
+                        val
+                    };
+                    fields.push(format!("{fname}: {val}"));
                 }
             }
             Ok(format!("{name} {{ {} }}", fields.join(", ")))
