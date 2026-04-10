@@ -1,0 +1,328 @@
+(Parser
+  TokenKind Token
+  TypeForm TypeEntry VariantDef FieldDef
+  CodeWorld ParseState)
+
+;; ════════════════════════════════════════════════
+;; Tokens
+;; ════════════════════════════════════════════════
+
+TokenKind (
+  PascalIdent CamelIdent Integer Float StringLit
+  LParen RParen LBracket RBracket LBrace RBrace
+  Plus Minus Star Slash Percent
+  DoubleEquals NotEqual LessThan GreaterThan
+  LessThanOrEqual GreaterThanOrEqual
+  LogicalAnd LogicalOr
+  Dot At Dollar Caret Ampersand Tilde
+  Question Bang Hash Pipe Tick Colon Comma
+  Underscore Equals Semicolon
+  CompositionOpen CompositionClose
+  TraitBoundOpen TraitBoundClose
+  IterOpen IterClose
+  RangeInclusive RangeExclusive
+  Stub Newline Comment EOF
+)
+
+Token {
+  Kind TokenKind
+  Text String
+}
+
+;; ════════════════════════════════════════════════
+;; World types
+;; ════════════════════════════════════════════════
+
+TypeForm (Domain Struct)
+
+TypeEntry {
+  Id I64
+  Name String
+  Form TypeForm
+}
+
+VariantDef {
+  TypeId I64
+  Ordinal I64
+  Name String
+  ContainsType String
+}
+
+FieldDef {
+  TypeId I64
+  Ordinal I64
+  Name String
+  FieldType String
+}
+
+CodeWorld {
+  Types Vec{TypeEntry}
+  Variants Vec{VariantDef}
+  Fields Vec{FieldDef}
+}
+
+;; ════════════════════════════════════════════════
+;; Parse state — functional, every method returns new state
+;; ════════════════════════════════════════════════
+
+ParseState {
+  Tokens Vec{Token}
+  Pos I64
+  NextId I64
+  Types Vec{TypeEntry}
+  Variants Vec{VariantDef}
+  Fields Vec{FieldDef}
+}
+
+;; ════════════════════════════════════════════════
+;; Parser
+;; ════════════════════════════════════════════════
+
+parse ([
+  parseAll(@Self) ParseState
+  skipWs(@Self) ParseState
+  parseItem(@Self) ParseState
+  parseDomain(@Self @Name String) ParseState
+  parseVariants(@Self @TypeId I64 @Ordinal I64) ParseState
+  parseStruct(@Self @Name String) ParseState
+  parseFields(@Self @TypeId I64 @Ordinal I64) ParseState
+  parseTypeRef(@Self) String
+  skipBalancedParens(@Self @Depth I64) ParseState
+  skipBalancedBrackets(@Self @Depth I64) ParseState
+  withDomain(@Self @Name String) ParseState
+  withStruct(@Self @Name String) ParseState
+  addVariant(@Self @TypeId I64 @Ordinal I64 @Name String) ParseState
+  addField(@Self @TypeId I64 @Ordinal I64 @FName String @FType String) ParseState
+  bumpId(@Self) ParseState
+  peek(:@Self) TokenKind
+  peekText(:@Self) String
+  advance(@Self) ParseState
+  toWorld(:@Self) CodeWorld
+])
+
+parse [ParseState [
+
+  ;; ── Entry point: skip header, parse all items ──
+  parseAll(@Self) ParseState [|
+    ~@S ParseState/new(@Self.skipWs)
+    ^(| @S.peek
+      ;; Module header — skip balanced parens
+      (LParen) @S.skipBalancedParens(1).parseAll
+      ;; End of input
+      (EOF) @S
+      ;; Item
+      (_) @S.parseItem.parseAll
+    |)
+  |]
+
+  ;; ── Skip whitespace ──
+  skipWs(@Self) ParseState [|
+    ^(| @Self.peek
+      (Newline) @Self.advance.skipWs
+      (Comment) @Self.advance.skipWs
+      (_) @Self
+    |)
+  |]
+
+  ;; ── Parse one item ──
+  parseItem(@Self) ParseState [
+    ~@S ParseState/new(@Self.skipWs)
+    ^(| @S.peek
+      ;; camelCase = derive decl/impl — skip
+      (CamelIdent) [
+        ~@S2 ParseState/new(@S.advance.skipWs)
+        ^(| @S2.peek
+          (LParen) @S2.skipBalancedParens(1).skipWs.skipBalancedBrackets(1)
+          (LBracket) @S2.skipBalancedBrackets(1)
+          (_) @S2
+        |)
+      ]
+      ;; PascalCase = domain or struct
+      (PascalIdent) [
+        ~@Name String/new(@S.peekText)
+        ~@S2 ParseState/new(@S.advance.skipWs)
+        ^(| @S2.peek
+          (LParen) @S2.parseDomain(@Name)
+          (LBrace) @S2.parseStruct(@Name)
+          ;; Type alias — skip: Name TypeRef
+          (_) @S2.advance.skipWs
+        |)
+      ]
+      ;; Bang = constant — skip tokens until next item
+      (Bang) @S.advance.skipWs.advance.skipWs.advance.skipWs.skipBalancedParens(1)
+      ;; Semicolon (from ;;) already skipped as Comment
+      (_) @S.advance
+    |)
+  ]
+
+  ;; ── Domain: at LParen ──
+  parseDomain(@Self @Name String) ParseState [
+    ~@S ParseState/new(@Self.advance)
+    ^@S.withDomain(@Name).advance
+  ]
+
+  ;; ── Variants until RParen ──
+  parseVariants(@Self @TypeId I64 @Ordinal I64) ParseState [|
+    ~@S ParseState/new(@Self.skipWs)
+    ^(| @S.peek
+      (RParen) @S
+      (PascalIdent) [
+        ~@VName String/new(@S.peekText)
+        ~@S2 ParseState/new(@S.advance.skipWs)
+        ;; Check if next is LParen (data-carrying variant)
+        ^(| @S2.peek
+          (LParen) [
+            ;; Skip the inner parens for now
+            ~@S3 ParseState/new(@S2.skipBalancedParens(1))
+            ~@S3.Variants.push(VariantDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@VName) ContainsType("")))
+            ^@S3.parseVariants(@TypeId [@Ordinal + 1])
+          ]
+          (_) [
+            ~@S2.Variants.push(VariantDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@VName) ContainsType("")))
+            ^@S2.parseVariants(@TypeId [@Ordinal + 1])
+          ]
+        |)
+      ]
+      (_) @S
+    |)
+  |]
+
+  ;; ── Struct: at LBrace ──
+  parseStruct(@Self @Name String) ParseState [
+    ~@S ParseState/new(@Self.advance)
+    ~@TypeId I64/new(@S.NextId)
+    ~@S2 ParseState/new(
+      Tokens(@S.Tokens)
+      Pos(@S.Pos)
+      NextId([@S.NextId + 1])
+      Types(@S.Types)
+      Variants(@S.Variants)
+      Fields(@S.Fields))
+    ~@S2.Types.push(TypeEntry(Id(@TypeId) Name(@Name) Form(Struct)))
+    ~@S3 ParseState/new(@S2.parseFields(@TypeId 0))
+    ^@S3.advance
+  ]
+
+  ;; ── Fields until RBrace ──
+  parseFields(@Self @TypeId I64 @Ordinal I64) ParseState [|
+    ~@S ParseState/new(@Self.skipWs)
+    ^(| @S.peek
+      (RBrace) @S
+      (PascalIdent) [
+        ~@FName String/new(@S.peekText)
+        ~@S2 ParseState/new(@S.advance.skipWs)
+        ~@FType String/new(@S2.peekText)
+        ~@S3 ParseState/new(@S2.advance.skipWs)
+        ;; Check for parameterized type: Vec{T}
+        ^(| @S3.peek
+          (LBrace) [
+            ~@S4 ParseState/new(@S3.advance.skipWs)
+            ~@InnerType String/new(@S4.peekText)
+            ~@S5 ParseState/new(@S4.advance.skipWs.advance)
+            ~@FullType String/new([@FType + "{" + @InnerType + "}"])
+            ~@S5.Fields.push(FieldDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@FName) FieldType(@FullType)))
+            ^@S5.parseFields(@TypeId [@Ordinal + 1])
+          ]
+          (_) [
+            ~@S3.Fields.push(FieldDef(TypeId(@TypeId) Ordinal(@Ordinal) Name(@FName) FieldType(@FType)))
+            ^@S3.parseFields(@TypeId [@Ordinal + 1])
+          ]
+        |)
+      ]
+      ;; Comment inside struct — skip
+      (Comment) @S.advance.parseFields(@TypeId @Ordinal)
+      (_) @S
+    |)
+  |]
+
+  ;; ── Type ref: Name or Name{Param} ──
+  parseTypeRef(@Self) String [
+    ^@Self.peekText
+  ]
+
+  ;; ── Skip balanced parens ──
+  skipBalancedParens(@Self @Depth I64) ParseState [|
+    ~@S ParseState/new(@Self.advance)
+    ^(| @S.peek
+      (LParen) @S.skipBalancedParens([@Depth + 1])
+      (RParen) ^(| (@Depth == 1)
+        (True) @S.advance
+        (False) @S.skipBalancedParens([@Depth - 1])
+      |)
+      (EOF) @S
+      (_) @S.skipBalancedParens(@Depth)
+    |)
+  |]
+
+  ;; ── Skip balanced brackets ──
+  skipBalancedBrackets(@Self @Depth I64) ParseState [|
+    ~@S ParseState/new(@Self.advance)
+    ^(| @S.peek
+      (LBracket) @S.skipBalancedBrackets([@Depth + 1])
+      (RBracket) ^(| (@Depth == 1)
+        (True) @S.advance
+        (False) @S.skipBalancedBrackets([@Depth - 1])
+      |)
+      (EOF) @S
+      (_) @S.skipBalancedBrackets(@Depth)
+    |)
+  |]
+
+  ;; ── State builders ──
+
+  withDomain(@Self @Name String) ParseState [
+    ~@TypeId I64/new(@Self.NextId)
+    ~@S ParseState/new(ParseState(Tokens(@Self.Tokens) Pos(@Self.Pos) NextId([@Self.NextId + 1]) Types(@Self.Types) Variants(@Self.Variants) Fields(@Self.Fields)))
+    ^@S.parseVariants(@TypeId 0)
+  ]
+
+  withStruct(@Self @Name String) ParseState [
+    ~@TypeId I64/new(@Self.NextId)
+    ~@S ParseState/new(ParseState(Tokens(@Self.Tokens) Pos(@Self.Pos) NextId([@Self.NextId + 1]) Types(@Self.Types) Variants(@Self.Variants) Fields(@Self.Fields)))
+    ^@S.parseFields(@TypeId 0)
+  ]
+
+  addVariant(@Self @TypeId I64 @Ordinal I64 @VName String) ParseState [
+    ^ParseState(Tokens(@Self.Tokens) Pos(@Self.Pos) NextId(@Self.NextId) Types(@Self.Types) Variants(@Self.Variants) Fields(@Self.Fields))
+  ]
+
+  addField(@Self @TypeId I64 @Ordinal I64 @FName String @FType String) ParseState [
+    ^ParseState(Tokens(@Self.Tokens) Pos(@Self.Pos) NextId(@Self.NextId) Types(@Self.Types) Variants(@Self.Variants) Fields(@Self.Fields))
+  ]
+
+  bumpId(@Self) ParseState [
+    ^ParseState(Tokens(@Self.Tokens) Pos(@Self.Pos) NextId([@Self.NextId + 1]) Types(@Self.Types) Variants(@Self.Variants) Fields(@Self.Fields))
+  ]
+
+  ;; ── Utilities ──
+  peek(:@Self) TokenKind [
+    ^(| (@Self.Pos >= @Self.Tokens.len.toI64)
+      (True) EOF
+      (False) @Self.Tokens.fromOrdinal(@Self.Pos).Kind
+    |)
+  ]
+
+  peekText(:@Self) String [
+    ^(| (@Self.Pos >= @Self.Tokens.len.toI64)
+      (True) ""
+      (False) @Self.Tokens.fromOrdinal(@Self.Pos).Text
+    |)
+  ]
+
+  advance(@Self) ParseState [
+    ^ParseState(
+      Tokens(@Self.Tokens)
+      Pos([@Self.Pos + 1])
+      NextId(@Self.NextId)
+      Types(@Self.Types)
+      Variants(@Self.Variants)
+      Fields(@Self.Fields))
+  ]
+
+  toWorld(:@Self) CodeWorld [
+    ^CodeWorld(
+      Types(@Self.Types)
+      Variants(@Self.Variants)
+      Fields(@Self.Fields))
+  ]
+]]

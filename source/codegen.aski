@@ -1,0 +1,243 @@
+(Codegen TypeForm TypeEntry VariantDef FieldDef CodeWorld)
+
+;; ════════════════════════════════════════════════
+;; World types for codegen input
+;; ════════════════════════════════════════════════
+
+TypeForm (Domain Struct)
+
+TypeEntry {
+  Id I64
+  Name String
+  Form TypeForm
+}
+
+VariantDef {
+  TypeId I64
+  Ordinal I64
+  Name String
+  ContainsType String
+}
+
+FieldDef {
+  TypeId I64
+  Ordinal I64
+  Name String
+  FieldType String
+}
+
+CodeWorld {
+  Types Vec{TypeEntry}
+  Variants Vec{VariantDef}
+  Fields Vec{FieldDef}
+}
+
+;; ════════════════════════════════════════════════
+;; Codegen — World to Rust source text
+;; ════════════════════════════════════════════════
+
+generate ([
+  generate(:@Self) String
+  emitDomains(:@Self) String
+  emitStructs(:@Self) String
+  emitWorldStruct(:@Self) String
+  emitDerive(:@Self) String
+])
+
+generate [CodeWorld [
+
+  ;; ── Top-level ──
+  generate(:@Self) String [
+    ~@Out String/new("")
+    ~@Out.set([@Out + @Self.emitDomains])
+    ~@Out.set([@Out + @Self.emitStructs])
+    ~@Out.set([@Out + @Self.emitWorldStruct])
+    ~@Out.set([@Out + @Self.emitDerive])
+    ^@Out
+  ]
+
+  ;; ── Domains → enum + Display + from_str/to_str ──
+  emitDomains(:@Self) String [
+    ~@Out String/new("")
+    #@Self.typeEntryByForm(Domain).typeEntry([
+      ~@Out.set([@Out + "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\npub enum " + @TypeEntry.Name + " {\n"])
+      #@Self.variantDefByTypeId(@TypeEntry.Id).variantDef([
+        ~@Out.set([@Out + "    " + @VariantDef.Name + ",\n"])
+      ])
+      ~@Out.set([@Out + "}\n\n"])
+
+      ~@Out.set([@Out + "impl std::fmt::Display for " + @TypeEntry.Name + " {\n"])
+      ~@Out.set([@Out + "    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n"])
+      ~@Out.set([@Out + "        write!(f, \\\"{:?}\\\", self)\n    }\n}\n\n"])
+
+      ~@Out.set([@Out + "impl " + @TypeEntry.Name + " {\n"])
+      ~@Out.set([@Out + "    pub fn from_str(s: &str) -> Option<Self> {\n"])
+      ~@Out.set([@Out + "        match s {\n"])
+      #@Self.variantDefByTypeId(@TypeEntry.Id).variantDef([
+        ~@Out.set([@Out + "            \\\"" + @VariantDef.Name.toSnake + "\\\" => Some(Self::" + @VariantDef.Name + "),\n"])
+      ])
+      ~@Out.set([@Out + "            _ => None,\n        }\n    }\n\n"])
+
+      ~@Out.set([@Out + "    pub fn to_str(&self) -> &'static str {\n        match self {\n"])
+      #@Self.variantDefByTypeId(@TypeEntry.Id).variantDef([
+        ~@Out.set([@Out + "            Self::" + @VariantDef.Name + " => \\\"" + @VariantDef.Name.toSnake + "\\\",\n"])
+      ])
+      ~@Out.set([@Out + "        }\n    }\n}\n\n"])
+    ])
+    ^@Out
+  ]
+
+  ;; ── Structs → Rust structs ──
+  emitStructs(:@Self) String [
+    ~@Out String/new("")
+    #@Self.typeEntryByForm(Struct).typeEntry([
+      ~@Out.set([@Out + "#[derive(Debug, Clone, PartialEq, Eq)]\npub struct " + @TypeEntry.Name + " {\n"])
+      #@Self.fieldDefByTypeId(@TypeEntry.Id).fieldDef([
+        ~@Out.set([@Out + "    pub " + @FieldDef.Name.toSnake + ": " + @FieldDef.FieldType.toRustType + ",\n"])
+      ])
+      ~@Out.set([@Out + "}\n\n"])
+    ])
+    ^@Out
+  ]
+
+  ;; ── World struct: Default + new + accessor methods ──
+  emitWorldStruct(:@Self) String [
+    ~@Out String/new("")
+    #@Self.typeEntryByName("World").typeEntry([
+      ;; Default impl
+      ~@Out.set([@Out + "impl Default for World { fn default() -> Self { Self {"])
+      #@Self.fieldDefByTypeId(@TypeEntry.Id).fieldDef([
+        ~@Out.set([@Out + " " + @FieldDef.Name.toSnake + ": Default::default(),"])
+      ])
+      ~@Out.set([@Out + " } } }\n\n"])
+
+      ;; impl World { new + accessors }
+      ~@Out.set([@Out + "impl World {\n"])
+      ~@Out.set([@Out + "    pub fn new() -> Self { Self::default() }\n\n"])
+
+      ;; For each Vec field, generate accessor methods
+      #@Self.fieldDefByTypeId(@TypeEntry.Id).fieldDef([
+        ~@ElemType String/new(@FieldDef.FieldType.stripVec)
+
+        ;; Look up the element struct's fields
+        #@Self.typeEntryByName(@ElemType).elemTypeEntry([
+          #@Self.fieldDefByTypeId(@ElemTypeEntry.Id).elemFieldDef([
+            ~@Out.set([@Out + "    pub fn " + @ElemType.toSnake + "_by_" + @ElemFieldDef.Name.toSnake])
+            ~@Out.set([@Out + "(&self, val: " + @ElemFieldDef.FieldType.toRustType + ") -> Vec<&" + @ElemType + "> {\n"])
+            ~@Out.set([@Out + "        self." + @FieldDef.Name.toSnake + ".iter().filter(|r| r." + @ElemFieldDef.Name.toSnake + " == val).collect()\n"])
+            ~@Out.set([@Out + "    }\n\n"])
+          ])
+        ])
+      ])
+
+      ~@Out.set([@Out + "}\n\n"])
+    ])
+    ^@Out
+  ]
+
+  ;; ── Derive trait + impl ──
+  ;; Emits the Derive trait declaration and World impl.
+  ;; The derive methods are driven by kernel.aski's derive rules:
+  ;; - deriveVariantOf: Types(Domain) × Variants → VariantOf
+  ;; - deriveTypeKind: Types → TypeKind
+  ;; - deriveContainedType: Types(Struct) × Fields + Types(Domain) × Variants → ContainedType
+  ;; - deriveRecursiveType: transitive closure of ContainedType (fixpoint)
+  emitDerive(:@Self) String [
+    ~@Out String/new("")
+
+    ;; Trait declaration
+    ~@Out.set([@Out + "pub trait Derive {\n"])
+    ~@Out.set([@Out + "    fn derive(&mut self);\n"])
+    ~@Out.set([@Out + "    fn derive_variant_of(&mut self);\n"])
+    ~@Out.set([@Out + "    fn derive_type_kind(&mut self);\n"])
+    ~@Out.set([@Out + "    fn derive_contained_type(&mut self);\n"])
+    ~@Out.set([@Out + "    fn derive_recursive_type(&mut self);\n"])
+    ~@Out.set([@Out + "}\n\n"])
+
+    ;; impl World — dispatcher
+    ~@Out.set([@Out + "impl World {\n"])
+    ~@Out.set([@Out + "    pub fn derive(&mut self) {\n"])
+    ~@Out.set([@Out + "        self.derive_variant_of();\n"])
+    ~@Out.set([@Out + "        self.derive_type_kind();\n"])
+    ~@Out.set([@Out + "        self.derive_contained_type();\n"])
+    ~@Out.set([@Out + "        self.derive_recursive_type_fixpoint();\n"])
+    ~@Out.set([@Out + "    }\n\n"])
+
+    ;; derive_variant_of
+    ~@Out.set([@Out + "    fn derive_variant_of(&mut self) {\n"])
+    ~@Out.set([@Out + "        let mut results = Vec::new();\n"])
+    ~@Out.set([@Out + "        for type_entry in &self.types {\n"])
+    ~@Out.set([@Out + "            if type_entry.form == TypeForm::Domain {\n"])
+    ~@Out.set([@Out + "                for variant in &self.variants {\n"])
+    ~@Out.set([@Out + "                    if variant.type_id == type_entry.id {\n"])
+    ~@Out.set([@Out + "                        results.push(VariantOf { variant_name: variant.name.clone(), type_name: type_entry.name.clone(), type_id: type_entry.id });\n"])
+    ~@Out.set([@Out + "                    }\n"])
+    ~@Out.set([@Out + "                }\n"])
+    ~@Out.set([@Out + "            }\n"])
+    ~@Out.set([@Out + "        }\n"])
+    ~@Out.set([@Out + "        self.variant_ofs = results;\n"])
+    ~@Out.set([@Out + "    }\n\n"])
+
+    ;; derive_type_kind
+    ~@Out.set([@Out + "    fn derive_type_kind(&mut self) {\n"])
+    ~@Out.set([@Out + "        let mut results = Vec::new();\n"])
+    ~@Out.set([@Out + "        for type_entry in &self.types {\n"])
+    ~@Out.set([@Out + "            results.push(TypeKind { type_name: type_entry.name.clone(), category: type_entry.form });\n"])
+    ~@Out.set([@Out + "        }\n"])
+    ~@Out.set([@Out + "        self.type_kinds = results;\n"])
+    ~@Out.set([@Out + "    }\n\n"])
+
+    ;; derive_contained_type
+    ~@Out.set([@Out + "    fn derive_contained_type(&mut self) {\n"])
+    ~@Out.set([@Out + "        let mut results = Vec::new();\n"])
+    ~@Out.set([@Out + "        for type_entry in &self.types {\n"])
+    ~@Out.set([@Out + "            if type_entry.form == TypeForm::Struct {\n"])
+    ~@Out.set([@Out + "                for field in &self.fields {\n"])
+    ~@Out.set([@Out + "                    if field.type_id == type_entry.id {\n"])
+    ~@Out.set([@Out + "                        results.push(ContainedType { parent_type: type_entry.name.clone(), child_type: field.field_type.clone() });\n"])
+    ~@Out.set([@Out + "                    }\n"])
+    ~@Out.set([@Out + "                }\n"])
+    ~@Out.set([@Out + "            }\n"])
+    ~@Out.set([@Out + "        }\n"])
+    ~@Out.set([@Out + "        for type_entry in &self.types {\n"])
+    ~@Out.set([@Out + "            if type_entry.form == TypeForm::Domain {\n"])
+    ~@Out.set([@Out + "                for variant in &self.variants {\n"])
+    ~@Out.set([@Out + "                    if variant.type_id == type_entry.id {\n"])
+    ~@Out.set([@Out + "                        if !variant.contains_type.is_empty() {\n"])
+    ~@Out.set([@Out + "                            results.push(ContainedType { parent_type: type_entry.name.clone(), child_type: variant.contains_type.clone() });\n"])
+    ~@Out.set([@Out + "                        }\n"])
+    ~@Out.set([@Out + "                    }\n"])
+    ~@Out.set([@Out + "                }\n"])
+    ~@Out.set([@Out + "            }\n"])
+    ~@Out.set([@Out + "        }\n"])
+    ~@Out.set([@Out + "        self.contained_types = results;\n"])
+    ~@Out.set([@Out + "    }\n\n"])
+
+    ;; derive_recursive_type_fixpoint
+    ~@Out.set([@Out + "    fn derive_recursive_type_fixpoint(&mut self) {\n"])
+    ~@Out.set([@Out + "        {\n"])
+    ~@Out.set([@Out + "            let mut results = Vec::new();\n"])
+    ~@Out.set([@Out + "            for contained_type in &self.contained_types {\n"])
+    ~@Out.set([@Out + "                results.push(RecursiveType { parent_type: contained_type.parent_type.clone(), child_type: contained_type.child_type.clone() });\n"])
+    ~@Out.set([@Out + "            }\n"])
+    ~@Out.set([@Out + "            self.recursive_types = results;\n"])
+    ~@Out.set([@Out + "        }\n"])
+    ~@Out.set([@Out + "        loop {\n"])
+    ~@Out.set([@Out + "            let mut new_items = Vec::new();\n"])
+    ~@Out.set([@Out + "            for contained_type in &self.contained_types {\n"])
+    ~@Out.set([@Out + "                for reach in &self.recursive_types {\n"])
+    ~@Out.set([@Out + "                    if reach.parent_type == contained_type.child_type {\n"])
+    ~@Out.set([@Out + "                        new_items.push(RecursiveType { parent_type: contained_type.parent_type.clone(), child_type: reach.child_type.clone() });\n"])
+    ~@Out.set([@Out + "                    }\n"])
+    ~@Out.set([@Out + "                }\n"])
+    ~@Out.set([@Out + "            }\n"])
+    ~@Out.set([@Out + "            new_items.retain(|item| !self.recursive_types.contains(item));\n"])
+    ~@Out.set([@Out + "            if new_items.is_empty() { break; }\n"])
+    ~@Out.set([@Out + "            self.recursive_types.extend(new_items);\n"])
+    ~@Out.set([@Out + "        }\n"])
+    ~@Out.set([@Out + "    }\n\n"])
+
+    ~@Out.set([@Out + "}\n"])
+    ^@Out
+  ]
+]]

@@ -1,0 +1,25 @@
+;; Test: functional-style — owned self returns new copy
+
+Counter { Value I64 }
+
+counting ([
+  increment(@Self) Counter
+  getValue(:@Self) I64
+])
+
+counting [Counter [
+  increment(@Self) Counter [
+    ^Counter(Value([@Self.Value + 1]))
+  ]
+
+  getValue(:@Self) I64 [
+    ^@Self.Value
+  ]
+]]
+
+Main [
+  @C Counter/new(Value(0))
+  @C2 Counter/new(@C.increment)
+  @C3 Counter/new(@C2.increment)
+  StdOut @C3.getValue
+]

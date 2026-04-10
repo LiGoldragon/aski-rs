@@ -1,0 +1,26 @@
+;; Test: mutable self-field access and method calls
+
+Counter { Value I64 }
+
+counting ([
+  increment(~@Self)
+  getValue(:@Self) I64
+])
+
+counting [Counter [
+  increment(~@Self) [
+    ~@Self.Value.set([@Self.Value + 1])
+  ]
+
+  getValue(:@Self) I64 [
+    ^@Self.Value
+  ]
+]]
+
+Main [
+  ~@C Counter/new(Value(0))
+  ~@C.increment
+  ~@C.increment
+  ~@C.increment
+  StdOut @C.getValue
+]

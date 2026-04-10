@@ -1,0 +1,170 @@
+(Compiler
+  Token TokenKind
+  PatElemKind ConstructorTag
+  ParseRule ParseArm PatElem ResultSpec ResultArg
+  Value WorldItem VariantEntry FieldEntry
+  Bindings BindingEntry
+  World TypeEntry TypeForm VariantDef FieldDef
+  CodegenState)
+
+;; ════════════════════════════════════════════════
+;; Token types — matches the lexer output
+;; ════════════════════════════════════════════════
+
+TokenKind (
+  PascalIdent CamelIdent Integer Float StringLit
+  LParen RParen LBracket RBracket LBrace RBrace
+  Plus Minus Star Slash Percent
+  DoubleEquals NotEqual LessThan GreaterThan
+  LessThanOrEqual GreaterThanOrEqual
+  LogicalAnd LogicalOr
+  Dot At Dollar Caret Ampersand Tilde
+  Question Bang Hash Pipe Tick Colon Comma
+  Underscore Equals
+  CompositionOpen CompositionClose
+  TraitBoundOpen TraitBoundClose
+  IterOpen IterClose
+  RangeInclusive RangeExclusive
+  Stub Newline Comment
+)
+
+Token {
+  Kind TokenKind
+  Text String
+  Start I64
+  End I64
+}
+
+;; ════════════════════════════════════════════════
+;; Grammar rule types — the PEG engine
+;; ════════════════════════════════════════════════
+
+PatElemKind (Tok Lit Rule Bind BindType BindLit)
+
+PatElem {
+  Kind PatElemKind
+  Name String
+}
+
+ConstructorTag (Bound RuleResult Nested Literal)
+
+ResultArg {
+  Tag ConstructorTag
+  Name String
+  Nested Vec{ResultArg}
+}
+
+ResultSpec {
+  Constructor String
+  Args Vec{ResultArg}
+}
+
+ParseArm {
+  Pattern Vec{PatElem}
+  Result ResultSpec
+}
+
+ParseRule {
+  Name String
+  Arms Vec{ParseArm}
+}
+
+;; ════════════════════════════════════════════════
+;; Values — dynamic results during parsing
+;; ════════════════════════════════════════════════
+
+VariantEntry {
+  Name String
+  Wraps String
+}
+
+FieldEntry {
+  Name String
+  FieldType String
+}
+
+WorldItem (
+  ModuleHeader
+  Domain
+  Struct
+  DeriveDecl
+  DeriveImpl
+  None
+)
+
+Value {
+  Text String
+  IntVal I64
+  Items Vec{VariantEntry}
+  Fields Vec{FieldEntry}
+  ItemKind WorldItem
+  ItemName String
+  Children Vec{Value}
+}
+
+;; ════════════════════════════════════════════════
+;; Bindings — captured during pattern matching
+;; ════════════════════════════════════════════════
+
+BindingEntry {
+  Name String
+  Val Value
+}
+
+Bindings {
+  Entries Vec{BindingEntry}
+}
+
+;; ════════════════════════════════════════════════
+;; World — the compilation target
+;; ════════════════════════════════════════════════
+
+TypeForm (Domain Struct)
+
+TypeEntry {
+  Id I64
+  Name String
+  Form TypeForm
+}
+
+VariantDef {
+  TypeId I64
+  Ordinal I64
+  Name String
+  ContainsType String
+}
+
+FieldDef {
+  TypeId I64
+  Ordinal I64
+  Name String
+  FieldType String
+}
+
+World {
+  Types Vec{TypeEntry}
+  Variants Vec{VariantDef}
+  Fields Vec{FieldDef}
+  NextId I64
+}
+
+;; ════════════════════════════════════════════════
+;; Codegen state — builds output string
+;; ════════════════════════════════════════════════
+
+;; ════════════════════════════════════════════════
+;; Code output — codegen fills these via derive
+;; ════════════════════════════════════════════════
+
+CodeLine {
+  Text String
+}
+
+;; Add CodeLines to World for derive-based codegen
+;; (World already defined above — this extends it conceptually;
+;;  for bootstrap we add it as a separate output struct)
+
+CodeOutput {
+  DomainNames Vec{TypeEntry}
+  StructNames Vec{TypeEntry}
+}
