@@ -505,17 +505,32 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
                     }
                 }
             }
-            "mutable_new" | "mutable_set" => {
+            "mutable_new" => {
                 let children = aski_core::query_child_exprs(world, *eid);
-                if let Some((var_name, type_name)) = aski_core::query_binding_info(world, *eid) {
+                if let Some((var_name, type_name)) = aski_core::query_mutable_binding(world, *eid) {
                     let svar = snake(&var_name);
                     if let Some((cid, _, _, _)) = children.first() {
                         let val = emit_expr(world, *cid)?;
-                        if kind == "mutable_new" {
-                            out.push_str(&format!("{indent}let mut {svar}: {} = {val};\n", rust_type(&type_name)));
-                        } else {
-                            out.push_str(&format!("{indent}{svar} = {val};\n"));
-                        }
+                        out.push_str(&format!("{indent}let mut {svar}: {} = {val};\n", rust_type(&type_name)));
+                    }
+                } else if let Some((var_name, type_name)) = aski_core::query_binding_info(world, *eid) {
+                    let svar = snake(&var_name);
+                    if let Some((cid, _, _, _)) = children.first() {
+                        let val = emit_expr(world, *cid)?;
+                        out.push_str(&format!("{indent}let mut {svar}: {} = {val};\n", rust_type(&type_name)));
+                    }
+                }
+            }
+            "mutable_set" => {
+                let children = aski_core::query_child_exprs(world, *eid);
+                // mutable_set stores the variable name in the expr's value field
+                let var_name = aski_core::query_expr_by_id(world, *eid)
+                    .and_then(|(_, v)| v);
+                if let Some(name) = var_name {
+                    let svar = snake(&name);
+                    if let Some((cid, _, _, _)) = children.first() {
+                        let val = emit_expr(world, *cid)?;
+                        out.push_str(&format!("{indent}{svar} = {val};\n"));
                     }
                 }
             }
