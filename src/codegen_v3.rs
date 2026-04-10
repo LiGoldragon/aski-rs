@@ -3,6 +3,92 @@
 //! the kernel needs a new derived relation.
 
 use aski_core::{self, World};
+use std::collections::HashMap;
+
+/// Rust output pattern for an FFI entry.
+#[derive(Debug, Clone)]
+pub enum FfiSpan {
+    /// (expr as type) — toF32, toU32, toI64
+    Cast(String),
+    /// expr.method() — len, clone, to_string
+    MethodCall(String),
+    /// function(&expr) — to_snake, to_rust_type
+    FreeCall(String),
+    /// { let mut v = expr; v.push(arg); v } — withPush
+    BlockExpr(String),
+    /// &expr[index] — fromOrdinal
+    IndexAccess(String),
+}
+
+/// Registry of FFI builtins.
+/// Maps aski method name → Rust output pattern.
+pub struct FfiRegistry {
+    entries: HashMap<String, FfiSpan>,
+}
+
+impl FfiRegistry {
+    pub fn new() -> Self {
+        Self { entries: HashMap::new() }
+    }
+
+    pub fn register(&mut self, aski_name: &str, span: FfiSpan) {
+        self.entries.insert(aski_name.to_string(), span);
+    }
+
+    pub fn lookup(&self, aski_name: &str) -> Option<&FfiSpan> {
+        self.entries.get(aski_name)
+    }
+
+    /// Load builtins from a parsed World's foreign block nodes.
+    pub fn load_from_world(world: &World) -> Self {
+        let mut reg = Self::new();
+
+        // Walk foreign block nodes in the World
+        for node in &world.nodes {
+            if node.kind != aski_core::NodeKind::ForeignBlock { continue; }
+            let library = &node.name;
+            let children = aski_core::query_child_nodes(world, node.id);
+            for (cid, _, func_name) in &children {
+                let extern_name = aski_core::query_child_exprs(world, *cid).iter()
+                    .find(|(_, k, _, _)| k == "extern_name")
+                    .and_then(|(_, _, _, v)| v.clone())
+                    .unwrap_or_else(|| func_name.clone());
+                let ret = aski_core::query_return_type(world, *cid)
+                    .unwrap_or_else(|| "()".to_string());
+
+                // Determine span from library name
+                let span = match library.as_str() {
+                    "Cast" => FfiSpan::Cast(ret.clone()),
+                    "Std" => FfiSpan::MethodCall(extern_name.clone()),
+                    "Helpers" => FfiSpan::FreeCall(extern_name.clone()),
+                    "VecOps" => {
+                        if extern_name == "with_push" {
+                            FfiSpan::BlockExpr(extern_name.clone())
+                        } else {
+                            FfiSpan::IndexAccess(extern_name.clone())
+                        }
+                    }
+                    _ => FfiSpan::FreeCall(format!("{}::{}", snake(library), extern_name)),
+                };
+                reg.register(func_name, span);
+            }
+        }
+        reg
+    }
+}
+
+/// Global FFI registry for use in emit_expr.
+/// Set once at codegen start, read during expression emission.
+use std::sync::OnceLock;
+static FFI_REGISTRY: OnceLock<FfiRegistry> = OnceLock::new();
+
+pub fn set_ffi_registry(reg: FfiRegistry) {
+    let _ = FFI_REGISTRY.set(reg);
+}
+
+fn lookup_ffi(name: &str) -> Option<&FfiSpan> {
+    FFI_REGISTRY.get().and_then(|r| r.lookup(name))
+}
 
 pub struct CodegenConfig {
     pub rkyv: bool,
@@ -710,12 +796,19 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
             if let Some((cid, _, _, _)) = children.first() {
                 let base = emit_expr(world, *cid)?;
                 let s = snake(&name);
-                // Kernel primitives on access
+                // FFI registry lookup for access-style calls
+                if let Some(ffi) = lookup_ffi(&name) {
+                    return match ffi {
+                        FfiSpan::Cast(rt) => Ok(format!("({base} as {})", rust_type(rt))),
+                        FfiSpan::MethodCall(rn) if rn == "len" => Ok(format!("({base}.{rn}() as u32)")),
+                        FfiSpan::MethodCall(rn) => Ok(format!("{base}.{rn}()")),
+                        FfiSpan::FreeCall(rn) => Ok(format!("{rn}(&{base})")),
+                        FfiSpan::BlockExpr(_) => Ok(format!("{base}.{s}()")),
+                        FfiSpan::IndexAccess(rn) => Ok(format!("{base}.{rn}()")),
+                    };
+                }
+                // Legacy fallback
                 if s == "len" { return Ok(format!("({base}.len() as u32)")); }
-                if s == "clone" { return Ok(format!("{base}.clone()")); }
-                if s == "to_string" { return Ok(format!("{base}.to_string()")); }
-                if s == "is_empty" { return Ok(format!("{base}.is_empty()")); }
-                if s == "unwrap" { return Ok(format!("{base}.unwrap()")); }
                 if name.chars().next().map(|c| c.is_lowercase()).unwrap_or(false) {
                     Ok(format!("{base}.{s}()"))
                 } else {
@@ -733,20 +826,23 @@ fn emit_expr(world: &World, expr_id: i64) -> Result<String, String> {
                        else { emit_expr(world, children[0].0)? };
             let s = snake(&method);
 
-            // Kernel primitive casts
+            // FFI registry lookup for method-call style
+            if let Some(ffi) = lookup_ffi(&method) {
+                return match ffi {
+                    FfiSpan::Cast(rt) => Ok(format!("({base} as {})", rust_type(rt))),
+                    FfiSpan::MethodCall(rn) => Ok(format!("{base}.{rn}()")),
+                    FfiSpan::FreeCall(rn) => Ok(format!("{rn}(&{base})")),
+                    FfiSpan::BlockExpr(_) => {
+                        let arg = if children.len() > 1 { emit_expr(world, children[1].0)? } else { "todo!()".into() };
+                        Ok(format!("{{ let mut v = {base}; v.push({arg}); v }}"))
+                    }
+                    FfiSpan::IndexAccess(rn) => Ok(format!("{base}.{rn}()")),
+                };
+            }
+            // Legacy fallback for non-FFI methods
             if method == "toF32" { return Ok(format!("({base} as f32)")); }
             if method == "toU32" { return Ok(format!("({base} as u32)")); }
             if method == "toI64" { return Ok(format!("({base} as i64)")); }
-            if method == "toSnake" { return Ok(format!("to_snake(&{base})")); }
-            if method == "toRustType" { return Ok(format!("to_rust_type(&{base})")); }
-            if method == "stripVec" { return Ok(format!("strip_vec(&{base})")); }
-            if method == "toParamType" { return Ok(format!("to_param_type(&{base})")); }
-            if method == "needsPascalAlias" { return Ok(format!("{base}.needs_pascal_alias()")); }
-            if method == "allFieldsCopy" { return Ok(format!("{base}.all_fields_copy()")); }
-            if method == "withPush" {
-                let arg = if children.len() > 1 { emit_expr(world, children[1].0)? } else { "todo!()".into() };
-                return Ok(format!("{{ let mut v = {base}; v.push({arg}); v }}"));
-            }
 
             // .with(Field(value)) → struct update syntax
             if method == "with" {

@@ -25,6 +25,11 @@ pub fn compile_files(
     config: &CodegenConfig,
 ) -> Result<String, String> {
     let world = compile_files_to_world(sources)?;
+
+    // Load FFI registry from the World's foreign block nodes
+    let ffi_reg = codegen_v3::FfiRegistry::load_from_world(&world);
+    codegen_v3::set_ffi_registry(ffi_reg);
+
     codegen_v3::generate_with_config(&world, config)
 }
 

@@ -61,13 +61,19 @@ fn main() {
 
     let config = CodegenConfig { rkyv: false };
     match compile_files_to_world(&refs) {
-        Ok(world) => match codegen_v3::generate_with_config(&world, &config) {
-            Ok(rust) => print!("{}", rust),
-            Err(e) => {
-                eprintln!("askic: {}", e);
-                process::exit(1);
+        Ok(world) => {
+            // Load FFI registry from parsed foreign blocks
+            let ffi_reg = codegen_v3::FfiRegistry::load_from_world(&world);
+            codegen_v3::set_ffi_registry(ffi_reg);
+
+            match codegen_v3::generate_with_config(&world, &config) {
+                Ok(rust) => print!("{}", rust),
+                Err(e) => {
+                    eprintln!("askic: {}", e);
+                    process::exit(1);
+                }
             }
-        },
+        }
         Err(e) => {
             eprintln!("askic: {}", e);
             process::exit(1);
