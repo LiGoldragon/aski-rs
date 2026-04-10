@@ -483,18 +483,18 @@ pub trait Parse {
     fn parse_all(self) -> ParseState;
     fn skip_ws(self) -> ParseState;
     fn parse_item(self) -> ParseState;
-    fn parse_domain(self, name: &String) -> ParseState;
-    fn parse_variants(self, type_id: &i64, ordinal: &i64) -> ParseState;
-    fn parse_struct(self, name: &String) -> ParseState;
-    fn parse_fields(self, type_id: &i64, ordinal: &i64) -> ParseState;
-    fn skip_balanced_parens(self, depth: &i64) -> ParseState;
-    fn skip_balanced_brackets(self, depth: &i64) -> ParseState;
-    fn add_type(self, name: &String, form: &TypeForm) -> ParseState;
-    fn add_variant(self, type_id: &i64, ordinal: &i64, v_name: &String) -> ParseState;
-    fn add_field(self, type_id: &i64, ordinal: &i64, f_name: &String, f_type: &String) -> ParseState;
-    fn parse_ffi_block(self, library: &String) -> ParseState;
-    fn parse_ffi_entries(self, library: &String) -> ParseState;
-    fn add_ffi(self, library: &String, aski_name: &String, rust_name: &String, span: &RustSpan, ret_type: &String) -> ParseState;
+    fn parse_domain(self, name: String) -> ParseState;
+    fn parse_variants(self, type_id: i64, ordinal: i64) -> ParseState;
+    fn parse_struct(self, name: String) -> ParseState;
+    fn parse_fields(self, type_id: i64, ordinal: i64) -> ParseState;
+    fn skip_balanced_parens(self, depth: i64) -> ParseState;
+    fn skip_balanced_brackets(self, depth: i64) -> ParseState;
+    fn add_type(self, name: String, form: TypeForm) -> ParseState;
+    fn add_variant(self, type_id: i64, ordinal: i64, v_name: String) -> ParseState;
+    fn add_field(self, type_id: i64, ordinal: i64, f_name: String, f_type: String) -> ParseState;
+    fn parse_ffi_block(self, library: String) -> ParseState;
+    fn parse_ffi_entries(self, library: String) -> ParseState;
+    fn add_ffi(self, library: String, aski_name: String, rust_name: String, span: RustSpan, ret_type: String) -> ParseState;
     fn peek(&self) -> TokenKind;
     fn peek_text(&self) -> String;
     fn advance(self) -> ParseState;
@@ -505,60 +505,60 @@ pub trait Parse {
 impl Parse for ParseState {
     fn parse_all(self) -> ParseState {
         let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::LParen => s.skip_balanced_parens(&1).parse_all(), TokenKind::EOF => s, _ => s.parse_item().parse_all() }
+        match s.peek() { TokenKind::LParen => s.skip_balanced_parens(1).parse_all(), TokenKind::EOF => s, _ => s.parse_item().parse_all() }
     }
     fn skip_ws(self) -> ParseState {
         match self.peek() { TokenKind::Newline => self.advance().skip_ws(), TokenKind::Comment => self.advance().skip_ws(), _ => self }
     }
     fn parse_item(self) -> ParseState {
         let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::CamelIdent => { let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.skip_balanced_parens(&1).skip_ws().skip_balanced_brackets(&1), TokenKind::LBracket => s2.skip_balanced_brackets(&1), _ => s2 } }, TokenKind::PascalIdent => { let mut name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.parse_domain(&name), TokenKind::LBrace => s2.parse_struct(&name), TokenKind::TraitBoundOpen => s2.parse_ffi_block(&name), _ => s2.advance().skip_ws() } }, TokenKind::Bang => s.advance().skip_ws().advance().skip_ws().advance().skip_ws().skip_balanced_parens(&1), _ => s.advance() }
+        match s.peek() { TokenKind::CamelIdent => { let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.skip_balanced_parens(1).skip_ws().skip_balanced_brackets(1), TokenKind::LBracket => s2.skip_balanced_brackets(1), _ => s2 } }, TokenKind::PascalIdent => { let mut name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.parse_domain(name), TokenKind::LBrace => s2.parse_struct(name), TokenKind::TraitBoundOpen => s2.parse_ffi_block(name), _ => s2.advance().skip_ws() } }, TokenKind::Bang => s.advance().skip_ws().advance().skip_ws().advance().skip_ws().skip_balanced_parens(1), _ => s.advance() }
     }
-    fn parse_domain(self, name: &String) -> ParseState {
+    fn parse_domain(self, name: String) -> ParseState {
         let mut s: ParseState = self.advance();
         let mut type_id: i64 = s.next_id;
-        s.bump_id().add_type(&name, &TypeForm::Domain).parse_variants(&type_id, &0).advance()
+        s.bump_id().add_type(name, TypeForm::Domain).parse_variants(type_id, 0).advance()
     }
-    fn parse_variants(self, type_id: &i64, ordinal: &i64) -> ParseState {
+    fn parse_variants(self, type_id: i64, ordinal: i64) -> ParseState {
         let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::RParen => s, TokenKind::PascalIdent => { let mut v_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.skip_balanced_parens(&1).add_variant(&type_id, &ordinal, &v_name).parse_variants(&type_id, &(ordinal + 1)), _ => s2.add_variant(&type_id, &ordinal, &v_name).parse_variants(&type_id, &(ordinal + 1)) } }, _ => s }
+        match s.peek() { TokenKind::RParen => s, TokenKind::PascalIdent => { let mut v_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); match s2.peek() { TokenKind::LParen => s2.skip_balanced_parens(1).add_variant(type_id, ordinal, v_name).parse_variants(type_id, (ordinal + 1)), _ => s2.add_variant(type_id, ordinal, v_name).parse_variants(type_id, (ordinal + 1)) } }, _ => s }
     }
-    fn parse_struct(self, name: &String) -> ParseState {
+    fn parse_struct(self, name: String) -> ParseState {
         let mut s: ParseState = self.advance();
         let mut type_id: i64 = s.next_id;
-        s.bump_id().add_type(&name, &TypeForm::Struct).parse_fields(&type_id, &0).advance()
+        s.bump_id().add_type(name, TypeForm::Struct).parse_fields(type_id, 0).advance()
     }
-    fn parse_fields(self, type_id: &i64, ordinal: &i64) -> ParseState {
+    fn parse_fields(self, type_id: i64, ordinal: i64) -> ParseState {
         let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::RBrace => s, TokenKind::PascalIdent => { let mut f_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); let mut f_type: String = s2.peek_text(); let mut s3: ParseState = s2.advance().skip_ws(); match s3.peek() { TokenKind::LBrace => { let mut s4: ParseState = s3.advance().skip_ws(); let mut inner_type: String = s4.peek_text(); let mut s5: ParseState = s4.advance().skip_ws().advance(); let mut full_type: String = (((f_type + "{") + &inner_type) + "}"); s5.add_field(&type_id, &ordinal, &f_name, &full_type).parse_fields(&type_id, &(ordinal + 1)) }, _ => s3.add_field(&type_id, &ordinal, &f_name, &f_type).parse_fields(&type_id, &(ordinal + 1)) } }, TokenKind::Comment => s.advance().parse_fields(type_id, ordinal), _ => s }
+        match s.peek() { TokenKind::RBrace => s, TokenKind::PascalIdent => { let mut f_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); let mut f_type: String = s2.peek_text(); let mut s3: ParseState = s2.advance().skip_ws(); match s3.peek() { TokenKind::LBrace => { let mut s4: ParseState = s3.advance().skip_ws(); let mut inner_type: String = s4.peek_text(); let mut s5: ParseState = s4.advance().skip_ws().advance(); let mut full_type: String = (((f_type + "{") + &inner_type) + "}"); s5.add_field(type_id, ordinal, f_name, full_type).parse_fields(type_id, (ordinal + 1)) }, _ => s3.add_field(type_id, ordinal, f_name, f_type).parse_fields(type_id, (ordinal + 1)) } }, TokenKind::Comment => s.advance().parse_fields(type_id, ordinal), _ => s }
     }
-    fn skip_balanced_parens(self, depth: &i64) -> ParseState {
+    fn skip_balanced_parens(self, depth: i64) -> ParseState {
         let mut s: ParseState = self.advance();
-        match s.peek() { TokenKind::LParen => s.skip_balanced_parens(&(depth + 1)), TokenKind::RParen => match ((*depth == 1)) { true => s.advance(), false => s.skip_balanced_parens(&(*depth - 1)) }, TokenKind::EOF => s, _ => s.skip_balanced_parens(&depth) }
+        match s.peek() { TokenKind::LParen => s.skip_balanced_parens((depth + 1)), TokenKind::RParen => match ((depth == 1)) { true => s.advance(), false => s.skip_balanced_parens((depth - 1)) }, TokenKind::EOF => s, _ => s.skip_balanced_parens(depth) }
     }
-    fn skip_balanced_brackets(self, depth: &i64) -> ParseState {
+    fn skip_balanced_brackets(self, depth: i64) -> ParseState {
         let mut s: ParseState = self.advance();
-        match s.peek() { TokenKind::LBracket => s.skip_balanced_brackets(&(depth + 1)), TokenKind::RBracket => match ((*depth == 1)) { true => s.advance(), false => s.skip_balanced_brackets(&(*depth - 1)) }, TokenKind::EOF => s, _ => s.skip_balanced_brackets(&depth) }
+        match s.peek() { TokenKind::LBracket => s.skip_balanced_brackets((depth + 1)), TokenKind::RBracket => match ((depth == 1)) { true => s.advance(), false => s.skip_balanced_brackets((depth - 1)) }, TokenKind::EOF => s, _ => s.skip_balanced_brackets(depth) }
     }
-    fn parse_ffi_block(self, library: &String) -> ParseState {
+    fn parse_ffi_block(self, library: String) -> ParseState {
         let mut s: ParseState = self.advance();
-        s.parse_ffi_entries(&library).advance()
+        s.parse_ffi_entries(library).advance()
     }
-    fn parse_ffi_entries(self, library: &String) -> ParseState {
+    fn parse_ffi_entries(self, library: String) -> ParseState {
         let mut s: ParseState = self.skip_ws();
-        match s.peek() { TokenKind::TraitBoundClose => s, TokenKind::CamelIdent => { let mut aski_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); let mut s3: ParseState = s2.skip_balanced_parens(&1).skip_ws(); let mut ret_type: String = s3.peek_text(); let mut s4: ParseState = s3.advance().skip_ws(); let mut rust_name: String = s4.peek_text(); let mut s5: ParseState = s4.advance(); s5.add_ffi(&library, &aski_name, &rust_name, &RustSpan::MethodCall, &ret_type).parse_ffi_entries(&library) }, _ => s.advance().parse_ffi_entries(&library) }
+        match s.peek() { TokenKind::TraitBoundClose => s, TokenKind::CamelIdent => { let mut aski_name: String = s.peek_text(); let mut s2: ParseState = s.advance().skip_ws(); let mut s3: ParseState = s2.skip_balanced_parens(1).skip_ws(); let mut ret_type: String = s3.peek_text(); let mut s4: ParseState = s3.advance().skip_ws(); let mut rust_name: String = s4.peek_text(); let mut s5: ParseState = s4.advance(); s5.add_ffi(library.clone(), aski_name.clone(), rust_name.clone(), RustSpan::MethodCall, ret_type).parse_ffi_entries(library) }, _ => s.advance().parse_ffi_entries(library) }
     }
-    fn add_type(self, name: &String, form: &TypeForm) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.with_push(TypeEntry { id: (self.next_id - 1), name: name.clone(), form: *form }), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
+    fn add_type(self, name: String, form: TypeForm) -> ParseState {
+        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.with_push(TypeEntry { id: (self.next_id - 1), name: name.clone(), form: form }), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
     }
-    fn add_variant(self, type_id: &i64, ordinal: &i64, v_name: &String) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.with_push(VariantDef { type_id: *type_id, ordinal: *ordinal, name: v_name.clone(), contains_type: String::new() }), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
+    fn add_variant(self, type_id: i64, ordinal: i64, v_name: String) -> ParseState {
+        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.with_push(VariantDef { type_id: type_id, ordinal: ordinal, name: v_name.clone(), contains_type: String::new() }), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
     }
-    fn add_field(self, type_id: &i64, ordinal: &i64, f_name: &String, f_type: &String) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.with_push(FieldDef { type_id: *type_id, ordinal: *ordinal, name: f_name.clone(), field_type: f_type.clone() }), ffi_entries: self.ffi_entries.clone() }
+    fn add_field(self, type_id: i64, ordinal: i64, f_name: String, f_type: String) -> ParseState {
+        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.with_push(FieldDef { type_id: type_id, ordinal: ordinal, name: f_name.clone(), field_type: f_type.clone() }), ffi_entries: self.ffi_entries.clone() }
     }
-    fn add_ffi(self, library: &String, aski_name: &String, rust_name: &String, span: &RustSpan, ret_type: &String) -> ParseState {
-        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.with_push(FfiEntry { library: library.clone(), aski_name: aski_name.clone(), rust_name: rust_name.clone(), span: *span, return_type: ret_type.clone() }) }
+    fn add_ffi(self, library: String, aski_name: String, rust_name: String, span: RustSpan, ret_type: String) -> ParseState {
+        ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: self.next_id, types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.with_push(FfiEntry { library: library.clone(), aski_name: aski_name.clone(), rust_name: rust_name.clone(), span: span, return_type: ret_type.clone() }) }
     }
     fn bump_id(self) -> ParseState {
         ParseState { tokens: self.tokens.clone(), pos: self.pos, next_id: (self.next_id + 1), types: self.types.clone(), variants: self.variants.clone(), fields: self.fields.clone(), ffi_entries: self.ffi_entries.clone() }
