@@ -1,5 +1,25 @@
 //! Helper functions called by aski-generated code.
-//! to_snake, to_rust_type, strip_vec, from_ordinal.
+//! to_snake, to_rust_type, strip_vec, from_ordinal, Vec helpers.
+
+/// Vec indexing by i64 (used by aski's fromOrdinal).
+pub trait VecExt<T> {
+    fn from_ordinal(&self, idx: &i64) -> &T;
+}
+
+impl<T> VecExt<T> for Vec<T> {
+    fn from_ordinal(&self, idx: &i64) -> &T {
+        &self[*idx as usize]
+    }
+}
+
+/// i64 conversion for u32 (used by aski's toI64 on len).
+pub trait ToI64 {
+    fn to_i64(&self) -> i64;
+}
+
+impl ToI64 for u32 {
+    fn to_i64(&self) -> i64 { *self as i64 }
+}
 
 pub trait StringExt {
     fn to_snake(&self) -> String;
