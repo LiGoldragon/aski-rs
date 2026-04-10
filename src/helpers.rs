@@ -135,3 +135,70 @@ impl<T> WithPush<T> for Vec<T> {
         self
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// FFI implementations — called by aski-generated code
+// ═══════════════════════════════════════════════════════════════
+
+/// Blake3 hashing — returns 32-byte hash as Vec<u8>
+pub fn blake3_hash(data: &[u8]) -> Vec<u8> {
+    blake3::hash(data).as_bytes().to_vec()
+}
+
+/// HashMap operations
+pub fn hash_map_new<K, V>() -> std::collections::HashMap<K, V> {
+    std::collections::HashMap::new()
+}
+
+/// Byte operations
+pub fn bytes_concat(a: &[u8], b: &[u8]) -> Vec<u8> {
+    let mut out = a.to_vec();
+    out.extend_from_slice(b);
+    out
+}
+
+pub fn bytes_slice(data: &[u8], start: usize, end: usize) -> Vec<u8> {
+    data[start..end].to_vec()
+}
+
+pub fn bytes_eq(a: &[u8], b: &[u8]) -> bool {
+    a == b
+}
+
+/// File I/O
+pub fn fs_read(path: &str) -> Vec<u8> {
+    std::fs::read(path).unwrap_or_default()
+}
+
+pub fn fs_write(path: &str, data: &[u8]) -> bool {
+    std::fs::write(path, data).is_ok()
+}
+
+pub fn fs_exists(path: &str) -> bool {
+    std::path::Path::new(path).exists()
+}
+
+pub fn fs_mkdir_all(path: &str) -> bool {
+    std::fs::create_dir_all(path).is_ok()
+}
+
+pub fn fs_list_dir(path: &str) -> Vec<String> {
+    std::fs::read_dir(path)
+        .map(|entries| entries
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect())
+        .unwrap_or_default()
+}
+
+/// Hex encoding
+pub fn to_hex(data: &[u8]) -> String {
+    data.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+pub fn from_hex(s: &str) -> Vec<u8> {
+    (0..s.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&s[i..i+2], 16).ok())
+        .collect()
+}

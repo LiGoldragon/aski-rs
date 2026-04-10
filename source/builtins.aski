@@ -8,6 +8,8 @@ Cast {|
   toF32(@Self) F32 as_f32
   toU32(@Self) U32 as_u32
   toI64(@Self) I64 as_i64
+  toU8(@Self) U8 as_u8
+  toUsize(@Self) U64 as_usize
 |}
 
 ;; ── Standard methods ──
@@ -33,4 +35,41 @@ Helpers {|
 VecOps {|
   withPush(@Self @Item Self) Self with_push
   fromOrdinal(:@Self @Index I64) Self from_ordinal
+|}
+
+;; ── Blake3 hashing ──
+Blake3 {|
+  hash(:@Self) Vec{U8} blake3_hash
+|}
+
+;; ── HashMap operations ──
+HashMap {|
+  insert(~@Self @Key Self @Value Self) Self hash_map_insert
+  get(:@Self @Key Self) Self hash_map_get
+  containsKey(:@Self @Key Self) Bool hash_map_contains_key
+  new() Self hash_map_new
+|}
+
+;; ── Byte/slice operations ──
+Bytes {|
+  asSlice(:@Self) Vec{U8} as_slice
+  fromSlice(@Data Vec{U8}) Self from_slice
+  concat(:@Self @Other Vec{U8}) Vec{U8} bytes_concat
+  sliceAt(:@Self @Start U64 @End U64) Vec{U8} bytes_slice
+  eq(:@Self @Other Vec{U8}) Bool bytes_eq
+|}
+
+;; ── File I/O ──
+FileIO {|
+  readFile(@Path String) Vec{U8} fs_read
+  writeFile(@Path String @Data Vec{U8}) Bool fs_write
+  fileExists(@Path String) Bool fs_exists
+  mkdirAll(@Path String) Bool fs_mkdir_all
+  listDir(@Path String) Vec{String} fs_list_dir
+|}
+
+;; ── Hex encoding (for hash display) ──
+Hex {|
+  toHex(:@Self) String to_hex
+  fromHex(@Str String) Vec{U8} from_hex
 |}

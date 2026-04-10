@@ -6,5 +6,6 @@ description = "aski Rust backend — Kernel Aski parser, codegen, rustc integrat
 
 [dependencies]
 logos = "0.14"
+blake3 = "1"
 
 [dev-dependencies]
