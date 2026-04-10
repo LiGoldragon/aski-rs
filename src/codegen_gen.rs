@@ -1,5 +1,5 @@
 use crate::helpers::StringExt;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum TypeForm {
     Domain,
     Struct,
@@ -28,14 +28,14 @@ impl TypeForm {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct TypeEntry {
     pub id: i64,
     pub name: String,
     pub form: TypeForm,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct VariantDef {
     pub type_id: i64,
     pub ordinal: i64,
@@ -43,7 +43,7 @@ pub struct VariantDef {
     pub contains_type: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct FieldDef {
     pub type_id: i64,
     pub ordinal: i64,
@@ -51,7 +51,7 @@ pub struct FieldDef {
     pub field_type: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum RustSpan {
     Cast,
     MethodCall,
@@ -93,7 +93,7 @@ impl RustSpan {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct FfiEntry {
     pub library: String,
     pub aski_name: String,
@@ -102,7 +102,7 @@ pub struct FfiEntry {
     pub return_type: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct CodeWorld {
     pub types: Vec<TypeEntry>,
     pub variants: Vec<VariantDef>,

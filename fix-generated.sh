@@ -70,4 +70,11 @@ sed -i 's/aski_name: aski_name/aski_name: aski_name.clone()/g' "$f"
 sed -i 's/rust_name: rust_name/rust_name: rust_name.clone()/g' "$f"
 sed -i 's/return_type: ret_type/return_type: ret_type.clone()/g' "$f"
 
+# Add rkyv derives to all types
+for f in src/codegen_gen.rs src/parser_gen.rs; do
+  sed -i 's/#\[derive(Debug, Clone, Copy, PartialEq, Eq)\]/#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]/g' "$f"
+  sed -i 's/#\[derive(Debug, Clone, PartialEq, Eq)\]/#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]/g' "$f"
+  sed -i 's/#\[derive(Debug, Copy, Clone, PartialEq, Eq)\]/#[derive(Debug, Copy, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]/g' "$f"
+done
+
 echo "Fixed generated Rust"
