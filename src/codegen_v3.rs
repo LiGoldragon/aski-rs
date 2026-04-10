@@ -526,6 +526,35 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
                     out.push_str(&format!("{indent}println!(\"{{}}\", {val});\n"));
                 }
             }
+            "yield" => {
+                // >collection.method — generates for-loop iteration
+                let children = aski_core::query_child_exprs(world, *eid);
+                if let Some((cid, ckind, _, cval)) = children.first() {
+                    if ckind == "method_call" {
+                        // MethodCall on a collection: for item in collection { body }
+                        let method_name = cval.as_deref().unwrap_or("");
+                        let mc_children = aski_core::query_child_exprs(world, *cid);
+                        if let Some((base_id, base_kind, _, base_val)) = mc_children.first() {
+                            let collection = emit_expr(world, *base_id)?;
+                            // The method body argument (second child of MethodCall)
+                            if mc_children.len() > 1 {
+                                let (body_id, body_kind, _, body_val) = &mc_children[1];
+                                let loop_var = snake(method_name);
+                                out.push_str(&format!("{indent}for {loop_var} in {collection}.iter() {{\n"));
+                                let body_exprs = aski_core::query_child_exprs(world, *body_id);
+                                emit_block(out, world, &body_exprs, &format!("{indent}    "))?;
+                                out.push_str(&format!("{indent}}}\n"));
+                            } else {
+                                let val = emit_expr(world, *cid)?;
+                                out.push_str(&format!("{indent}{val};\n"));
+                            }
+                        }
+                    } else {
+                        let val = emit_expr(world, *cid)?;
+                        out.push_str(&format!("{indent}{val};\n"));
+                    }
+                }
+            }
             "return" => {
                 let children = aski_core::query_child_exprs(world, *eid);
                 if let Some((cid, _, _, _)) = children.first() {
