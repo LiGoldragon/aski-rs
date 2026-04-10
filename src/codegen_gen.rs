@@ -1,5 +1,4 @@
 use crate::helpers::StringExt;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeForm {
     Domain,
@@ -158,6 +157,7 @@ pub enum ") + &type_entry.name) + " {
             for variant_def in self.variant_def_by_type_id(type_entry.id).iter() {
                 out = (((((out + "            \"") + &variant_def.name.to_snake()) + "\" => Some(Self::") + &variant_def.name) + "),
 ");
+                out = (out + &variant_def.name.needs_pascal_alias());
             }
             out = (out + "            _ => None,
         }
@@ -182,7 +182,11 @@ pub enum ") + &type_entry.name) + " {
     fn emit_structs(&self) -> String {
         let mut out: String = String::new();
         for type_entry in self.type_entry_by_form(TypeForm::Struct).iter() {
-            out = (((out + "#[derive(Debug, Clone, PartialEq, Eq)]
+            let mut field_types: String = String::new();
+            for field_def in self.field_def_by_type_id(type_entry.id).iter() {
+                field_types = ((field_types + &field_def.field_type) + ",");
+            }
+            out = (((((out + "#[derive(Debug, ") + &field_types.all_fields_copy()) + "Clone, PartialEq, Eq)]
 pub struct ") + &type_entry.name) + " {
 ");
             for field_def in self.field_def_by_type_id(type_entry.id).iter() {
@@ -215,7 +219,7 @@ pub struct ") + &type_entry.name) + " {
                 for elem_type_entry in self.type_entry_by_name(&elem_type).iter() {
                     for elem_field_def in self.field_def_by_type_id(elem_type_entry.id).iter() {
                         out = ((((out + "    pub fn ") + &elem_type.to_snake()) + "_by_") + &elem_field_def.name.to_snake());
-                        out = (((((out + "(&self, val: ") + &elem_field_def.field_type.to_rust_type()) + ") -> Vec<&") + &elem_type) + "> {
+                        out = (((((out + "(&self, val: ") + &elem_field_def.field_type.to_param_type()) + ") -> Vec<&") + &elem_type) + "> {
 ");
                         out = (((((out + "        self.") + &field_def.name.to_snake()) + ".iter().filter(|r| r.") + &elem_field_def.name.to_snake()) + " == val).collect()
 ");

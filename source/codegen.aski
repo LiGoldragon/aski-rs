@@ -75,6 +75,7 @@ generate [CodeWorld [
       ~@Out.set([@Out + "        match s {\n"])
       #@Self.variantDefByTypeId(@TypeEntry.Id).variantDef([
         ~@Out.set([@Out + "            \\\"" + @VariantDef.Name.toSnake + "\\\" => Some(Self::" + @VariantDef.Name + "),\n"])
+        ~@Out.set([@Out + @VariantDef.Name.needsPascalAlias])
       ])
       ~@Out.set([@Out + "            _ => None,\n        }\n    }\n\n"])
 
@@ -91,7 +92,13 @@ generate [CodeWorld [
   emitStructs(:@Self) String [
     ~@Out String/new("")
     #@Self.typeEntryByForm(Struct).typeEntry([
-      ~@Out.set([@Out + "#[derive(Debug, Clone, PartialEq, Eq)]\npub struct " + @TypeEntry.Name + " {\n"])
+      ;; Collect field types to determine Copy eligibility
+      ~@FieldTypes String/new("")
+      #@Self.fieldDefByTypeId(@TypeEntry.Id).fieldDef([
+        ~@FieldTypes.set([@FieldTypes + @FieldDef.FieldType + ","])
+      ])
+      ;; Emit derive with Copy if eligible
+      ~@Out.set([@Out + "#[derive(Debug, " + @FieldTypes.allFieldsCopy + "Clone, PartialEq, Eq)]\npub struct " + @TypeEntry.Name + " {\n"])
       #@Self.fieldDefByTypeId(@TypeEntry.Id).fieldDef([
         ~@Out.set([@Out + "    pub " + @FieldDef.Name.toSnake + ": " + @FieldDef.FieldType.toRustType + ",\n"])
       ])
@@ -123,7 +130,7 @@ generate [CodeWorld [
         #@Self.typeEntryByName(@ElemType).elemTypeEntry([
           #@Self.fieldDefByTypeId(@ElemTypeEntry.Id).elemFieldDef([
             ~@Out.set([@Out + "    pub fn " + @ElemType.toSnake + "_by_" + @ElemFieldDef.Name.toSnake])
-            ~@Out.set([@Out + "(&self, val: " + @ElemFieldDef.FieldType.toRustType + ") -> Vec<&" + @ElemType + "> {\n"])
+            ~@Out.set([@Out + "(&self, val: " + @ElemFieldDef.FieldType.toParamType + ") -> Vec<&" + @ElemType + "> {\n"])
             ~@Out.set([@Out + "        self." + @FieldDef.Name.toSnake + ".iter().filter(|r| r." + @ElemFieldDef.Name.toSnake + " == val).collect()\n"])
             ~@Out.set([@Out + "    }\n\n"])
           ])
