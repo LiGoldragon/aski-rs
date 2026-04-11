@@ -99,9 +99,12 @@ impl GrammarParser {
                         pos = skip_newlines(tokens, new_pos);
                     }
                 }
-                Err(_) => {
-                    // Skip unparseable item — advance to next top-level item
-                    // (PascalCase or camelCase ident after a newline)
+                Err(e) => {
+                    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/bootstrap_skip.log") {
+                        use std::io::Write;
+                        let tok = if pos < tokens.len() { format!("{:?}", tokens[pos].token) } else { "EOF".into() };
+                        let _ = writeln!(f, "SKIP[{}] {}: {}", pos, tok, e);
+                    }
                     pos += 1;
                     loop {
                         pos = skip_newlines(tokens, pos);
@@ -130,7 +133,9 @@ impl GrammarParser {
             for arm in &rule.arms {
                 match self.try_arm(arm, tokens, pos) {
                     Ok(result) => return Ok(result),
-                    Err(e) => last_err = e,
+                    Err(e) => {
+                        last_err = e;
+                    }
                 }
             }
             return Err(format!("rule <{}> failed at pos {}: {}", name, pos, last_err));

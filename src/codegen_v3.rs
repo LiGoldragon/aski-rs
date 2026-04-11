@@ -160,6 +160,8 @@ pub fn generate_with_config(world: &World, config: &CodegenConfig) -> Result<Str
 
     // Compute types that cannot derive rkyv (contain recursive types)
     let no_rkyv = compute_no_rkyv_set(world);
+    // Track emitted accessor methods to avoid duplicates
+    let mut emitted_accessors: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     let mut nodes = aski_core::query_all_top_level_nodes(world);
     nodes.sort_by_key(|(_, kind, _)| match kind.as_str() {
@@ -173,7 +175,7 @@ pub fn generate_with_config(world: &World, config: &CodegenConfig) -> Result<Str
     for (node_id, kind, name) in &nodes {
         match kind.as_str() {
             "domain" => emit_domain(&mut out, world, name, config)?,
-            "struct" => emit_struct(&mut out, world, name, config, &no_rkyv)?,
+            "struct" => emit_struct(&mut out, world, name, config, &no_rkyv, &mut emitted_accessors)?,
             "const" => emit_const(&mut out, world, *node_id)?,
             "trait" => emit_trait(&mut out, world, *node_id, name)?,
             "impl" => emit_impl(&mut out, world, *node_id)?,
@@ -349,7 +351,7 @@ fn is_copy_eligible(type_name: &str, world: &World) -> bool {
     }
 }
 
-fn emit_struct(out: &mut String, world: &World, name: &str, config: &CodegenConfig, no_rkyv: &std::collections::HashSet<String>) -> Result<(), String> {
+fn emit_struct(out: &mut String, world: &World, name: &str, config: &CodegenConfig, no_rkyv: &std::collections::HashSet<String>, emitted_accessors: &mut std::collections::HashSet<String>) -> Result<(), String> {
     let fields = aski_core::query_struct_fields(world, name);
     let all_copy = !fields.is_empty() && fields.iter().all(|(_, fname, ftype)| {
         !aski_core::is_recursive_field(world, name, fname) && is_copy_eligible(ftype, world)
@@ -398,6 +400,9 @@ fn emit_struct(out: &mut String, world: &World, name: &str, config: &CodegenConf
             let type_snake = snake(elem_type);
             for (_, ef_name, ef_type) in &elem_fields {
                 let ef_snake = snake(ef_name);
+                let method_key = format!("{name}::{type_snake}_by_{ef_snake}");
+                if emitted_accessors.contains(&method_key) { continue; }
+                emitted_accessors.insert(method_key);
                 let rt = rust_type(ef_type);
                 let param_t = match rt.as_str() {
                     "String" => "&str",
@@ -627,14 +632,21 @@ fn emit_block(out: &mut String, world: &World, exprs: &[(i64, String, i64, Optio
                         out.push_str(&format!("{indent}let {svar}: {type_name} = {val};\n"));
                     }
                     _ if is_primitive(&type_name) => {
-                        if let Some((cid, _, _, _)) = children.first() {
+                        if let Some((cid, ckind, _, _)) = children.first() {
                             let val = emit_expr(world, *cid)?;
+                            // String literal assigned to String needs .to_string()
+                            let val = if type_name == "String" && ckind == "string_lit" {
+                                format!("{val}.to_string()")
+                            } else { val };
                             out.push_str(&format!("{indent}let {svar}: {} = {val};\n", rust_type(&type_name)));
                         }
                     }
                     _ => {
-                        if let Some((cid, _, _, _)) = children.first() {
+                        if let Some((cid, ckind, _, _)) = children.first() {
                             let val = emit_expr(world, *cid)?;
+                            let val = if type_name == "String" && ckind == "string_lit" {
+                                format!("{val}.to_string()")
+                            } else { val };
                             out.push_str(&format!("{indent}let {svar}: {} = {val};\n", rust_type(&type_name)));
                         }
                     }
