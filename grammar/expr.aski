@@ -34,8 +34,16 @@
   [<atom> <postfixOps> / @Rest]  FoldPost(<atom> <postfixOps>) @Rest
 }
 <postfixOps> {
+  ;; Dot-name with parens → always method call
   [Dot @Name LParen <callArgs> RParen <postfixOps> / @Rest]
     Cons(MethodOp(@Name <callArgs>) <postfixOps>) @Rest
+  ;; Dot-name, known FFI → method call
+  [Dot @Name <postfixOps> / @Rest] {@World.IsFfi(@Name)}
+    Cons(MethodOp(@Name) <postfixOps>) @Rest
+  ;; Dot-name, camelCase → method call
+  [Dot @Name <postfixOps> / @Rest] {@World.IsLowerFirst(@Name)}
+    Cons(MethodOp(@Name) <postfixOps>) @Rest
+  ;; Dot-name, default → field access
   [Dot @Name <postfixOps> / @Rest]
     Cons(AccessOp(@Name) <postfixOps>) @Rest
   [Question <postfixOps> / @Rest]

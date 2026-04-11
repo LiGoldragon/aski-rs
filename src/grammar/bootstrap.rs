@@ -1,7 +1,7 @@
 //! Bootstrap parser — reads grammar/*.aski rule files into a RuleTable.
 //!
 //! This is the ONLY Rust code that knows grammar file syntax.
-//! It parses the minimal subset: <name> { [pattern | @Rest] (Result @Rest) }
+//! It parses the minimal subset: <name> { [pattern / @Rest] (Result @Rest) }
 //! Everything else is defined BY the grammar rules it loads.
 
 use std::path::Path;
@@ -107,7 +107,7 @@ fn parse_one_rule(tokens: &[&Token], pos: usize, known: &HashSet<&str>) -> Resul
     Ok((ParseRule { name, arms }, cur))
 }
 
-/// Parse a single arm: [pattern | @Rest] Result @Rest
+/// Parse a single arm: [pattern / @Rest] Result @Rest
 fn parse_arm(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>) -> Result<ParseArm, String> {
     // [ or [| (IterOpen — epsilon arm)
     if *cur < tokens.len() && tokens[*cur] == &Token::IterOpen {
@@ -136,7 +136,7 @@ fn parse_arm(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>) -> Resul
             *cur += 1;
             let _rest = eat_ident(tokens, cur)?;
         }
-        return Ok(ParseArm { pattern, result });
+        return Ok(ParseArm { pattern, guard: None, result });
     }
 
     // Normal arm: [
@@ -165,6 +165,28 @@ fn parse_arm(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>) -> Resul
     // ]
     expect_tok(tokens, cur, &Token::RBracket, "]")?;
 
+    // Optional guard: {condition}
+    let guard = if *cur < tokens.len() && tokens[*cur] == &Token::LBrace {
+        *cur += 1; // skip {
+        // Collect guard text until }
+        let mut guard_text = String::new();
+        while *cur < tokens.len() && tokens[*cur] != &Token::RBrace {
+            match tokens[*cur] {
+                Token::At => { guard_text.push('@'); *cur += 1; }
+                Token::Dot => { guard_text.push('.'); *cur += 1; }
+                Token::LParen => { guard_text.push('('); *cur += 1; }
+                Token::RParen => { guard_text.push(')'); *cur += 1; }
+                Token::PascalIdent(s) => { guard_text.push_str(s); *cur += 1; }
+                Token::CamelIdent(s) => { guard_text.push_str(s); *cur += 1; }
+                _ => { *cur += 1; } // skip unknown tokens in guard
+            }
+        }
+        expect_tok(tokens, cur, &Token::RBrace, "}")?;
+        Some(super::ParseGuard { condition: guard_text })
+    } else {
+        None
+    };
+
     // Result: constructor with optional args, until next [ or }
     let result = parse_result_spec(tokens, cur, known)?;
 
@@ -174,7 +196,7 @@ fn parse_arm(tokens: &[&Token], cur: &mut usize, known: &HashSet<&str>) -> Resul
         let _rest = eat_ident(tokens, cur)?;
     }
 
-    Ok(ParseArm { pattern, result })
+    Ok(ParseArm { pattern, guard, result })
 }
 
 /// Parse a single pattern element.
@@ -364,8 +386,8 @@ mod tests {
     fn bootstrap_parse_simple_rule() {
         let source = r#"
             <param> {
-                [Colon At "Self" | @Rest]  BorrowSelf @Rest
-                [At @Name | @Rest]         Owned(@Name) @Rest
+                [Colon At "Self" / @Rest]  BorrowSelf @Rest
+                [At @Name / @Rest]         Owned(@Name) @Rest
             }
         "#;
         let known = known_tokens();
@@ -374,7 +396,7 @@ mod tests {
         assert_eq!(rules[0].name, "param");
         assert_eq!(rules[0].arms.len(), 2);
 
-        // First arm: [Colon At "Self" | @Rest] BorrowSelf @Rest
+        // First arm: [Colon At "Self" / @Rest] BorrowSelf @Rest
         let arm0 = &rules[0].arms[0];
         assert_eq!(arm0.pattern.len(), 3);
         assert!(matches!(&arm0.pattern[0], PatElem::Tok(s) if s == "Colon"));
@@ -383,7 +405,7 @@ mod tests {
         assert_eq!(arm0.result.constructor, "BorrowSelf");
         assert!(arm0.result.args.is_empty());
 
-        // Second arm: [At @Name | @Rest] Owned(@Name) @Rest
+        // Second arm: [At @Name / @Rest] Owned(@Name) @Rest
         let arm1 = &rules[0].arms[1];
         assert_eq!(arm1.pattern.len(), 2);
         assert!(matches!(&arm1.pattern[0], PatElem::Tok(s) if s == "At"));
@@ -397,7 +419,7 @@ mod tests {
     fn bootstrap_parse_nonterminal_in_pattern() {
         let source = r#"
             <param> {
-                [At @Name <typeRef> | @Rest]  Named(@Name <typeRef>) @Rest
+                [At @Name <typeRef> / @Rest]  Named(@Name <typeRef>) @Rest
             }
         "#;
         let known = known_tokens();
@@ -413,7 +435,7 @@ mod tests {
     fn bootstrap_parse_epsilon_arm() {
         let source = r#"
             <variants> {
-                [<variant> <variants> | @Rest]  Cons(<variant> <variants>) @Rest
+                [<variant> <variants> / @Rest]  Cons(<variant> <variants>) @Rest
                 [| @Rest]                       Nil @Rest
             }
         "#;

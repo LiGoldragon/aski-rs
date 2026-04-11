@@ -263,15 +263,437 @@ impl ValueKind {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum NodeKind {
+    #[default]
+    Return,
+    Yield,
+    InstanceRef,
+    BareName,
+    ConstRef,
+    InlineEval,
+    Group,
+    StdOut,
+    StringLiteral,
+    IntLiteral,
+    BareTrue,
+    BareFalse,
+    Access,
+    MethodCallExpr,
+    BinOp,
+    FnCall,
+    TypePath,
+    StructConstruct,
+    StructField,
+    MatchExpr,
+    CommitArm,
+    ExprStub,
+    ErrorProp,
+    RangeExcl,
+    RangeIncl,
+    MutableNew,
+    MutableSet,
+    SubTypeNew,
+    SameTypeNew,
+    DeferredNew,
+    SubTypeDecl,
+    SetChainSet,
+    SetChainExtend,
+    SetChainMethod,
+    SetChainAccess,
+    DomainItem,
+    StructItem,
+    ForeignBlockItem,
+    ForeignFuncItem,
+    TraitDeclItem,
+    TraitImplItem,
+    TypeImplItem,
+    MethodSigItem,
+    MethodDefItem,
+    AssociatedTypeItem,
+    ConstItem,
+    MainItem,
+    TypeAliasItem,
+    GrammarRuleItem,
+    UnitVariant,
+    ParenVariant,
+    StructVariant,
+    FieldDef,
+    BorrowedFieldDef,
+    BlockBody,
+    TailBlockBody,
+    MatchBodyNode,
+    StubBody,
+    BacktrackArm,
+    DestructureArm,
+    BorrowSelfParam,
+    MutBorrowSelfParam,
+    OwnedSelfParam,
+    NamedParam,
+    BorrowParam,
+    MutBorrowParam,
+    OwnedParam,
+    SelfType,
+    NamedType,
+    BorrowedType,
+    ParameterizedType,
+    BoundType,
+    CompoundBound,
+    SingleBound,
+    Wildcard,
+    BoolTrue,
+    BoolFalse,
+    VariantPat,
+    DataCarrying,
+    InstanceBind,
+    LiteralPat,
+    OrPattern,
+    Op,
+    MethodOp,
+    AccessOp,
+    ErrorPropOp,
+    RangeExclOp,
+    RangeInclOp,
+    NoneNode,
+    ListNode,
+    ModuleHeader,
+    WildcardImport,
+    NamedImport,
+    Supertrait,
+    Methods,
+    RuleArm,
+    Terminal,
+    NonTerminal,
+    RestBind,
+    Constructor,
+    Passthrough,
+    ExprStmtNode,
+}
+
+impl std::fmt::Display for NodeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl NodeKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "return" => Some(Self::Return),
+            "yield" => Some(Self::Yield),
+            "instance_ref" => Some(Self::InstanceRef),
+            "InstanceRef" => Some(Self::InstanceRef),
+            "bare_name" => Some(Self::BareName),
+            "BareName" => Some(Self::BareName),
+            "const_ref" => Some(Self::ConstRef),
+            "ConstRef" => Some(Self::ConstRef),
+            "inline_eval" => Some(Self::InlineEval),
+            "InlineEval" => Some(Self::InlineEval),
+            "group" => Some(Self::Group),
+            "std_out" => Some(Self::StdOut),
+            "StdOut" => Some(Self::StdOut),
+            "string_literal" => Some(Self::StringLiteral),
+            "StringLiteral" => Some(Self::StringLiteral),
+            "int_literal" => Some(Self::IntLiteral),
+            "IntLiteral" => Some(Self::IntLiteral),
+            "bare_true" => Some(Self::BareTrue),
+            "BareTrue" => Some(Self::BareTrue),
+            "bare_false" => Some(Self::BareFalse),
+            "BareFalse" => Some(Self::BareFalse),
+            "access" => Some(Self::Access),
+            "method_call_expr" => Some(Self::MethodCallExpr),
+            "MethodCallExpr" => Some(Self::MethodCallExpr),
+            "bin_op" => Some(Self::BinOp),
+            "BinOp" => Some(Self::BinOp),
+            "fn_call" => Some(Self::FnCall),
+            "FnCall" => Some(Self::FnCall),
+            "type_path" => Some(Self::TypePath),
+            "TypePath" => Some(Self::TypePath),
+            "struct_construct" => Some(Self::StructConstruct),
+            "StructConstruct" => Some(Self::StructConstruct),
+            "struct_field" => Some(Self::StructField),
+            "StructField" => Some(Self::StructField),
+            "match_expr" => Some(Self::MatchExpr),
+            "MatchExpr" => Some(Self::MatchExpr),
+            "commit_arm" => Some(Self::CommitArm),
+            "CommitArm" => Some(Self::CommitArm),
+            "expr_stub" => Some(Self::ExprStub),
+            "ExprStub" => Some(Self::ExprStub),
+            "error_prop" => Some(Self::ErrorProp),
+            "ErrorProp" => Some(Self::ErrorProp),
+            "range_excl" => Some(Self::RangeExcl),
+            "RangeExcl" => Some(Self::RangeExcl),
+            "range_incl" => Some(Self::RangeIncl),
+            "RangeIncl" => Some(Self::RangeIncl),
+            "mutable_new" => Some(Self::MutableNew),
+            "MutableNew" => Some(Self::MutableNew),
+            "mutable_set" => Some(Self::MutableSet),
+            "MutableSet" => Some(Self::MutableSet),
+            "sub_type_new" => Some(Self::SubTypeNew),
+            "SubTypeNew" => Some(Self::SubTypeNew),
+            "same_type_new" => Some(Self::SameTypeNew),
+            "SameTypeNew" => Some(Self::SameTypeNew),
+            "deferred_new" => Some(Self::DeferredNew),
+            "DeferredNew" => Some(Self::DeferredNew),
+            "sub_type_decl" => Some(Self::SubTypeDecl),
+            "SubTypeDecl" => Some(Self::SubTypeDecl),
+            "set_chain_set" => Some(Self::SetChainSet),
+            "SetChainSet" => Some(Self::SetChainSet),
+            "set_chain_extend" => Some(Self::SetChainExtend),
+            "SetChainExtend" => Some(Self::SetChainExtend),
+            "set_chain_method" => Some(Self::SetChainMethod),
+            "SetChainMethod" => Some(Self::SetChainMethod),
+            "set_chain_access" => Some(Self::SetChainAccess),
+            "SetChainAccess" => Some(Self::SetChainAccess),
+            "domain_item" => Some(Self::DomainItem),
+            "DomainItem" => Some(Self::DomainItem),
+            "struct_item" => Some(Self::StructItem),
+            "StructItem" => Some(Self::StructItem),
+            "foreign_block_item" => Some(Self::ForeignBlockItem),
+            "ForeignBlockItem" => Some(Self::ForeignBlockItem),
+            "foreign_func_item" => Some(Self::ForeignFuncItem),
+            "ForeignFuncItem" => Some(Self::ForeignFuncItem),
+            "trait_decl_item" => Some(Self::TraitDeclItem),
+            "TraitDeclItem" => Some(Self::TraitDeclItem),
+            "trait_impl_item" => Some(Self::TraitImplItem),
+            "TraitImplItem" => Some(Self::TraitImplItem),
+            "type_impl_item" => Some(Self::TypeImplItem),
+            "TypeImplItem" => Some(Self::TypeImplItem),
+            "method_sig_item" => Some(Self::MethodSigItem),
+            "MethodSigItem" => Some(Self::MethodSigItem),
+            "method_def_item" => Some(Self::MethodDefItem),
+            "MethodDefItem" => Some(Self::MethodDefItem),
+            "associated_type_item" => Some(Self::AssociatedTypeItem),
+            "AssociatedTypeItem" => Some(Self::AssociatedTypeItem),
+            "const_item" => Some(Self::ConstItem),
+            "ConstItem" => Some(Self::ConstItem),
+            "main_item" => Some(Self::MainItem),
+            "MainItem" => Some(Self::MainItem),
+            "type_alias_item" => Some(Self::TypeAliasItem),
+            "TypeAliasItem" => Some(Self::TypeAliasItem),
+            "grammar_rule_item" => Some(Self::GrammarRuleItem),
+            "GrammarRuleItem" => Some(Self::GrammarRuleItem),
+            "unit_variant" => Some(Self::UnitVariant),
+            "UnitVariant" => Some(Self::UnitVariant),
+            "paren_variant" => Some(Self::ParenVariant),
+            "ParenVariant" => Some(Self::ParenVariant),
+            "struct_variant" => Some(Self::StructVariant),
+            "StructVariant" => Some(Self::StructVariant),
+            "field_def" => Some(Self::FieldDef),
+            "FieldDef" => Some(Self::FieldDef),
+            "borrowed_field_def" => Some(Self::BorrowedFieldDef),
+            "BorrowedFieldDef" => Some(Self::BorrowedFieldDef),
+            "block_body" => Some(Self::BlockBody),
+            "BlockBody" => Some(Self::BlockBody),
+            "tail_block_body" => Some(Self::TailBlockBody),
+            "TailBlockBody" => Some(Self::TailBlockBody),
+            "match_body_node" => Some(Self::MatchBodyNode),
+            "MatchBodyNode" => Some(Self::MatchBodyNode),
+            "stub_body" => Some(Self::StubBody),
+            "StubBody" => Some(Self::StubBody),
+            "backtrack_arm" => Some(Self::BacktrackArm),
+            "BacktrackArm" => Some(Self::BacktrackArm),
+            "destructure_arm" => Some(Self::DestructureArm),
+            "DestructureArm" => Some(Self::DestructureArm),
+            "borrow_self_param" => Some(Self::BorrowSelfParam),
+            "BorrowSelfParam" => Some(Self::BorrowSelfParam),
+            "mut_borrow_self_param" => Some(Self::MutBorrowSelfParam),
+            "MutBorrowSelfParam" => Some(Self::MutBorrowSelfParam),
+            "owned_self_param" => Some(Self::OwnedSelfParam),
+            "OwnedSelfParam" => Some(Self::OwnedSelfParam),
+            "named_param" => Some(Self::NamedParam),
+            "NamedParam" => Some(Self::NamedParam),
+            "borrow_param" => Some(Self::BorrowParam),
+            "BorrowParam" => Some(Self::BorrowParam),
+            "mut_borrow_param" => Some(Self::MutBorrowParam),
+            "MutBorrowParam" => Some(Self::MutBorrowParam),
+            "owned_param" => Some(Self::OwnedParam),
+            "OwnedParam" => Some(Self::OwnedParam),
+            "self_type" => Some(Self::SelfType),
+            "SelfType" => Some(Self::SelfType),
+            "named_type" => Some(Self::NamedType),
+            "NamedType" => Some(Self::NamedType),
+            "borrowed_type" => Some(Self::BorrowedType),
+            "BorrowedType" => Some(Self::BorrowedType),
+            "parameterized_type" => Some(Self::ParameterizedType),
+            "ParameterizedType" => Some(Self::ParameterizedType),
+            "bound_type" => Some(Self::BoundType),
+            "BoundType" => Some(Self::BoundType),
+            "compound_bound" => Some(Self::CompoundBound),
+            "CompoundBound" => Some(Self::CompoundBound),
+            "single_bound" => Some(Self::SingleBound),
+            "SingleBound" => Some(Self::SingleBound),
+            "wildcard" => Some(Self::Wildcard),
+            "bool_true" => Some(Self::BoolTrue),
+            "BoolTrue" => Some(Self::BoolTrue),
+            "bool_false" => Some(Self::BoolFalse),
+            "BoolFalse" => Some(Self::BoolFalse),
+            "variant_pat" => Some(Self::VariantPat),
+            "VariantPat" => Some(Self::VariantPat),
+            "data_carrying" => Some(Self::DataCarrying),
+            "DataCarrying" => Some(Self::DataCarrying),
+            "instance_bind" => Some(Self::InstanceBind),
+            "InstanceBind" => Some(Self::InstanceBind),
+            "literal_pat" => Some(Self::LiteralPat),
+            "LiteralPat" => Some(Self::LiteralPat),
+            "or_pattern" => Some(Self::OrPattern),
+            "OrPattern" => Some(Self::OrPattern),
+            "op" => Some(Self::Op),
+            "method_op" => Some(Self::MethodOp),
+            "MethodOp" => Some(Self::MethodOp),
+            "access_op" => Some(Self::AccessOp),
+            "AccessOp" => Some(Self::AccessOp),
+            "error_prop_op" => Some(Self::ErrorPropOp),
+            "ErrorPropOp" => Some(Self::ErrorPropOp),
+            "range_excl_op" => Some(Self::RangeExclOp),
+            "RangeExclOp" => Some(Self::RangeExclOp),
+            "range_incl_op" => Some(Self::RangeInclOp),
+            "RangeInclOp" => Some(Self::RangeInclOp),
+            "none_node" => Some(Self::NoneNode),
+            "NoneNode" => Some(Self::NoneNode),
+            "list_node" => Some(Self::ListNode),
+            "ListNode" => Some(Self::ListNode),
+            "module_header" => Some(Self::ModuleHeader),
+            "ModuleHeader" => Some(Self::ModuleHeader),
+            "wildcard_import" => Some(Self::WildcardImport),
+            "WildcardImport" => Some(Self::WildcardImport),
+            "named_import" => Some(Self::NamedImport),
+            "NamedImport" => Some(Self::NamedImport),
+            "supertrait" => Some(Self::Supertrait),
+            "methods" => Some(Self::Methods),
+            "rule_arm" => Some(Self::RuleArm),
+            "RuleArm" => Some(Self::RuleArm),
+            "terminal" => Some(Self::Terminal),
+            "non_terminal" => Some(Self::NonTerminal),
+            "NonTerminal" => Some(Self::NonTerminal),
+            "rest_bind" => Some(Self::RestBind),
+            "RestBind" => Some(Self::RestBind),
+            "constructor" => Some(Self::Constructor),
+            "passthrough" => Some(Self::Passthrough),
+            "expr_stmt_node" => Some(Self::ExprStmtNode),
+            "ExprStmtNode" => Some(Self::ExprStmtNode),
+            _ => None,
+        }
+    }
+
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            Self::Return => "return",
+            Self::Yield => "yield",
+            Self::InstanceRef => "instance_ref",
+            Self::BareName => "bare_name",
+            Self::ConstRef => "const_ref",
+            Self::InlineEval => "inline_eval",
+            Self::Group => "group",
+            Self::StdOut => "std_out",
+            Self::StringLiteral => "string_literal",
+            Self::IntLiteral => "int_literal",
+            Self::BareTrue => "bare_true",
+            Self::BareFalse => "bare_false",
+            Self::Access => "access",
+            Self::MethodCallExpr => "method_call_expr",
+            Self::BinOp => "bin_op",
+            Self::FnCall => "fn_call",
+            Self::TypePath => "type_path",
+            Self::StructConstruct => "struct_construct",
+            Self::StructField => "struct_field",
+            Self::MatchExpr => "match_expr",
+            Self::CommitArm => "commit_arm",
+            Self::ExprStub => "expr_stub",
+            Self::ErrorProp => "error_prop",
+            Self::RangeExcl => "range_excl",
+            Self::RangeIncl => "range_incl",
+            Self::MutableNew => "mutable_new",
+            Self::MutableSet => "mutable_set",
+            Self::SubTypeNew => "sub_type_new",
+            Self::SameTypeNew => "same_type_new",
+            Self::DeferredNew => "deferred_new",
+            Self::SubTypeDecl => "sub_type_decl",
+            Self::SetChainSet => "set_chain_set",
+            Self::SetChainExtend => "set_chain_extend",
+            Self::SetChainMethod => "set_chain_method",
+            Self::SetChainAccess => "set_chain_access",
+            Self::DomainItem => "domain_item",
+            Self::StructItem => "struct_item",
+            Self::ForeignBlockItem => "foreign_block_item",
+            Self::ForeignFuncItem => "foreign_func_item",
+            Self::TraitDeclItem => "trait_decl_item",
+            Self::TraitImplItem => "trait_impl_item",
+            Self::TypeImplItem => "type_impl_item",
+            Self::MethodSigItem => "method_sig_item",
+            Self::MethodDefItem => "method_def_item",
+            Self::AssociatedTypeItem => "associated_type_item",
+            Self::ConstItem => "const_item",
+            Self::MainItem => "main_item",
+            Self::TypeAliasItem => "type_alias_item",
+            Self::GrammarRuleItem => "grammar_rule_item",
+            Self::UnitVariant => "unit_variant",
+            Self::ParenVariant => "paren_variant",
+            Self::StructVariant => "struct_variant",
+            Self::FieldDef => "field_def",
+            Self::BorrowedFieldDef => "borrowed_field_def",
+            Self::BlockBody => "block_body",
+            Self::TailBlockBody => "tail_block_body",
+            Self::MatchBodyNode => "match_body_node",
+            Self::StubBody => "stub_body",
+            Self::BacktrackArm => "backtrack_arm",
+            Self::DestructureArm => "destructure_arm",
+            Self::BorrowSelfParam => "borrow_self_param",
+            Self::MutBorrowSelfParam => "mut_borrow_self_param",
+            Self::OwnedSelfParam => "owned_self_param",
+            Self::NamedParam => "named_param",
+            Self::BorrowParam => "borrow_param",
+            Self::MutBorrowParam => "mut_borrow_param",
+            Self::OwnedParam => "owned_param",
+            Self::SelfType => "self_type",
+            Self::NamedType => "named_type",
+            Self::BorrowedType => "borrowed_type",
+            Self::ParameterizedType => "parameterized_type",
+            Self::BoundType => "bound_type",
+            Self::CompoundBound => "compound_bound",
+            Self::SingleBound => "single_bound",
+            Self::Wildcard => "wildcard",
+            Self::BoolTrue => "bool_true",
+            Self::BoolFalse => "bool_false",
+            Self::VariantPat => "variant_pat",
+            Self::DataCarrying => "data_carrying",
+            Self::InstanceBind => "instance_bind",
+            Self::LiteralPat => "literal_pat",
+            Self::OrPattern => "or_pattern",
+            Self::Op => "op",
+            Self::MethodOp => "method_op",
+            Self::AccessOp => "access_op",
+            Self::ErrorPropOp => "error_prop_op",
+            Self::RangeExclOp => "range_excl_op",
+            Self::RangeInclOp => "range_incl_op",
+            Self::NoneNode => "none_node",
+            Self::ListNode => "list_node",
+            Self::ModuleHeader => "module_header",
+            Self::WildcardImport => "wildcard_import",
+            Self::NamedImport => "named_import",
+            Self::Supertrait => "supertrait",
+            Self::Methods => "methods",
+            Self::RuleArm => "rule_arm",
+            Self::Terminal => "terminal",
+            Self::NonTerminal => "non_terminal",
+            Self::RestBind => "rest_bind",
+            Self::Constructor => "constructor",
+            Self::Passthrough => "passthrough",
+            Self::ExprStmtNode => "expr_stmt_node",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Value {
     pub kind: ValueKind,
     pub text: String,
     pub int_val: i64,
+    pub node: NodeKind,
     pub children: Vec<Value>,
 }
 
-impl Default for Value { fn default() -> Self { Self { kind: Default::default(), text: Default::default(), int_val: Default::default(), children: Default::default(), } } }
+impl Default for Value { fn default() -> Self { Self { kind: Default::default(), text: Default::default(), int_val: Default::default(), node: Default::default(), children: Default::default(), } } }
 
 impl Value {
     pub fn new() -> Self { Self::default() }
@@ -286,6 +708,10 @@ impl Value {
 
     pub fn value_by_int_val(&self, val: i64) -> Vec<&Value> {
         self.children.iter().filter(|r| r.int_val == val).collect()
+    }
+
+    pub fn value_by_node(&self, val: NodeKind) -> Vec<&Value> {
+        self.children.iter().filter(|r| r.node == val).collect()
     }
 
     pub fn value_by_children(&self, val: Vec<Value>) -> Vec<&Value> {
@@ -330,6 +756,10 @@ impl MethodDef {
 
     pub fn value_by_int_val(&self, val: i64) -> Vec<&Value> {
         self.body.iter().filter(|r| r.int_val == val).collect()
+    }
+
+    pub fn value_by_node(&self, val: NodeKind) -> Vec<&Value> {
+        self.body.iter().filter(|r| r.node == val).collect()
     }
 
     pub fn value_by_children(&self, val: Vec<Value>) -> Vec<&Value> {
@@ -508,19 +938,22 @@ pub trait Generate {
     fn emit_derive(&self) -> String;
     fn emit_params(&self, params: Vec<Param>) -> String;
     fn emit_param(&self, p: Param, first: i64) -> String;
+}
+
+pub trait EmitExprTrait {
+    fn has_recursive_fields(&self, field_types: String, type_name: String) -> bool;
+    fn struct_derive_str(&self, field_types: String, type_name: String, type_id: i64) -> String;
     fn emit_method_body(&self, body: Vec<Value>, kind: BodyKind, indent: String) -> String;
     fn emit_stmts(&self, stmts: Vec<Value>, indent: String, idx: i64) -> String;
     fn emit_expr(&self, e: Value) -> String;
+    fn emit_expr_compound(&self, e: Value) -> String;
     fn emit_expr_lit(&self, e: Value) -> String;
     fn emit_expr_ref(&self, e: Value) -> String;
-    fn emit_expr_more(&self, e: Value) -> String;
-    fn emit_expr_rest(&self, e: Value) -> String;
     fn emit_mutable_new(&self, e: Value) -> String;
     fn emit_mutable_set(&self, e: Value) -> String;
     fn emit_set_chain(&self, target: String, chain: Value) -> String;
     fn emit_set_val(&self, target: String, chain: Value) -> String;
     fn emit_access(&self, e: Value) -> String;
-    fn is_builtin_method(&self, name: String) -> i64;
     fn emit_method_call(&self, e: Value) -> String;
     fn emit_bin_op(&self, e: Value) -> String;
     fn emit_inline_eval(&self, e: Value) -> String;
@@ -531,11 +964,8 @@ pub trait Generate {
     fn emit_children(&self, children: Vec<Value>, sep: String, idx: i64) -> String;
 }
 
-pub trait EmitCodeExt {
-    fn emit_expr_op(&self, e: Value) -> String;
-    fn emit_expr_stmt(&self, e: Value) -> String;
-    fn emit_expr_block(&self, e: Value) -> String;
-    fn emit_expr_construct(&self, e: Value) -> String;
+pub trait EmitDeriveTrait {
+    fn emit_derive_impl(&self) -> String;
 }
 
 impl Generate for CodeWorld {
@@ -609,9 +1039,7 @@ pub enum ") + &type_entry.name) + " {
             for field_def in self.field_def_by_type_id(type_entry.id).iter() {
                 field_types = ((field_types + &field_def.field_type) + ",");
             }
-            out = (((((out + "#[derive(Debug, ") + &field_types.all_fields_copy()) + "Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct ") + &type_entry.name) + " {
-");
+            out = (out + &self.struct_derive_str(field_types, type_entry.name.clone(), type_entry.id.clone()));
             for field_def in self.field_def_by_type_id(type_entry.id).iter() {
                 out = (((((out + "    pub ") + &field_def.name.to_snake()) + ": ") + &field_def.field_type.to_rust_type()) + ",
 ");
@@ -659,24 +1087,12 @@ pub struct ") + &type_entry.name) + " {
         out
     }
     fn emit_trait_decls(&self) -> String {
-        let mut out: String = String::new();
-        for trait_decl in self.trait_decls.iter() {
-            out = (((out + "pub trait ") + &trait_decl.name.to_snake()) + " {
-");
-            for method_sig in trait_decl.methods.iter() {
-                out = (((((out + "    fn ") + &method_sig.name.to_snake()) + "(&self) -> ") + &method_sig.return_type.to_rust_type()) + ";
-");
-            }
-            out = (out + "}
-
-");
-        }
-        out
+        String::new()
     }
     fn emit_trait_impls(&self) -> String {
         let mut out: String = String::new();
         for trait_impl in self.trait_impls.iter() {
-            out = (((((out + "impl ") + &trait_impl.trait_name.to_snake()) + " for ") + &trait_impl.target_type) + " {
+            out = (((out + "impl ") + &trait_impl.target_type) + " {
 ");
             for method_def in trait_impl.methods.iter() {
                 out = ((out + "    fn ") + &method_def.name.to_snake());
@@ -705,6 +1121,23 @@ pub struct ") + &type_entry.name) + " {
     fn emit_param(&self, p: Param, first: i64) -> String {
         match p.kind { ParamKind::BorrowSelf => "&self".to_string(), ParamKind::MutBorrowSelf => "&mut self".to_string(), ParamKind::OwnedSelf => "self".to_string(), ParamKind::Named => (((match ((first == 1)) { true => String::new(), false => ", ".to_string() } + &p.name.to_snake()) + ": ") + &p.param_type.to_rust_type()) }
     }
+    fn emit_derive(&self) -> String {
+        let mut has_derive: i64 = (self.type_entry_by_name("VariantOf").len() as u32).to_i64();
+        match ((has_derive == 0)) { true => String::new(), false => self.emit_derive_impl() }
+    }
+}
+
+impl EmitExprTrait for CodeWorld {
+    fn has_recursive_fields(&self, field_types: String, type_name: String) -> bool {
+        field_types.contains_str(type_name)
+    }
+    fn struct_derive_str(&self, field_types: String, type_name: String, type_id: i64) -> String {
+        let mut skip_rkyv: bool = self.has_recursive_fields(field_types.clone(), type_name.clone());
+        let mut rkyv_str: String = match skip_rkyv { true => String::new(), false => ", rkyv::Archive, rkyv::Serialize, rkyv::Deserialize".to_string() };
+        (((((("#[derive(Debug, ".to_string() + &field_types.all_fields_copy()) + "Clone, PartialEq, Eq") + &rkyv_str) + ")]
+pub struct ") + &type_name) + " {
+")
+    }
     fn emit_method_body(&self, body: Vec<Value>, kind: BodyKind, indent: String) -> String {
         let mut last_idx: i64 = ((body.len() as u32).to_i64() - 1);
         self.emit_stmts(body, indent, last_idx)
@@ -714,13 +1147,10 @@ pub struct ") + &type_entry.name) + " {
 ") + &self.emit_stmts(stmts, indent, (idx - 1))) }
     }
     fn emit_expr(&self, e: Value) -> String {
-        match ((e.int_val == 100)) { true => self.emit_expr(e.children.from_ordinal(0).clone()), false => match ((e.int_val == 102)) { true => self.emit_expr_ref(e), false => match ((e.int_val == 103)) { true => e.text, false => match ((e.int_val == 107)) { true => self.emit_expr_lit(e), false => match ((e.int_val == 108)) { true => e.text, false => self.emit_expr_more(e) } } } } }
+        match e.node { NodeKind::Return => self.emit_expr(e.children.from_ordinal(0).clone()), NodeKind::InstanceRef => self.emit_expr_ref(e), NodeKind::BareName => e.text, NodeKind::ConstRef => e.text, NodeKind::ExprStub => "todo!()".to_string(), NodeKind::StringLiteral => self.emit_expr_lit(e), NodeKind::IntLiteral => e.text, NodeKind::BareTrue => "true".to_string(), NodeKind::BareFalse => "false".to_string(), NodeKind::Group => (("(".to_string() + &self.emit_expr(e.children.from_ordinal(0).clone())) + ")"), _ => self.emit_expr_compound(e) }
     }
-    fn emit_expr_more(&self, e: Value) -> String {
-        match ((e.int_val == 110)) { true => self.emit_mutable_new(e), false => match ((e.int_val == 111)) { true => self.emit_mutable_set(e), false => match ((e.int_val == 112)) { true => self.emit_access(e), false => match ((e.int_val == 113)) { true => self.emit_method_call(e), false => self.emit_expr_rest(e) } } } }
-    }
-    fn emit_expr_rest(&self, e: Value) -> String {
-        match ((e.int_val == 114)) { true => self.emit_bin_op(e), false => match ((e.int_val == 104)) { true => self.emit_inline_eval(e), false => match ((e.int_val == 101)) { true => self.emit_yield(e), false => match ((e.int_val == 106)) { true => self.emit_std_out(e), false => match ((e.int_val == 117)) { true => self.emit_match(e), false => match ((e.int_val == 105)) { true => (("(".to_string() + &self.emit_expr(e.children.from_ordinal(0).clone())) + ")"), false => "todo!()".to_string() } } } } } }
+    fn emit_expr_compound(&self, e: Value) -> String {
+        match e.node { NodeKind::MutableNew => self.emit_mutable_new(e), NodeKind::MutableSet => self.emit_mutable_set(e), NodeKind::Access => self.emit_access(e), NodeKind::MethodCallExpr => self.emit_method_call(e), NodeKind::BinOp => self.emit_bin_op(e), NodeKind::InlineEval => self.emit_inline_eval(e), NodeKind::Yield => self.emit_yield(e), NodeKind::StdOut => self.emit_std_out(e), NodeKind::MatchExpr => self.emit_match(e), NodeKind::FnCall => self.emit_method_call(e), _ => "todo!()".to_string() }
     }
     fn emit_expr_lit(&self, e: Value) -> String {
         match (e.text.is_empty()) { true => "String::new()".to_string(), false => (("\"".to_string() + &e.text) + "\"") }
@@ -736,18 +1166,14 @@ pub struct ") + &type_entry.name) + " {
         self.emit_set_chain(e.text.to_snake(), chain)
     }
     fn emit_set_chain(&self, target: String, chain: Value) -> String {
-        match ((chain.int_val == 113)) { true => (((((target + ".") + &chain.text.to_snake()) + "(") + &self.emit_children(chain.children, ", ".to_string(), 0)) + ")"), false => match ((chain.int_val == 112)) { true => self.emit_set_chain(((target + ".") + &chain.text.to_snake()), chain.children.from_ordinal(0).clone()), false => self.emit_set_val(target, chain) } }
+        match chain.node { NodeKind::SetChainMethod => (((((target + ".") + &chain.text.to_snake()) + "(") + &self.emit_children(chain.children, ", ".to_string(), 0)) + ")"), NodeKind::MethodCallExpr => (((((target + ".") + &chain.text.to_snake()) + "(") + &self.emit_children(chain.children, ", ".to_string(), 0)) + ")"), NodeKind::SetChainAccess => self.emit_set_chain(((target + ".") + &chain.text.to_snake()), chain.children.from_ordinal(0).clone()), NodeKind::Access => self.emit_set_chain(((target + ".") + &chain.text.to_snake()), chain.children.from_ordinal(0).clone()), _ => self.emit_set_val(target, chain) }
     }
     fn emit_set_val(&self, target: String, chain: Value) -> String {
         let mut inner: Value = chain.children.from_ordinal(0).clone();
-        match ((chain.text == "extend")) { true => (((target + ".extend(") + &self.emit_expr(inner)) + ")"), false => match ((inner.int_val == 104)) { true => match (((inner.children.len() as u32).to_i64() == 1)) { true => ((target + " = ") + &self.emit_expr(inner.children.from_ordinal(0).clone())), false => ((target + " = ") + &self.emit_expr(inner)) }, false => ((target + " = ") + &self.emit_expr(inner)) } }
+        match chain.node { NodeKind::SetChainExtend => (((target + ".extend(") + &self.emit_expr(inner)) + ")"), _ => match inner.node { NodeKind::InlineEval => match (((inner.children.len() as u32).to_i64() == 1)) { true => ((target + " = ") + &self.emit_expr(inner.children.from_ordinal(0).clone())), false => ((target + " = ") + &self.emit_expr(inner)) }, _ => ((target + " = ") + &self.emit_expr(inner)) } }
     }
     fn emit_access(&self, e: Value) -> String {
-        let mut is_method: i64 = self.is_builtin_method(e.text.clone());
-        match ((is_method == 1)) { true => (((self.emit_expr(e.children.from_ordinal(0).clone()) + ".") + &e.text.to_snake()) + "()"), false => ((self.emit_expr(e.children.from_ordinal(0).clone()) + ".") + &e.text.to_snake()) }
-    }
-    fn is_builtin_method(&self, name: String) -> i64 {
-        match name.as_str() { "clone" => 1, "toString" => 1, "toSnake" => 1, "toRustType" => 1, "toParamType" => 1, "stripVec" => 1, "allFieldsCopy" => 1, "needsPascalAlias" => 1, "len" => 1, "isEmpty" => 1, "toI64" => 1, "toF32" => 1, "toU32" => 1, "unwrap" => 1, "toHex" => 1, "toBytes" => 1, "asSlice" => 1, "toU8" => 1, _ => 0 }
+        ((self.emit_expr(e.children.from_ordinal(0).clone()) + ".") + &e.text.to_snake())
     }
     fn emit_method_call(&self, e: Value) -> String {
         (((((self.emit_expr(e.children.from_ordinal(0).clone()) + ".") + &e.text.to_snake()) + "(") + &self.emit_children(e.children, ", ".to_string(), 1)) + ")")
@@ -780,7 +1206,13 @@ pub struct ") + &type_entry.name) + " {
     fn emit_std_out(&self, e: Value) -> String {
         (("println!(\"{}\", ".to_string() + &self.emit_expr(e.children.from_ordinal(0).clone())) + ")")
     }
-    fn emit_derive(&self) -> String {
+    fn emit_children(&self, children: Vec<Value>, sep: String, idx: i64) -> String {
+        match ((idx >= (children.len() as u32).to_i64())) { true => String::new(), false => { let mut child: String = self.emit_expr(children.from_ordinal(idx).clone()); let mut rest: String = self.emit_children(children, sep.clone(), (idx + 1)); match (rest.is_empty()) { true => child, false => ((child + &sep) + &rest) } } }
+    }
+}
+
+impl EmitDeriveTrait for CodeWorld {
+    fn emit_derive_impl(&self) -> String {
         let mut out: String = String::new();
         out = (out + "pub trait Derive {
 ");
@@ -951,9 +1383,6 @@ pub struct ") + &type_entry.name) + " {
         out = (out + "}
 ");
         out
-    }
-    fn emit_children(&self, children: Vec<Value>, sep: String, idx: i64) -> String {
-        match ((idx >= (children.len() as u32).to_i64())) { true => String::new(), false => { let mut child: String = self.emit_expr(children.from_ordinal(idx).clone()); let mut rest: String = self.emit_children(children, sep.clone(), (idx + 1)); match (rest.is_empty()) { true => child, false => ((child + &sep) + &rest) } } }
     }
 }
 

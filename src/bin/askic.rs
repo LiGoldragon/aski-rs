@@ -1,20 +1,26 @@
 //! askic — aski bootstrap compiler
 //!
 //! Compiles .aski source files to Rust and writes to stdout.
-//! One compiler, one codegen, one grammar.
 
 use std::env;
 use std::fs;
 use std::process;
 
-use aski_rs::codegen_v3::{self, CodegenConfig};
+use aski_rs::emit::CodegenConfig;
 use aski_rs::compiler::compile_files_to_world;
 
 fn main() {
+    // Spawn with larger stack for deeply nested PEG parsing
+    let builder = std::thread::Builder::new().stack_size(256 * 1024 * 1024);
+    let handler = builder.spawn(real_main).expect("thread spawn failed");
+    handler.join().expect("thread panic");
+}
+
+fn real_main() {
     let args: Vec<String> = env::args().skip(1).collect();
 
     if args.is_empty() {
-        eprintln!("usage: askic [--grammar-dir <path>] <file.aski> [file2.aski ...]");
+        eprintln!("usage: askic [--grammar-dir <path>] [--rkyv] <file.aski> [file2.aski ...]");
         process::exit(1);
     }
 
@@ -61,16 +67,14 @@ fn main() {
 
     let rkyv = args.contains(&"--rkyv".to_string());
     let config = CodegenConfig { rkyv };
-    match compile_files_to_world(&refs) {
-        Ok(world) => {
-            // Load FFI registry from parsed foreign blocks
-            let ffi_reg = codegen_v3::FfiRegistry::load_from_world(&world);
-            codegen_v3::set_ffi_registry(ffi_reg);
 
-            match codegen_v3::generate_with_config(&world, &config) {
+    match compile_files_to_world(&refs) {
+        Ok(mut world) => {
+            aski_core::run_rules(&mut world);
+            match aski_rs::emit::generate_with_config(&world, &config) {
                 Ok(rust) => print!("{}", rust),
                 Err(e) => {
-                    eprintln!("askic: {}", e);
+                    eprintln!("askic: codegen: {}", e);
                     process::exit(1);
                 }
             }

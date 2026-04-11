@@ -9,4 +9,6 @@ KernelPrimitive (
   Truncate ToF32 ToU32 ToI64
   FromOrdinal
   Len Clone ToString IsEmpty Unwrap
+  ToSnake ToRustType ToParamType StripVec AllFieldsCopy NeedsPascalAlias
+  WithPush ContainsStr IsLowerFirst
 )

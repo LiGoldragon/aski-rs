@@ -1,10 +1,10 @@
 # Rust
 /target
+flake-crates/*/target
 
 # Nix
 .direnv/
 result
-flake-crates/
 
 # Editor tempfiles
 \#*\#

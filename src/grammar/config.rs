@@ -6,8 +6,25 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::ast::{BinOp, Body, Expr, Item, Spanned};
 use crate::lexer::Token;
+
+/// Binary operator kinds — used for Pratt parser precedence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
+    Remainder,
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
+    LogicalAnd,
+    LogicalOr,
+}
 
 /// Binding power pair for a binary operator.
 #[derive(Debug, Clone, Copy)]
@@ -30,7 +47,7 @@ pub enum TokenClass {
 #[derive(Debug, Clone)]
 pub struct GrammarConfig {
     /// Token variant name -> (BinOp, BindingPower)
-    operators: HashMap<String, (BinOp, BindingPower)>,
+    pub operators: HashMap<String, (BinOp, BindingPower)>,
     /// Kernel primitive method names
     kernel_primitives: HashSet<String>,
     /// Token variant name -> set of classifications
@@ -95,7 +112,8 @@ impl GrammarConfig {
             "truncate", "toF32", "toU32", "toI64",
             "fromOrdinal",
             "len", "clone", "to_string", "is_empty", "unwrap",
-            "toSnake", "toRustType", "toParamType", "stripVec", "allFieldsCopy", "needsPascalAlias", "withPush",
+            "toSnake", "toRustType", "toParamType", "stripVec", "allFieldsCopy", "needsPascalAlias",
+            "withPush", "containsStr", "isLowerFirst",
         ].iter().map(|s| s.to_string()).collect();
 
         let mut token_classes = HashMap::new();
@@ -173,46 +191,66 @@ impl GrammarConfig {
     fn parse_operators(path: &Path) -> Result<HashMap<String, (BinOp, BindingPower)>, GrammarLoadError> {
         let content = read_grammar_file(path, "operators.aski")?;
 
-        // Parse with the aski parser — operators.aski uses constant syntax: !Name U8 {value}
-        let items = parse_grammar_source(&content).map_err(|e| GrammarLoadError {
+        // Parse to World, then extract constants from ParseNodes
+        let world = parse_grammar_source_to_world(&content).map_err(|e| GrammarLoadError {
             file: "operators.aski".to_string(),
             message: format!("aski parse failed: {}", e),
         })?;
 
-        // Extract constants into a name->value map
+        // Extract constants: Const nodes with IntLit children
+        // Body can be: direct IntLit child, or Block/TailBlock wrapping IntLit
         let mut constants: HashMap<String, u8> = HashMap::new();
-        for item in &items {
-            if let Item::Const(c) = &item.node {
-                if let Some(Body::Block(stmts)) = &c.value {
-                    if let Some(spanned) = stmts.first() {
-                        if let Expr::IntLit(v) = &spanned.node {
-                            constants.insert(c.name.clone(), *v as u8);
+        for node in &world.parse_nodes {
+            if node.constructor == "Const" {
+                let name = node.text.clone();
+                let children = aski_core::query_parse_children(&world, node.id);
+                for child in &children {
+                    match child.constructor.as_str() {
+                        "IntLit" => {
+                            if let Ok(v) = child.text.parse::<i64>() {
+                                constants.insert(name.clone(), v as u8);
+                            }
                         }
+                        "FloatLit" => {
+                            if let Ok(v) = child.text.parse::<f64>() {
+                                constants.insert(name.clone(), v as u8);
+                            }
+                        }
+                        "Block" | "TailBlock" => {
+                            let body_children = aski_core::query_parse_children(&world, child.id);
+                            for bc in &body_children {
+                                if bc.constructor == "IntLit" {
+                                    if let Ok(v) = bc.text.parse::<i64>() {
+                                        constants.insert(name.clone(), v as u8);
+                                    }
+                                } else if bc.constructor == "FloatLit" {
+                                    if let Ok(v) = bc.text.parse::<f64>() {
+                                        constants.insert(name.clone(), v as u8);
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
         }
 
-        // Map constant name prefixes to (token_name, BinOp) entries.
-        // Constants are named e.g. LogicalOrLeft/LogicalOrRight, AdditionLeft/AdditionRight, etc.
         let op_groups: Vec<(&str, &str, BinOp)> = vec![
             ("LogicalOr",  "LogicalOr",        BinOp::LogicalOr),
             ("LogicalAnd", "LogicalAnd",        BinOp::LogicalAnd),
             ("Equal",      "DoubleEquals",      BinOp::Equal),
-            ("Comparison", "LessThan",          BinOp::LessThan),  // Comparison is shared for all comparison operators
+            ("Comparison", "LessThan",          BinOp::LessThan),
             ("Addition",   "Plus",              BinOp::Addition),
             ("Multiplication", "Star",          BinOp::Multiplication),
         ];
 
         let mut operators = HashMap::new();
 
-        // Build the table from constant pairs
-        // Each group prefix has Left and Right constants
         for (prefix, _token, _op) in &op_groups {
             let left_key = format!("{}Left", prefix);
             let right_key = format!("{}Right", prefix);
             if let (Some(&lbp), Some(&rbp)) = (constants.get(&left_key), constants.get(&right_key)) {
-                // Map prefix to the correct set of token names and BinOps
                 match *prefix {
                     "LogicalOr" => {
                         operators.insert("LogicalOr".to_string(), (BinOp::LogicalOr, BindingPower { lbp, rbp }));
@@ -257,34 +295,31 @@ impl GrammarConfig {
     fn parse_kernel(path: &Path) -> Result<HashSet<String>, GrammarLoadError> {
         let content = read_grammar_file(path, "kernel.aski")?;
 
-        // Parse with the aski parser — kernel.aski uses domain syntax: Name (variant1 variant2 ...)
-        let items = parse_grammar_source(&content).map_err(|e| GrammarLoadError {
+        let world = parse_grammar_source_to_world(&content).map_err(|e| GrammarLoadError {
             file: "kernel.aski".to_string(),
             message: format!("aski parse failed: {}", e),
         })?;
 
         let mut primitives = HashSet::new();
-        // Map PascalCase variant names (valid aski syntax) to original Rust method names
         let pascal_to_method: HashMap<&str, &str> = [
             ("Sin", "sin"), ("Cos", "cos"), ("Sqrt", "sqrt"), ("Abs", "abs"),
             ("Truncate", "truncate"), ("ToF32", "toF32"), ("ToU32", "toU32"), ("ToI64", "toI64"),
             ("FromOrdinal", "fromOrdinal"),
             ("Len", "len"), ("Clone", "clone"), ("ToString", "to_string"),
             ("IsEmpty", "is_empty"), ("Unwrap", "unwrap"),
+            ("ToSnake", "toSnake"), ("ToRustType", "toRustType"), ("ToParamType", "toParamType"),
+            ("StripVec", "stripVec"), ("AllFieldsCopy", "allFieldsCopy"), ("NeedsPascalAlias", "needsPascalAlias"),
+            ("WithPush", "withPush"), ("ContainsStr", "containsStr"), ("IsLowerFirst", "isLowerFirst"),
         ].iter().cloned().collect();
 
-        for item in &items {
-            if let Item::Domain(d) = &item.node {
-                if d.name == "KernelPrimitive" {
-                    for variant in &d.variants {
-                        let name = pascal_to_method
-                            .get(variant.name.as_str())
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| variant.name.clone());
-                        primitives.insert(name);
-                    }
-                }
-            }
+        // Find Domain named "KernelPrimitive" and extract variant names
+        let variants = aski_core::query_domain_variants(&world, "KernelPrimitive");
+        for (_, variant_name, _) in &variants {
+            let name = pascal_to_method
+                .get(variant_name.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| variant_name.clone());
+            primitives.insert(name);
         }
 
         if primitives.is_empty() {
@@ -300,28 +335,27 @@ impl GrammarConfig {
     fn parse_tokens(path: &Path) -> Result<HashMap<String, HashSet<TokenClass>>, GrammarLoadError> {
         let content = read_grammar_file(path, "tokens.aski")?;
 
-        // Parse with the aski parser — tokens.aski uses domain syntax: ClassName (Token1 Token2 ...)
-        let items = parse_grammar_source(&content).map_err(|e| GrammarLoadError {
+        let world = parse_grammar_source_to_world(&content).map_err(|e| GrammarLoadError {
             file: "tokens.aski".to_string(),
             message: format!("aski parse failed: {}", e),
         })?;
 
         let mut classes: HashMap<String, HashSet<TokenClass>> = HashMap::new();
-        for item in &items {
-            if let Item::Domain(d) = &item.node {
-                let class = match d.name.as_str() {
-                    "Delimiter" => TokenClass::Delimiter,
-                    "Operator" => TokenClass::Operator,
-                    "Prefix" => TokenClass::Prefix,
-                    "Compound" => TokenClass::Compound,
-                    _ => continue,
-                };
-                for variant in &d.variants {
-                    classes
-                        .entry(variant.name.clone())
-                        .or_insert_with(HashSet::new)
-                        .insert(class);
-                }
+        // Check each domain by name
+        for domain_name in &["Delimiter", "Operator", "Prefix", "Compound"] {
+            let class = match *domain_name {
+                "Delimiter" => TokenClass::Delimiter,
+                "Operator" => TokenClass::Operator,
+                "Prefix" => TokenClass::Prefix,
+                "Compound" => TokenClass::Compound,
+                _ => continue,
+            };
+            let variants = aski_core::query_domain_variants(&world, domain_name);
+            for (_, variant_name, _) in &variants {
+                classes
+                    .entry(variant_name.clone())
+                    .or_insert_with(HashSet::new)
+                    .insert(class);
             }
         }
 
@@ -339,18 +373,14 @@ fn read_grammar_file(path: &Path, name: &str) -> Result<String, GrammarLoadError
 }
 
 /// Parse aski source using bootstrap config to avoid infinite recursion.
-/// Grammar files are parsed by the parser they configure, so we use bootstrap
-/// values for the initial parse. The .aski files then provide the authoritative
-/// overrides.
-fn parse_grammar_source(source: &str) -> Result<Vec<Spanned<Item>>, String> {
+/// Returns a World with ParseNodes and schema relations.
+fn parse_grammar_source_to_world(source: &str) -> Result<aski_core::World, String> {
     let config = GrammarConfig::bootstrap();
-    let sf = super::parse_source_file_with_config(source, &config)?;
-    Ok(sf.items)
+    super::parse_to_world_with_config(source, &config)
 }
 
 
 /// Map a Token variant to its grammar name string.
-/// This is the bridge between lexer tokens and grammar data tables.
 fn token_variant_name(token: &Token) -> &'static str {
     match token {
         Token::Plus => "Plus",
@@ -392,7 +422,6 @@ fn token_variant_name(token: &Token) -> &'static str {
 const ASKI_RS_GRAMMAR_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/grammar");
 
 /// Resolve the grammar directory, searching multiple locations.
-/// The grammar is always available — aski-rs embeds its own path as a fallback.
 pub fn find_grammar_dir() -> Option<PathBuf> {
     // 1. Env var override
     if let Ok(dir) = std::env::var("ASKI_GRAMMAR_DIR") {
@@ -446,7 +475,6 @@ mod tests {
     #[test]
     fn config_bootstrap_has_all_operators() {
         let config = GrammarConfig::bootstrap();
-        // All 13 operators present
         assert!(config.operator_bp(&Token::Plus).is_some());
         assert!(config.operator_bp(&Token::Minus).is_some());
         assert!(config.operator_bp(&Token::Star).is_some());
@@ -490,11 +518,9 @@ mod tests {
 
     #[test]
     fn config_loads_from_grammar_dir() {
-        // Uses CARGO_MANIFEST_DIR which points to aski-rs root
         let dir = find_grammar_dir().expect("grammar dir should be findable in test");
         let config = GrammarConfig::load_from_dir(&dir).expect("grammar files should parse");
 
-        // Verify operators loaded from file match bootstrap
         assert!(config.operator_bp(&Token::Plus).is_some());
         assert!(config.operator_bp(&Token::Star).is_some());
         let (op, bp) = config.operator_bp(&Token::Plus).unwrap();
@@ -502,11 +528,9 @@ mod tests {
         assert_eq!(bp.lbp, 30);
         assert_eq!(bp.rbp, 31);
 
-        // Verify kernel primitives
         assert!(config.is_kernel_primitive("sin"));
         assert!(config.is_kernel_primitive("unwrap"));
 
-        // Verify token classes
         assert!(config.has_class("LParen", TokenClass::Delimiter));
         assert!(config.has_class("Plus", TokenClass::Operator));
         assert!(config.has_class("Caret", TokenClass::Prefix));
@@ -518,7 +542,6 @@ mod tests {
         let file_config = GrammarConfig::load_from_dir(&dir).expect("grammar files should parse");
         let boot_config = GrammarConfig::bootstrap();
 
-        // Every operator in bootstrap should be in file config with same values
         let test_tokens = [
             Token::Plus, Token::Minus, Token::Star, Token::Slash, Token::Percent,
             Token::DoubleEquals, Token::NotEqual, Token::LessThan, Token::GreaterThan, Token::LessThanOrEqual, Token::GreaterThanOrEqual,
@@ -536,7 +559,6 @@ mod tests {
             assert_eq!(fbp.rbp, bbp.rbp, "rbp mismatch for {:?}", token);
         }
 
-        // Every kernel primitive in bootstrap should be in file config
         for prim in boot_config.kernel_primitives() {
             assert!(file_config.is_kernel_primitive(prim),
                 "file config missing kernel primitive '{}'", prim);
@@ -545,16 +567,12 @@ mod tests {
 
     #[test]
     fn config_changing_operator_table_changes_parse() {
-        // Verify that operator precedence is actually data-driven:
-        // Create a config where + has HIGHER precedence than *
         let mut config = GrammarConfig::bootstrap();
-        // Swap: make Plus have mul's bp (40,41) and Star have add's bp (30,31)
         config.operators.insert("Plus".to_string(), (BinOp::Addition, BindingPower { lbp: 40, rbp: 41 }));
         config.operators.insert("Star".to_string(), (BinOp::Multiplication, BindingPower { lbp: 30, rbp: 31 }));
 
         let (_, add_bp) = config.operator_bp(&Token::Plus).unwrap();
         let (_, mul_bp) = config.operator_bp(&Token::Star).unwrap();
-        // Now + binds tighter than *
         assert!(add_bp.lbp > mul_bp.lbp);
     }
 }

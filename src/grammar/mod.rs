@@ -3,15 +3,13 @@
 //! Grammar rules in grammar/*.aski files define the parsing logic.
 //! A bootstrap parser reads these files into a rule table.
 //! A PEG interpreter executes rules against token streams.
-//! Builder functions construct AST nodes from match results.
+//! ParseNodes are written directly to a World — no AST layer.
 
 pub mod bootstrap;
 pub mod config;
 pub mod interpreter;
-pub mod builders;
 
 use std::collections::HashMap;
-use crate::ast::*;
 
 /// A grammar rule with ordered arms (PEG ordered choice).
 #[derive(Debug, Clone)]
@@ -20,10 +18,20 @@ pub struct ParseRule {
     pub arms: Vec<ParseArm>,
 }
 
-/// A single arm: pattern → result.
+/// A grammar guard — condition between pattern and result.
+/// Evaluated after pattern matches. If false, arm fails (PEG tries next arm).
+/// Syntax in grammar files: `[pattern / @Rest] {@World.IsFfi(@Name)} Constructor @Rest`
+#[derive(Debug, Clone)]
+pub struct ParseGuard {
+    /// The guard expression text, e.g. "@World.IsFfi(@Name)" or "@World.Context(Expr)"
+    pub condition: String,
+}
+
+/// A single arm: pattern → optional guard → result.
 #[derive(Debug, Clone)]
 pub struct ParseArm {
     pub pattern: Vec<PatElem>,
+    pub guard: Option<ParseGuard>,
     pub result: ResultSpec,
 }
 
@@ -69,187 +77,67 @@ pub enum ResultArg {
 }
 
 /// Dynamic value produced during rule execution.
+/// Minimal: no AST types. Values are either text, numbers, node references, or lists thereof.
 #[derive(Debug, Clone)]
-pub enum Value {
-    Str(String),
+pub enum PegValue {
+    /// Text (identifier names, operator strings, string literals).
+    Text(String),
+    /// Integer literal.
     Int(i64),
+    /// Float literal.
     Float(f64),
-    List(Vec<Value>),
+    /// Reference to a ParseNode in the World.
+    NodeId(i64),
+    /// List of ParseNode IDs (from Cons/Nil).
+    NodeList(Vec<i64>),
+    /// Tagged list: [tag, ...values] for FoldPost ops.
+    TaggedList(Vec<PegValue>),
+    /// Nothing.
     None,
-    Param(Param),
-    TypeRef(TypeRef),
-    Item(Spanned<Item>),
-    Expr(Spanned<Expr>),
-    Pattern(Pattern),
-    Body(Body),
-    Variant(Variant),
-    Field(Field),
-    MethodSig(MethodSig),
-    MethodDef(MethodDef),
-    MatchArm(MatchArm),
-    MatchMethodArm(MatchMethodArm),
-    ModuleHeader(ModuleHeader),
-    ImportEntry(ImportEntry),
-    TypeImpl(TypeImpl),
-    ConstDecl(ConstDecl),
-    AssociatedTypeDef(AssociatedTypeDef),
-    TraitBound(TraitBound),
-    ForeignBlock(ForeignBlockDecl),
-    ForeignFunction(ForeignFunction),
 }
 
-impl Value {
-    pub fn as_str(&self) -> Result<String, String> {
+impl PegValue {
+    pub fn as_text(&self) -> Result<String, String> {
         match self {
-            Value::Str(s) => Ok(s.clone()),
-            other => Err(format!("expected string, got {:?}", std::mem::discriminant(other))),
+            PegValue::Text(s) => Ok(s.clone()),
+            other => Err(format!("expected Text, got {:?}", std::mem::discriminant(other))),
         }
     }
 
     pub fn as_int(&self) -> Result<i64, String> {
         match self {
-            Value::Int(n) => Ok(*n),
-            other => Err(format!("expected int, got {:?}", std::mem::discriminant(other))),
+            PegValue::Int(n) => Ok(*n),
+            other => Err(format!("expected Int, got {:?}", std::mem::discriminant(other))),
         }
     }
 
     pub fn as_float(&self) -> Result<f64, String> {
         match self {
-            Value::Float(f) => Ok(*f),
-            other => Err(format!("expected float, got {:?}", std::mem::discriminant(other))),
+            PegValue::Float(f) => Ok(*f),
+            other => Err(format!("expected Float, got {:?}", std::mem::discriminant(other))),
         }
     }
 
-    pub fn as_type_ref(&self) -> Result<TypeRef, String> {
+    pub fn as_node_id(&self) -> Result<i64, String> {
         match self {
-            Value::TypeRef(t) => Ok(t.clone()),
-            other => Err(format!("expected TypeRef, got {:?}", std::mem::discriminant(other))),
+            PegValue::NodeId(id) => Ok(*id),
+            other => Err(format!("expected NodeId, got {:?}", std::mem::discriminant(other))),
         }
     }
 
-    pub fn as_param(&self) -> Result<Param, String> {
+    pub fn as_node_list(&self) -> Result<Vec<i64>, String> {
         match self {
-            Value::Param(p) => Ok(p.clone()),
-            other => Err(format!("expected Param, got {:?}", std::mem::discriminant(other))),
+            PegValue::NodeList(ids) => Ok(ids.clone()),
+            // Single node → singleton list
+            PegValue::NodeId(id) => Ok(vec![*id]),
+            other => Err(format!("expected NodeList, got {:?}", std::mem::discriminant(other))),
         }
     }
 
-    pub fn as_variant(&self) -> Result<Variant, String> {
+    pub fn as_tagged_list(&self) -> Result<Vec<PegValue>, String> {
         match self {
-            Value::Variant(v) => Ok(v.clone()),
-            other => Err(format!("expected Variant, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_field(&self) -> Result<Field, String> {
-        match self {
-            Value::Field(f) => Ok(f.clone()),
-            other => Err(format!("expected Field, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_pattern(&self) -> Result<Pattern, String> {
-        match self {
-            Value::Pattern(p) => Ok(p.clone()),
-            other => Err(format!("expected Pattern, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_body(&self) -> Result<Body, String> {
-        match self {
-            Value::Body(b) => Ok(b.clone()),
-            other => Err(format!("expected Body, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_expr(&self) -> Result<Spanned<Expr>, String> {
-        match self {
-            Value::Expr(e) => Ok(e.clone()),
-            other => Err(format!("expected Expr, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_item(&self) -> Result<Spanned<Item>, String> {
-        match self {
-            Value::Item(i) => Ok(i.clone()),
-            other => Err(format!("expected Item, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_method_sig(&self) -> Result<MethodSig, String> {
-        match self {
-            Value::MethodSig(m) => Ok(m.clone()),
-            other => Err(format!("expected MethodSig, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_method_def(&self) -> Result<MethodDef, String> {
-        match self {
-            Value::MethodDef(m) => Ok(m.clone()),
-            other => Err(format!("expected MethodDef, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_match_method_arm(&self) -> Result<MatchMethodArm, String> {
-        match self {
-            Value::MatchMethodArm(m) => Ok(m.clone()),
-            other => Err(format!("expected MatchMethodArm, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_match_arm(&self) -> Result<MatchArm, String> {
-        match self {
-            Value::MatchArm(m) => Ok(m.clone()),
-            other => Err(format!("expected MatchArm, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_import_entry(&self) -> Result<ImportEntry, String> {
-        match self {
-            Value::ImportEntry(i) => Ok(i.clone()),
-            other => Err(format!("expected ImportEntry, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_type_impl(&self) -> Result<TypeImpl, String> {
-        match self {
-            Value::TypeImpl(t) => Ok(t.clone()),
-            other => Err(format!("expected TypeImpl, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_const_decl(&self) -> Result<ConstDecl, String> {
-        match self {
-            Value::ConstDecl(c) => Ok(c.clone()),
-            other => Err(format!("expected ConstDecl, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_associated_type_def(&self) -> Result<AssociatedTypeDef, String> {
-        match self {
-            Value::AssociatedTypeDef(a) => Ok(a.clone()),
-            other => Err(format!("expected AssociatedTypeDef, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_trait_bound(&self) -> Result<TraitBound, String> {
-        match self {
-            Value::TraitBound(b) => Ok(b.clone()),
-            other => Err(format!("expected TraitBound, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn as_foreign_function(&self) -> Result<crate::ast::ForeignFunction, String> {
-        match self {
-            Value::ForeignFunction(f) => Ok(f.clone()),
-            other => Err(format!("expected ForeignFunction, got {:?}", std::mem::discriminant(other))),
-        }
-    }
-
-    pub fn into_list(self) -> Result<Vec<Value>, String> {
-        match self {
-            Value::List(v) => Ok(v),
-            other => Err(format!("expected List, got {:?}", std::mem::discriminant(&other))),
+            PegValue::TaggedList(v) => Ok(v.clone()),
+            other => Err(format!("expected TaggedList, got {:?}", std::mem::discriminant(other))),
         }
     }
 }
@@ -257,17 +145,17 @@ impl Value {
 /// Captured bindings from pattern matching.
 #[derive(Debug, Clone, Default)]
 pub struct Bindings {
-    values: HashMap<String, Value>,
+    values: HashMap<String, PegValue>,
 }
 
 impl Bindings {
     pub fn new() -> Self { Self::default() }
 
-    pub fn insert(&mut self, name: String, value: Value) {
+    pub fn insert(&mut self, name: String, value: PegValue) {
         self.values.insert(name, value);
     }
 
-    pub fn get(&self, name: &str) -> Option<&Value> {
+    pub fn get(&self, name: &str) -> Option<&PegValue> {
         self.values.get(name)
     }
 }
@@ -277,23 +165,53 @@ pub type RuleTable = HashMap<String, ParseRule>;
 
 // ── Public API ──────────────────────────────────────────────
 
-use crate::ast::{SourceFile, ForeignBlockDecl, ForeignFunction};
-use crate::grammar::config::{self as grammar_config, GrammarConfig};
+use crate::grammar::config::GrammarConfig;
 
 /// Parse only the module header from source text (no items).
-/// Returns None if the file has no header.
-pub fn parse_header_only(source: &str, config: &GrammarConfig) -> Option<crate::ast::ModuleHeader> {
+/// Returns (module_name, exports, imports) extracted from ParseNodes.
+pub fn parse_header_only(source: &str, config: &GrammarConfig) -> Option<HeaderInfo> {
     let tokens = crate::lexer::lex(source).ok()?;
-    let grammar_dir = grammar_config::find_grammar_dir();
+    let grammar_dir = config::find_grammar_dir();
     let rules = match grammar_dir {
         Some(ref dir) => bootstrap::load_rules(dir).unwrap_or_default(),
         None => RuleTable::new(),
     };
-    let parser = interpreter::GrammarParser::new(rules, config.clone());
+    let mut parser = interpreter::GrammarParser::new(rules, config.clone());
     let pos = interpreter::skip_newlines_pub(&tokens, 0);
     if pos < tokens.len() && tokens[pos].token == crate::lexer::Token::LParen {
         match parser.try_rule("header", &tokens, pos) {
-            Ok((Value::ModuleHeader(h), _)) => Some(h),
+            Ok((PegValue::NodeId(id), _)) => {
+                // Extract header info from the parsed node
+                let node = parser.world.parse_nodes.iter().find(|n| n.id == id)?;
+                if node.constructor != "ModuleHeader" { return None; }
+                let name = node.text.clone();
+                let children = aski_core::query_parse_children(&parser.world, id);
+                let mut exports = Vec::new();
+                let mut imports = Vec::new();
+                for child in &children {
+                    match child.constructor.as_str() {
+                        "ExportName" => exports.push(child.text.clone()),
+                        "NamedImport" => {
+                            let import_children = aski_core::query_parse_children(&parser.world, child.id);
+                            let items: Vec<String> = import_children.iter().map(|c| c.text.clone()).collect();
+                            imports.push(ImportInfo {
+                                module: child.text.clone(),
+                                items,
+                                wildcard: false,
+                            });
+                        }
+                        "WildcardImport" => {
+                            imports.push(ImportInfo {
+                                module: child.text.clone(),
+                                items: vec![],
+                                wildcard: true,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                Some(HeaderInfo { name, exports, imports })
+            }
             _ => None,
         }
     } else {
@@ -301,61 +219,76 @@ pub fn parse_header_only(source: &str, config: &GrammarConfig) -> Option<crate::
     }
 }
 
-/// Parse a full aski source file using the grammar engine.
-pub fn parse_source_file(source: &str) -> Result<SourceFile, String> {
-    let mut parser = make_parser()?;
-    parser.parse_source_file(source)
+/// Lightweight header info — replaces ast::ModuleHeader for header-only parsing.
+#[derive(Debug, Clone)]
+pub struct HeaderInfo {
+    pub name: String,
+    pub exports: Vec<String>,
+    pub imports: Vec<ImportInfo>,
 }
 
-/// Parse a full aski source file with a pre-loaded grammar config.
-pub fn parse_source_file_with_config(source: &str, config: &GrammarConfig) -> Result<SourceFile, String> {
-    let grammar_dir = grammar_config::find_grammar_dir();
+/// Import entry info — replaces ast::ImportEntry.
+#[derive(Debug, Clone)]
+pub struct ImportInfo {
+    pub module: String,
+    pub items: Vec<String>,
+    pub wildcard: bool,
+}
+
+/// Parse a full aski source file and return the populated World.
+pub fn parse_to_world(source: &str) -> Result<aski_core::World, String> {
+    let mut parser = make_parser()?;
+    parser.parse_to_world(source)
+}
+
+/// Parse a full aski source file with a pre-loaded grammar config, returning the World.
+pub fn parse_to_world_with_config(source: &str, config: &GrammarConfig) -> Result<aski_core::World, String> {
+    let grammar_dir = config::find_grammar_dir();
     let rules = match grammar_dir {
         Some(ref dir) => bootstrap::load_rules(dir).unwrap_or_default(),
         None => RuleTable::new(),
     };
     let mut parser = interpreter::GrammarParser::new(rules, config.clone());
-    parser.parse_source_file(source)
+    parser.parse_to_world(source)
 }
 
 /// Create a GrammarParser from grammar directory files.
 fn make_parser() -> Result<interpreter::GrammarParser, String> {
-    let grammar_dir = grammar_config::find_grammar_dir()
+    let grammar_dir = config::find_grammar_dir()
         .ok_or_else(|| "grammar directory not found".to_string())?;
-    let config = grammar_config::GrammarConfig::load_from_dir(&grammar_dir)
-        .unwrap_or_else(|_| grammar_config::GrammarConfig::bootstrap());
+    let config = config::GrammarConfig::load_from_dir(&grammar_dir)
+        .unwrap_or_else(|_| config::GrammarConfig::bootstrap());
     let rules = bootstrap::load_rules(&grammar_dir).unwrap_or_default();
     Ok(interpreter::GrammarParser::new(rules, config))
 }
 
 /// Parse a source file with additional grammar rules injected (from imports).
-pub fn parse_source_file_with_extra_rules(
+/// Returns the populated World.
+pub fn parse_to_world_with_extra_rules(
     source: &str,
     config: &GrammarConfig,
     extra_rules: &RuleTable,
-) -> Result<SourceFile, String> {
-    let grammar_dir = grammar_config::find_grammar_dir();
+) -> Result<aski_core::World, String> {
+    let grammar_dir = config::find_grammar_dir();
     let mut rules = match grammar_dir {
         Some(ref dir) => bootstrap::load_rules(dir).unwrap_or_default(),
         None => RuleTable::new(),
     };
-    // Inject imported grammar rules
     for (name, rule) in extra_rules {
         rules.insert(name.clone(), rule.clone());
     }
     let mut parser = interpreter::GrammarParser::new(rules, config.clone());
-    parser.parse_source_file(source)
+    parser.parse_to_world(source)
 }
 
-/// Extract user-defined grammar rules from a parsed file's parser.
-/// After parsing, any <Name> { arms } items have been injected into the parser's rule table.
-/// Returns only the rules that were added during parsing (not bootstrap rules).
-pub fn extract_user_grammar_rules(
+/// Parse and extract user-defined grammar rules (for cross-module import).
+/// Returns (World, user_rules).
+pub fn extract_user_grammar_rules_to_world(
     source: &str,
     config: &GrammarConfig,
     extra_rules: &RuleTable,
-) -> Result<(SourceFile, RuleTable), String> {
-    let grammar_dir = grammar_config::find_grammar_dir();
+) -> Result<(aski_core::World, RuleTable), String> {
+    let grammar_dir = config::find_grammar_dir();
     let bootstrap_rules = match grammar_dir {
         Some(ref dir) => bootstrap::load_rules(dir).unwrap_or_default(),
         None => RuleTable::new(),
@@ -366,7 +299,7 @@ pub fn extract_user_grammar_rules(
     }
     let bootstrap_keys: std::collections::HashSet<String> = rules.keys().cloned().collect();
     let mut parser = interpreter::GrammarParser::new(rules, config.clone());
-    let sf = parser.parse_source_file(source)?;
+    let world = parser.parse_to_world(source)?;
     // Collect rules added during parsing (not in bootstrap + extras)
     let mut user_rules = RuleTable::new();
     for (name, rule) in &parser.rules {
@@ -374,5 +307,99 @@ pub fn extract_user_grammar_rules(
             user_rules.insert(name.clone(), rule.clone());
         }
     }
-    Ok((sf, user_rules))
+    Ok((world, user_rules))
+}
+
+/// Convert an in-source grammar rule (parsed as a ParseNode) into a live ParseRule.
+/// This reads the GrammarRule/RuleArm/etc nodes from the World to reconstruct
+/// the PEG rule for the interpreter.
+pub fn grammar_node_to_parse_rule(world: &aski_core::World, node_id: i64) -> Option<ParseRule> {
+    let node = aski_core::find_parse_node(world, node_id)?;
+    if node.constructor != "GrammarRule" { return None; }
+    let name = node.text.clone();
+    let children = aski_core::query_parse_children(world, node_id);
+    let arms: Vec<ParseArm> = children.iter().filter_map(|arm_node| {
+        if arm_node.constructor != "RuleArm" { return None; }
+        let arm_children = aski_core::query_parse_children(world, arm_node.id);
+        let mut pattern = Vec::new();
+        let mut result = ResultSpec { constructor: "Nil".into(), args: vec![] };
+        let known = bootstrap::known_tokens();
+        for child in &arm_children {
+            match child.constructor.as_str() {
+                "PatternGroup" => {
+                    let pat_children = aski_core::query_parse_children(world, child.id);
+                    for pc in pat_children {
+                        match pc.constructor.as_str() {
+                            "Terminal" => {
+                                if known.contains(pc.text.as_str()) {
+                                    pattern.push(PatElem::Tok(pc.text.clone()));
+                                } else {
+                                    pattern.push(PatElem::Lit(pc.text.clone()));
+                                }
+                            }
+                            "NonTerminal" => pattern.push(PatElem::Rule(pc.text.clone())),
+                            "Binding" => {
+                                if pc.text == "Lit" {
+                                    pattern.push(PatElem::BindLit(pc.text.clone()));
+                                } else if pc.text == "Type" {
+                                    pattern.push(PatElem::BindType(pc.text.clone()));
+                                } else {
+                                    pattern.push(PatElem::Bind(pc.text.clone()));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "ResultGroup" => {
+                    let res_children = aski_core::query_parse_children(world, child.id);
+                    if let Some(first) = res_children.first() {
+                        result = node_to_result_spec(world, first);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Some(ParseArm { pattern, guard: None, result })
+    }).collect();
+    Some(ParseRule { name, arms })
+}
+
+/// Convert a ParseNode representing a result expression into a ResultSpec.
+fn node_to_result_spec(world: &aski_core::World, node: &aski_core::ParseNode) -> ResultSpec {
+    match node.constructor.as_str() {
+        "BareName" => ResultSpec {
+            constructor: node.text.clone(),
+            args: vec![],
+        },
+        "InstanceRef" => ResultSpec {
+            constructor: "Passthrough".into(),
+            args: vec![ResultArg::Bound(node.text.clone())],
+        },
+        "StructConstruct" => {
+            let children = aski_core::query_parse_children(world, node.id);
+            let args = children.iter().map(|c| {
+                let field_children = aski_core::query_parse_children(world, c.id);
+                if let Some(val) = field_children.first() {
+                    ResultArg::Nested(node_to_result_spec(world, val))
+                } else {
+                    ResultArg::Literal(c.text.clone())
+                }
+            }).collect();
+            ResultSpec { constructor: node.text.clone(), args }
+        },
+        "StringLit" => ResultSpec {
+            constructor: "Passthrough".into(),
+            args: vec![ResultArg::Literal(node.text.clone())],
+        },
+        "IntLit" => ResultSpec {
+            constructor: "Passthrough".into(),
+            args: vec![ResultArg::Literal(node.text.clone())],
+        },
+        "FloatLit" => ResultSpec {
+            constructor: "Passthrough".into(),
+            args: vec![ResultArg::Literal(node.text.clone())],
+        },
+        _ => ResultSpec { constructor: "Nil".into(), args: vec![] },
+    }
 }
