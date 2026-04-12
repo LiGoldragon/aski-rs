@@ -13,22 +13,22 @@ pub enum Token {
 
     // === Multi-char operators (must come before single-char) ===
     #[token("(|")]
-    CompositionOpen,
+    LParenPipe,
 
     #[token("|)")]
-    CompositionClose,
+    RPipeParen,
 
     #[token("{|")]
-    TraitBoundOpen,
+    LBracePipe,
 
     #[token("|}")]
-    TraitBoundClose,
+    RPipeBrace,
 
     #[token("[|")]
-    IterOpen,
+    LBracketPipe,
 
     #[token("|]")]
-    IterClose,
+    RPipeBracket,
 
     #[token("..=")]
     RangeInclusive,
@@ -196,12 +196,12 @@ impl std::fmt::Display for Token {
         match self {
             Token::Comment => write!(f, ";;"),
             Token::Newline => write!(f, "\\n"),
-            Token::TraitBoundOpen => write!(f, "{{|"),
-            Token::TraitBoundClose => write!(f, "|}}"),
-            Token::CompositionOpen => write!(f, "(|"),
-            Token::CompositionClose => write!(f, "|)"),
-            Token::IterOpen => write!(f, "[|"),
-            Token::IterClose => write!(f, "|]"),
+            Token::LBracePipe => write!(f, "{{|"),
+            Token::RPipeBrace => write!(f, "|}}"),
+            Token::LParenPipe => write!(f, "(|"),
+            Token::RPipeParen => write!(f, "|)"),
+            Token::LBracketPipe => write!(f, "[|"),
+            Token::RPipeBracket => write!(f, "|]"),
             Token::RangeInclusive => write!(f, "..="),
             Token::RangeExclusive => write!(f, ".."),
             Token::Stub => write!(f, "___"),
@@ -401,19 +401,19 @@ mod tests {
     fn lex_trait_bound_delimiters() {
         let source = "{|display|}";
         let tokens = lex(source).unwrap();
-        assert_eq!(tokens[0].token, Token::TraitBoundOpen);
+        assert_eq!(tokens[0].token, Token::LBracePipe);
         assert_eq!(tokens[1].token, Token::CamelIdent("display".into()));
-        assert_eq!(tokens[2].token, Token::TraitBoundClose);
+        assert_eq!(tokens[2].token, Token::RPipeBrace);
     }
 
     #[test]
     fn lex_trait_bound_compound() {
         let source = "{|sort&display|}";
         let tokens = lex(source).unwrap();
-        assert_eq!(tokens[0].token, Token::TraitBoundOpen);
+        assert_eq!(tokens[0].token, Token::LBracePipe);
         assert_eq!(tokens[1].token, Token::CamelIdent("sort".into()));
         assert_eq!(tokens[2].token, Token::Ampersand);
         assert_eq!(tokens[3].token, Token::CamelIdent("display".into()));
-        assert_eq!(tokens[4].token, Token::TraitBoundClose);
+        assert_eq!(tokens[4].token, Token::RPipeBrace);
     }
 }

@@ -1,4 +1,3 @@
 pub mod lexer;
-pub mod grammar;
-pub mod emit;
-pub mod compiler;
+pub mod synth;
+pub mod engine;

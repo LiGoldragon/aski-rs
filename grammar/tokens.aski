@@ -1,7 +1,0 @@
-;; tokens.aski — token classification
-;; Maps Token enum variants to their grammatical roles.
-
-Delimiter (LParen RParen LBracket RBracket LBrace RBrace)
-Operator (Plus Minus Star Slash Percent DoubleEquals NotEqual LessThan GreaterThan LessThanOrEqual GreaterThanOrEqual LogicalAnd LogicalOr)
-Prefix (Caret Hash Bang At Colon Tilde)
-Compound (CompositionOpen CompositionClose TraitBoundOpen TraitBoundClose IterOpen IterClose)

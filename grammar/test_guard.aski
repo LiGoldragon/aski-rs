@@ -1,6 +1,0 @@
-<testGuardedAtom> {
-  [@Name / @Rest] {@World.IsVariant(@Name)}
-    QualifiedVariant(@Name) @Rest
-  [@Name / @Rest]
-    BareName(@Name) @Rest
-}

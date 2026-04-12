@@ -34,40 +34,23 @@
         src = ./.;
         filter = path: type:
           (craneLib.filterCargoSources path type) ||
-          (builtins.match ".*\\.aski$" path != null);
+          (builtins.match ".*\\.aski$" path != null) ||
+          (builtins.match ".*\\.synth$" path != null);
       };
 
       commonArgs = {
         inherit src;
         pname = "aski-rs";
-        version = "0.4.0";
-        postUnpack = ''
-          mkdir -p source/flake-crates
-          cp -r ${aski-core-src} source/flake-crates/aski-core
-        '';
-        ASKI_BOOTSTRAP = "1";
+        version = "0.5.0";
       };
 
       # ── Default (dynamic glibc) build ──
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-      aski-rs-unwrapped = craneLib.buildPackage (commonArgs // {
+      aski-rs = craneLib.buildPackage (commonArgs // {
         inherit cargoArtifacts;
-        postInstall = ''
-          mkdir -p $out/share/aski-grammar
-          cp -r $src/grammar/* $out/share/aski-grammar/
-        '';
       });
-      aski-rs = pkgs.symlinkJoin {
-        name = "aski-rs-0.4.0";
-        paths = [ aski-rs-unwrapped ];
-        nativeBuildInputs = [ pkgs.makeWrapper ];
-        postBuild = ''
-          wrapProgram $out/bin/askic \
-            --set ASKI_GRAMMAR_DIR "$out/share/aski-grammar"
-        '';
-      };
 
-      # ── Static musl build (bootstrap FOD source) ──
+      # ── Static musl build (bootstrap binary) ──
       muslArgs = commonArgs // {
         CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
         CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
@@ -150,10 +133,18 @@
         rm -rf "$TMPDIR"
         echo ":: Done. Bootstrap updated to $NEXT"
       '';
+      roundtrip-test = import ./tests/roundtrip.nix {
+        inherit pkgs aski-core-src;
+        askic = aski-rs;
+        rustc = toolchain;
+      };
     in {
       packages.${system} = {
         default = aski-rs;
         askic-static = askic-static;
+      };
+      checks.${system} = {
+        roundtrip = roundtrip-test;
       };
       apps.${system}.update-bootstrap = {
         type = "app";
