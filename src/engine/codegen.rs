@@ -59,14 +59,32 @@ impl Emit for SemaWorld {
             .filter(|v| v.type_id == sema_type.name)
             .collect();
 
-        out.push_str("#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]\n");
+        let has_data = variants.iter().any(|v| v.wraps >= 0);
+        let has_float = variants.iter().any(|v| {
+            if v.wraps >= 0 {
+                let inner = &self.type_names[v.wraps as usize];
+                matches!(inner.as_str(), "F32" | "F64")
+            } else {
+                false
+            }
+        });
+        let first_is_unit = variants.first().map(|v| v.wraps < 0).unwrap_or(true);
+
+        // Derive traits based on contained types
+        let mut derives = vec!["Debug", "Clone"];
+        if !has_data { derives.push("Copy"); }
+        if !has_float { derives.push("PartialEq"); derives.push("Eq"); }
+        else { derives.push("PartialEq"); }
+        if first_is_unit { derives.insert(0, "Default"); }
+        out.push_str(&format!("#[derive({})]\n", derives.join(", ")));
+
         out.push_str(&format!("pub enum {} {{\n", name));
         for (i, var) in variants.iter().enumerate() {
             let var_name = &self.variant_names[var.name as usize];
-            if i == 0 { out.push_str("    #[default]\n"); }
+            if i == 0 && first_is_unit { out.push_str("    #[default]\n"); }
             if var.wraps >= 0 {
                 let inner = &self.type_names[var.wraps as usize];
-                out.push_str(&format!("    {}({}),\n", var_name, inner));
+                out.push_str(&format!("    {}({}),\n", var_name, self.rust_type(inner)));
             } else {
                 out.push_str(&format!("    {},\n", var_name));
             }
