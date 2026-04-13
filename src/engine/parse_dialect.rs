@@ -53,7 +53,7 @@ impl ParseDialect for AskiWorld {
             .ok_or_else(|| format!("unknown dialect: {}", dialect_name))?
             .clone();
 
-        // First pass: run Sequential rules once
+        // Collect all rules — Sequential run once first, then OrderedChoice loop
         for rule in &dialect.rules {
             if let Rule::Sequential(items) = rule {
                 for item in items {
@@ -115,12 +115,13 @@ impl ParseDialect for AskiWorld {
             if !matched { break; }
         }
 
-        // Check minimum cardinality (OneOrMore must have matched at least once)
+        // Check minimum cardinality (One and OneOrMore must have matched)
         let mut alt_offset = 0;
         for alts in &choices {
             for (i, alt) in alts.iter().enumerate() {
                 let idx = alt_offset + i;
-                if alt.cardinality == Card::OneOrMore && match_counts[idx] == 0 {
+                let required = matches!(alt.cardinality, Card::One | Card::OneOrMore);
+                if required && match_counts[idx] == 0 {
                     return Err(format!("required alternative not matched in {}", dialect_name));
                 }
             }

@@ -41,18 +41,47 @@ impl Lower for AskiWorld {
             }
         }
 
-        // Build module record
-        if !self.module_name.is_empty() {
-            let mod_id = sema.intern_module(&self.module_name);
+        // Build module record from the module header node
+        // Module is {module/ ...} — a { node with camelCase key (not a struct)
+        let root_children = self.children_of(self.root_id());
+        let module_header = root_children.iter().find(|n| {
+            n.constructor == "{" && !self.is_struct(&n.key)
+                && n.key.starts_with(|c: char| c.is_lowercase())
+        });
+
+        if let Some(header) = module_header {
+            let module_name = header.key.clone();
+            let mod_id = sema.intern_module(&module_name);
+
+            // Exports are the children of the module header node
+            let header_children = self.children_of(header.id);
+            let exports: Vec<String> = header_children.iter()
+                .map(|c| c.key.clone())
+                .filter(|k| !k.is_empty())
+                .collect();
+
+            // Imports are bracket children of the module header: [:Module/ items]
+            let imports: Vec<SemaImport> = header_children.iter()
+                .filter(|c| c.constructor == "[")
+                .map(|c| {
+                    let import_children = self.children_of(c.id);
+                    let names: Vec<String> = import_children.iter()
+                        .map(|ic| ic.key.clone())
+                        .filter(|k| !k.is_empty())
+                        .collect();
+                    SemaImport {
+                        module_name: c.key.clone(),
+                        names,
+                    }
+                })
+                .collect();
+
             sema.modules.push(SemaModule {
                 name: mod_id,
                 file_path: self.current_file.clone(),
                 is_main: false,
-                exports: self.exports.clone(),
-                imports: self.imports.iter().map(|(m, names)| SemaImport {
-                    module_name: m.clone(),
-                    names: names.clone(),
-                }).collect(),
+                exports,
+                imports,
                 declaration_order,
             });
         }
@@ -129,7 +158,7 @@ impl AskiWorld {
             sema.trait_decls.push(SemaTraitDecl { name: trait_id, method_sigs: sigs });
             decl_order.push(SemaDeclarationRef::TraitDecl(idx));
         }
-        // Module header — skip (already captured in AskiWorld.module_name)
+        // Not a domain or trait — skip (module header is now {module/ ...})
     }
 
     fn lower_bracket(&self, sema: &mut SemaWorld, node_id: i64, key: &str, decl_order: &mut Vec<SemaDeclarationRef>) {

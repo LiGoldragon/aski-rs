@@ -81,6 +81,16 @@ fn main() {
                     sema.type_names[i.type_id as usize],
                     i.methods.len());
             }
+            for m in &sema.modules {
+                println!("module[{}] file={} exports={:?} imports={}",
+                    sema.module_names[m.name as usize],
+                    m.file_path,
+                    m.exports,
+                    m.imports.len());
+                for imp in &m.imports {
+                    println!("  import {} {:?}", imp.module_name, imp.names);
+                }
+            }
         }
         "rust" => {
             let sema = world.lower();

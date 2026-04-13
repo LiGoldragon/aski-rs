@@ -34,10 +34,27 @@ impl ParseItem for AskiWorld {
 
             Item::Value => {
                 reader.skip_newlines();
-                let tok = reader.peek().ok_or("expected value, got EOF")?;
+                let tok = reader.peek().ok_or("expected value, got EOF")?.clone();
+                let start = reader.span_start();
                 match tok {
-                    Token::Integer(_) | Token::Float(_) | Token::StringLit(_) => {
+                    Token::Integer(n) => {
                         reader.pos += 1;
+                        let id = self.make_node("IntLit", &n.to_string(), start, reader.span_end());
+                        self.add_child(parent_id, id);
+                        Ok(())
+                    }
+                    Token::Float(ref s) => {
+                        let s = s.clone();
+                        reader.pos += 1;
+                        let id = self.make_node("FloatLit", &s, start, reader.span_end());
+                        self.add_child(parent_id, id);
+                        Ok(())
+                    }
+                    Token::StringLit(ref s) => {
+                        let s = s.clone();
+                        reader.pos += 1;
+                        let id = self.make_node("StringLit", &s, start, reader.span_end());
+                        self.add_child(parent_id, id);
                         Ok(())
                     }
                     _ => Err(format!("expected value, got {:?}", tok)),
@@ -195,10 +212,7 @@ impl AskiWorld {
                     use super::parse_expr::ParseExpr;
                     self.parse_method_content(reader, node_id)?;
                 }
-                "Const" => {
-                    use super::parse_expr::ParseExpr;
-                    self.parse_const_content(reader, node_id)?;
-                }
+                // "Const" handled by synth body items (:Type @value)
                 _ => {
                     reader.skip_until_close(delimiter);
                 }

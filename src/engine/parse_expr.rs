@@ -12,9 +12,6 @@ pub trait ParseExpr {
     /// Parse method content after key/: params, optional return type, body.
     fn parse_method_content(&mut self, reader: &mut TokenReader, method_node_id: i64) -> Result<(), String>;
 
-    /// Parse constant content after key/: type + value.
-    fn parse_const_content(&mut self, reader: &mut TokenReader, const_node_id: i64) -> Result<(), String>;
-
     /// Parse a block body [stmts] — already inside the brackets.
     fn parse_body(&mut self, reader: &mut TokenReader, parent_id: i64) -> Result<(), String>;
 
@@ -29,26 +26,6 @@ pub trait ParseExpr {
 }
 
 impl ParseExpr for AskiWorld {
-    fn parse_const_content(&mut self, reader: &mut TokenReader, const_node_id: i64) -> Result<(), String> {
-        // Constants: {|Name/ Type value|}
-        // Type is PascalCase, value is a literal (int, float, string)
-        reader.skip_newlines();
-        if let Some(Token::PascalIdent(_)) = reader.peek() {
-            let type_name = reader.read_pascal()?;
-            let id = self.make_node("Type", &type_name, 0, 0);
-            self.add_child(const_node_id, id);
-        }
-        reader.skip_newlines();
-        match reader.peek() {
-            Some(Token::Integer(_)) | Some(Token::Float(_)) | Some(Token::StringLit(_)) => {
-                let val_id = self.parse_atom(reader, const_node_id)?;
-                self.add_child(const_node_id, val_id);
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
     fn parse_method_content(&mut self, reader: &mut TokenReader, method_node_id: i64) -> Result<(), String> {
         // 1. Parse params
         self.parse_params(reader, method_node_id)?;

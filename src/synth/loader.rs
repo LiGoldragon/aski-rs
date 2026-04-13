@@ -46,6 +46,7 @@ pub fn load_dialect(name: &str, source: &str) -> Result<Dialect, String> {
                 Some('*') => (Card::ZeroOrMore, content[1..].trim()),
                 Some('+') => (Card::OneOrMore, content[1..].trim()),
                 Some('?') => (Card::Optional, content[1..].trim()),
+                Some('!') => (Card::One, content[1..].trim()),
                 _ => (Card::ZeroOrMore, content), // default: zero or more
             };
             let items = parse_items(items_str)?;
@@ -129,30 +130,34 @@ fn parse_items(input: &str) -> Result<Vec<Item>, String> {
             // Declare placeholder: @Name or @name
             '@' => {
                 chars.next();
-                // Old @_ escape removed — use _..._ instead
                 let name = read_name(&mut chars);
-                let casing = if name.starts_with(|c: char| c.is_uppercase()) {
-                    Casing::Pascal
+                // @value is special — matches literal values (int, float, string)
+                if name == "value" {
+                    items.push(Item::Value);
                 } else {
-                    Casing::Camel
-                };
-                // Check for inline or: @name//@Name
-                if chars.peek() == Some(&'/') {
-                    let mut peek_chars = chars.clone();
-                    peek_chars.next();
-                    if peek_chars.peek() == Some(&'/') {
-                        chars.next(); // skip first /
-                        chars.next(); // skip second /
-                        let left = Item::Declare { casing, kind: name };
-                        let rest: String = chars.collect();
-                        let right_items = parse_items(&rest)?;
-                        if let Some(right) = right_items.into_iter().next() {
-                            items.push(Item::Or(vec![left, right]));
+                    let casing = if name.starts_with(|c: char| c.is_uppercase()) {
+                        Casing::Pascal
+                    } else {
+                        Casing::Camel
+                    };
+                    // Check for inline or: @name//@Name
+                    if chars.peek() == Some(&'/') {
+                        let mut peek_chars = chars.clone();
+                        peek_chars.next();
+                        if peek_chars.peek() == Some(&'/') {
+                            chars.next(); // skip first /
+                            chars.next(); // skip second /
+                            let left = Item::Declare { casing, kind: name };
+                            let rest: String = chars.collect();
+                            let right_items = parse_items(&rest)?;
+                            if let Some(right) = right_items.into_iter().next() {
+                                items.push(Item::Or(vec![left, right]));
+                            }
+                            return Ok(items);
                         }
-                        return Ok(items);
                     }
+                    items.push(Item::Declare { casing, kind: name });
                 }
-                items.push(Item::Declare { casing, kind: name });
             }
 
             // Reference placeholder: :Name or :name
@@ -394,25 +399,25 @@ mod tests {
     fn load_aski_synth() {
         let source = r#"
 ;; aski.synth
-(@Module/ <module>)
-
+// !{@module/ <module>}
 // *(@Domain/ <domain>)
 // *(@trait/ <trait-decl>)
 // *[@trait/ <trait-impl>]
 // *{@Struct/ <struct>}
-// *{|@Const/|}
+// *{|@Const/ :Type @value|}
 // *(|@Ffi/ <ffi>|)
 // ?[|<process>|]
 "#;
         let dialect = load_dialect("aski", source).unwrap();
         assert_eq!(dialect.name, "aski");
-        // 1 sequential (module header) + 1 ordered choice (7 alternatives)
-        assert_eq!(dialect.rules.len(), 2);
-        match &dialect.rules[1] {
+        // Pure ordered choice (8 alternatives, no sequential)
+        assert_eq!(dialect.rules.len(), 1);
+        match &dialect.rules[0] {
             Rule::OrderedChoice(alts) => {
-                assert_eq!(alts.len(), 7);
-                assert_eq!(alts[0].cardinality, Card::ZeroOrMore); // *(@Domain/)
-                assert_eq!(alts[6].cardinality, Card::Optional);   // ?[|<process>|]
+                assert_eq!(alts.len(), 8);
+                assert_eq!(alts[0].cardinality, Card::One);        // !{@module/}
+                assert_eq!(alts[1].cardinality, Card::ZeroOrMore); // *(@Domain/)
+                assert_eq!(alts[7].cardinality, Card::Optional);   // ?[|<process>|]
             }
             _ => panic!("expected OrderedChoice"),
         }
@@ -422,12 +427,16 @@ mod tests {
     fn load_domain_synth() {
         let source = r#"
 ;; domain.synth
-+@Variant
-*(@Variant/ :Type)
-*{@Variant/ <struct>}
+// *@Variant
+// *(@Variant/ :Type)
+// *{@Variant/ <struct>}
 "#;
         let dialect = load_dialect("domain", source).unwrap();
-        assert_eq!(dialect.rules.len(), 3);
+        assert_eq!(dialect.rules.len(), 1);
+        match &dialect.rules[0] {
+            Rule::OrderedChoice(alts) => assert_eq!(alts.len(), 3),
+            _ => panic!("expected OrderedChoice"),
+        }
     }
 
     #[test]
