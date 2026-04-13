@@ -65,60 +65,50 @@ pkgs.runCommand "askic-roundtrip-test" {
   set -euo pipefail
   mkdir -p $out
 
-  echo "=== Test 1: elements.aski → Rust (compiles) ==="
-  askic rust ${elements} --synth-dir ${synth-dir} > $out/elements.rs
-  cat $out/elements.rs
-  rustc $out/elements.rs --crate-type lib -o $out/libelements.rlib
-  echo "  ✓ elements.rs compiles"
+  # ── Test 1-5: .aski → .sema → .rs (through sema artifact) ──
 
-  echo ""
-  echo "=== Test 2: math.aski → Rust (compiles) ==="
-  askic rust ${math} --synth-dir ${synth-dir} > $out/math.rs
-  cat $out/math.rs
-  rustc $out/math.rs --crate-type lib -o $out/libmath.rlib
-  echo "  ✓ math.rs compiles"
+  for name in elements math params matching constants; do
+    aski="''${!name}"
+    echo "=== $name: compile to .sema ==="
+    askic compile "$aski" --synth-dir ${synth-dir}
+    sema="''${aski%.aski}.sema"
+    table="''${aski%.aski}.aski-table.sema"
+    test -f "$sema" || (echo "FAIL: $sema not found"; exit 1)
+    test -f "$table" || (echo "FAIL: $table not found"; exit 1)
 
-  echo ""
-  echo "=== Test 3: params.aski → Rust (multi-param methods) ==="
-  askic rust ${params} --synth-dir ${synth-dir} > $out/params.rs
-  cat $out/params.rs
-  rustc $out/params.rs --crate-type lib -o $out/libparams.rlib
-  echo "  ✓ params.rs compiles"
+    echo "=== $name: .sema → Rust ==="
+    askic rust "$sema" --synth-dir ${synth-dir} > "$out/$name.rs"
+    cat "$out/$name.rs"
 
-  echo ""
-  echo "=== Test 4: matching.aski → Rust (or-patterns) ==="
-  askic rust ${matching} --synth-dir ${synth-dir} > $out/matching.rs
-  cat $out/matching.rs
-  rustc $out/matching.rs --crate-type lib -o $out/libmatching.rlib
-  echo "  ✓ matching.rs compiles"
+    echo "=== $name: rustc ==="
+    rustc "$out/$name.rs" --crate-type lib -o "$out/lib$name.rlib"
+    echo "  ✓ $name: .aski → .sema → .rs compiles"
+    echo ""
+  done
 
-  echo ""
-  echo "=== Test 5: constants.aski → Rust (const decls) ==="
-  askic rust ${constants} --synth-dir ${synth-dir} > $out/constants.rs
-  cat $out/constants.rs
-  rustc $out/constants.rs --crate-type lib -o $out/libconstants.rlib
-  echo "  ✓ constants.rs compiles"
+  # ── Test 6-7: roundtrip through .sema binary ──
 
-  echo ""
-  echo "=== Test 6: elements.aski sema ==="
-  askic sema ${elements} --synth-dir ${synth-dir} > $out/elements-sema.txt
-  cat $out/elements-sema.txt
-
-  echo ""
-  echo "=== Test 7: math.aski sema ==="
-  askic sema ${math} --synth-dir ${synth-dir} > $out/math-sema.txt
-  cat $out/math-sema.txt
-
-  echo ""
-  echo "=== Test 8: elements.aski roundtrip ==="
+  echo "=== elements roundtrip: .aski → .sema → .aski ==="
   askic roundtrip ${elements} --synth-dir ${synth-dir} > $out/elements-roundtripped.aski
   cat $out/elements-roundtripped.aski
 
   echo ""
-  echo "=== Test 9: math.aski roundtrip ==="
+  echo "=== math roundtrip: .aski → .sema → .aski ==="
   askic roundtrip ${math} --synth-dir ${synth-dir} > $out/math-roundtripped.aski
   cat $out/math-roundtripped.aski
 
+  # ── Test 8: no strings in .sema binary ──
+
   echo ""
-  echo "=== All 9 tests passed ==="
+  echo "=== no-strings check ==="
+  askic compile ${elements} --synth-dir ${synth-dir}
+  sema="''${elements%.aski}.sema"
+  if strings "$sema" | grep -q "Element\|Fire\|Quality"; then
+    echo "FAIL: strings found in .sema binary"
+    exit 1
+  fi
+  echo "  ✓ .sema binary contains no strings"
+
+  echo ""
+  echo "=== All tests passed ==="
 ''

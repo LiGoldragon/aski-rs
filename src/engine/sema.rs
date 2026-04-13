@@ -373,6 +373,71 @@ impl ResolveName for NameInterner {
     fn method_count(&self) -> usize { self.method_names.len() }
 }
 
+// ── Aski name table ──────────────────────────────────────────────
+// Separate sema file: .aski-table.sema
+// Maps ordinals → aski source names. One possible projection.
+// Other tables (rust-table, display-table) could exist for other targets.
+
+#[derive(Archive, Serialize, Deserialize, Debug, Default, Clone)]
+pub struct AskiNameTable {
+    pub type_names: Vec<String>,
+    pub variant_names: Vec<String>,
+    pub field_names: Vec<String>,
+    pub trait_names: Vec<String>,
+    pub method_names: Vec<String>,
+    pub module_names: Vec<String>,
+    pub literal_strings: Vec<String>,
+    pub binding_names: Vec<String>,
+    pub exports: Vec<String>,
+}
+
+impl ResolveName for AskiNameTable {
+    fn type_name(&self, id: TypeName) -> &str { &self.type_names[id.index()] }
+    fn variant_name(&self, id: VariantName) -> &str { &self.variant_names[id.index()] }
+    fn field_name(&self, id: FieldName) -> &str { &self.field_names[id.index()] }
+    fn trait_name(&self, id: TraitName) -> &str { &self.trait_names[id.index()] }
+    fn method_name(&self, id: MethodName) -> &str { &self.method_names[id.index()] }
+    fn module_name(&self, id: ModuleName) -> &str { &self.module_names[id.index()] }
+    fn literal_string(&self, id: StringLiteral) -> &str { &self.literal_strings[id.index()] }
+    fn binding_name(&self, id: BindingName) -> &str { &self.binding_names[id.index()] }
+
+    fn type_count(&self) -> usize { self.type_names.len() }
+    fn variant_count(&self) -> usize { self.variant_names.len() }
+    fn field_count(&self) -> usize { self.field_names.len() }
+    fn trait_count(&self) -> usize { self.trait_names.len() }
+    fn method_count(&self) -> usize { self.method_names.len() }
+}
+
+impl AskiNameTable {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        rkyv::to_bytes::<rkyv::rancor::Error>(self)
+            .expect("name table serialization failed")
+            .to_vec()
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let archived = unsafe { rkyv::access_unchecked::<ArchivedAskiNameTable>(bytes) };
+        rkyv::deserialize::<AskiNameTable, rkyv::rancor::Error>(archived)
+            .map_err(|e| format!("name table deserialization failed: {}", e))
+    }
+}
+
+impl AskiNameTable {
+    pub fn from_lower(interner: &NameInterner, exports: &[String]) -> Self {
+        AskiNameTable {
+            type_names: interner.type_names.clone(),
+            variant_names: interner.variant_names.clone(),
+            field_names: interner.field_names.clone(),
+            trait_names: interner.trait_names.clone(),
+            method_names: interner.method_names.clone(),
+            module_names: interner.module_names.clone(),
+            literal_strings: interner.literal_strings.clone(),
+            binding_names: interner.binding_names.clone(),
+            exports: exports.to_vec(),
+        }
+    }
+}
+
 // ── Serialization ────────────────────────────────────────────────
 
 pub trait SemaSerialize {
