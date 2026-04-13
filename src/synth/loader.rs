@@ -90,10 +90,15 @@ fn parse_items(input: &str) -> Result<Vec<Item>, String> {
                 };
                 chars.next();
                 let rest: String = chars.collect();
-                let inner_items = parse_items(&rest)?;
-                if let Some(inner) = inner_items.into_iter().next() {
-                    items.push(Item::Cardinality { kind, inner: Box::new(inner) });
-                }
+                let mut inner_items = parse_items(&rest)?;
+                let inner = if inner_items.len() == 1 {
+                    inner_items.remove(0)
+                } else {
+                    // Multiple items after cardinality → group as Sequence
+                    // +@Field :Type → repeat (@Field, :Type) together
+                    Item::Sequence(inner_items)
+                };
+                items.push(Item::Cardinality { kind, inner: Box::new(inner) });
                 return Ok(items);
             }
 

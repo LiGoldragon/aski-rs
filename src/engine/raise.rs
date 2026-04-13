@@ -297,6 +297,12 @@ fn raise_expr(world: &mut AskiWorld, arena: &ExprArena, parent_id: i64, expr_ref
             world.add_child(parent_id, id);
             return;
         }
+        SemaExpr::TryUnwrap(inner) => {
+            let id = world.make_node("TryUnwrap", "", 0, 0);
+            raise_expr(world, arena, id, inner, names);
+            world.add_child(parent_id, id);
+            return;
+        }
     };
     world.add_child(parent_id, id);
 }

@@ -89,6 +89,13 @@ impl ParseItem for AskiWorld {
                 Err(format!("no or-alternative matched at pos {}", reader.pos))
             }
 
+            Item::Sequence(items) => {
+                for sub_item in items {
+                    self.parse_item(reader, parent_id, sub_item)?;
+                }
+                Ok(())
+            }
+
             Item::Literal(text) => {
                 reader.expect_literal(text)
             }
@@ -244,7 +251,7 @@ impl AskiWorld {
     fn parse_reference(&mut self, reader: &mut TokenReader, parent_id: i64, casing: Casing, kind: &str) -> Result<(), String> {
         reader.skip_newlines();
         let name = match casing {
-            Casing::Pascal => reader.read_pascal()?,
+            Casing::Pascal => reader.read_type()?,  // handles Vec{T}, $Trait&Trait
             Casing::Camel => reader.read_camel()?,
         };
         let start = reader.span_start();

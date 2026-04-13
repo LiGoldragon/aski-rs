@@ -154,6 +154,48 @@ impl<'a> TokenReader<'a> {
         }
     }
 
+    /// Read a type reference: `Name`, `Vec{Item}`, `$Trait`, `$Trait&Trait`
+    pub fn read_type(&mut self) -> Result<String, String> {
+        self.skip_newlines();
+
+        // $Trait or $Trait&Trait — generic type parameter
+        if self.peek() == Some(&Token::Dollar) {
+            self.pos += 1;
+            let mut bounds = self.read_pascal()?;
+            while self.peek() == Some(&Token::Ampersand) {
+                self.pos += 1;
+                let next = self.read_pascal()?;
+                bounds.push('&');
+                bounds.push_str(&next);
+            }
+            return Ok(format!("${}", bounds));
+        }
+
+        // PascalIdent — possibly followed by <args> for generics
+        let name = self.read_pascal()?;
+        if self.peek() == Some(&Token::LessThan) {
+            self.pos += 1;
+            let mut result = format!("{}<", name);
+            let mut first = true;
+            loop {
+                self.skip_newlines();
+                if self.peek() == Some(&Token::GreaterThan) {
+                    self.pos += 1;
+                    break;
+                }
+                if self.at_end() { break; }
+                if !first { result.push(' '); }
+                first = false;
+                let arg = self.read_type()?;
+                result.push_str(&arg);
+            }
+            result.push('>');
+            Ok(result)
+        } else {
+            Ok(name)
+        }
+    }
+
     pub fn skip_until_close(&mut self, delim: Delimiter) {
         let mut depth = 1;
         while self.pos < self.tokens.len() && depth > 0 {

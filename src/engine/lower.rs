@@ -408,6 +408,14 @@ impl LowerExpr for AskiWorld {
                     .collect();
                 SemaExpr::MatchExpr { target, arms }
             }
+            "TryUnwrap" => {
+                let inner = if !children.is_empty() {
+                    self.lower_expr(arena, names, children[0].id)
+                } else {
+                    arena.alloc_expr(SemaExpr::IntLit(0))
+                };
+                SemaExpr::TryUnwrap(inner)
+            }
             _ => SemaExpr::BareName(names.intern_binding(&key)),
         };
         arena.alloc_expr(expr)

@@ -198,6 +198,7 @@ pub enum SemaExpr {
     InlineEval(Vec<StmtRef>),
     MatchExpr { target: Option<ExprRef>, arms: Vec<u32> }, // indices into match_arms
     StructConstruct { type_name: TypeName, fields: Vec<(FieldName, ExprRef)> },
+    TryUnwrap(ExprRef),  // expr? — error propagation
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]

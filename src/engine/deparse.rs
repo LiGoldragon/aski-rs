@@ -196,6 +196,12 @@ impl DeparseNode for AskiWorld {
                 }
                 out.push(')');
             }
+            "TryUnwrap" => {
+                for child in &children {
+                    self.deparse_node(out, child.id, indent);
+                }
+                out.push('?');
+            }
             "QualifiedVariant" => {
                 out.push_str(&key);
             }

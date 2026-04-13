@@ -67,6 +67,9 @@ pub enum Item {
     /// Inline or: `@export//@Export`
     Or(Vec<Item>),
 
+    /// A sequence of items that parse together (for cardinality grouping).
+    Sequence(Vec<Item>),
+
     /// A literal token that must appear (e.g. `.set` `.new` `/new`).
     Literal(String),
 }

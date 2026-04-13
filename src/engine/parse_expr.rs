@@ -30,12 +30,13 @@ impl ParseExpr for AskiWorld {
         // 1. Parse params
         self.parse_params(reader, method_node_id)?;
 
-        // 2. Optional return type (PascalCase)
+        // 2. Optional return type (PascalCase, Vec{T}, $Trait&Trait)
         // Accept if followed by body delimiter, close delimiter, or EOF
         reader.skip_newlines();
-        if let Some(Token::PascalIdent(_)) = reader.peek() {
+        let is_type_start = matches!(reader.peek(), Some(Token::PascalIdent(_)) | Some(Token::Dollar));
+        if is_type_start {
             let saved = reader.pos;
-            let type_name = reader.read_pascal()?;
+            let type_name = reader.read_type()?;
             reader.skip_newlines();
             match reader.peek() {
                 Some(Token::LBracket) | Some(Token::LBracketPipe) | Some(Token::LParenPipe)
@@ -214,11 +215,11 @@ impl ParseExpr for AskiWorld {
                 Some(Token::At) => {
                     reader.pos += 1;
                     let name = reader.read_name()?;
-                    // Check for explicit type
+                    // Check for explicit type (PascalIdent, Vec{T}, $Trait)
                     reader.skip_newlines();
                     match reader.peek() {
-                        Some(Token::PascalIdent(_)) => {
-                            let type_name = reader.read_pascal()?;
+                        Some(Token::PascalIdent(_)) | Some(Token::Dollar) => {
+                            let type_name = reader.read_type()?;
                             let id = self.make_node("NamedParam", &name, 0, 0);
                             let type_id = self.make_node("TypeRef", &type_name, 0, 0);
                             self.add_child(id, type_id);
@@ -355,7 +356,7 @@ impl AskiWorld {
                 // :Type — sub-type declaration
                 reader.pos += 1;
                 reader.skip_newlines();
-                let type_name = reader.read_pascal()?;
+                let type_name = reader.read_type()?;
                 let type_id = self.make_node("TypeRef", &type_name, 0, 0);
                 self.add_child(alloc_id, type_id);
             }
@@ -389,6 +390,14 @@ impl AskiWorld {
                 Some(Token::GreaterThanOrEqual) => (">=", (1, 2)),
                 Some(Token::LogicalAnd) => ("&&", (0, 1)),
                 Some(Token::LogicalOr) => ("||", (0, 1)),
+                Some(Token::Question) => {
+                    // Postfix: error propagation (try unwrap)
+                    reader.pos += 1;
+                    let try_id = self.make_node("TryUnwrap", "", 0, 0);
+                    self.add_child(try_id, lhs);
+                    lhs = try_id;
+                    continue;
+                }
                 Some(Token::Dot) => {
                     // Postfix: field access or method call
                     reader.pos += 1;

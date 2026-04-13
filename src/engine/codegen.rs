@@ -70,7 +70,11 @@ impl<'a> CodegenContext<'a> {
 
     fn emit_name_enum(&self, out: &mut String, enum_name: &str, count: usize, resolve: impl Fn(usize) -> &'a str) {
         // Skip Rust keywords and primitive types
-        let skip = |name: &str| matches!(name, "Self" | "self" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "f32" | "f64" | "bool" | "String");
+        let skip = |name: &str| {
+            matches!(name, "Self" | "self" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "f32" | "f64" | "bool" | "String")
+            || name.contains('<')  // generic types (Vec<Item>) aren't enum variants
+            || name.contains('$')  // generic params ($Clone&Debug) aren't enum variants
+        };
 
         let names: Vec<&str> = (0..count).map(|i| resolve(i)).filter(|n| !skip(n)).collect();
         if names.is_empty() { return; }
@@ -413,6 +417,10 @@ impl<'a> CodegenContext<'a> {
                 }
                 out.push('}');
             }
+            SemaExpr::TryUnwrap(inner) => {
+                self.emit_expr(out, inner);
+                out.push('?');
+            }
             SemaExpr::StructConstruct { type_name, fields } => {
                 out.push_str(&format!("{} {{ ", self.names.type_name(type_name)));
                 for (i, (field, val)) in fields.iter().enumerate() {
@@ -460,7 +468,23 @@ fn screaming_snake(name: &str) -> String {
     result
 }
 
-fn rust_type(aski_type: &str) -> &str {
+fn rust_type(aski_type: &str) -> String {
+    // Handle generic types: Vec<Item> → Vec<Item>, Option<TypeName> → Option<TypeName>
+    if let Some(angle_pos) = aski_type.find('<') {
+        let base = &aski_type[..angle_pos];
+        let args_str = &aski_type[angle_pos + 1..aski_type.len() - 1]; // strip < >
+        let args: Vec<String> = args_str.split_whitespace()
+            .map(|a| rust_type(a))
+            .collect();
+        return format!("{}<{}>", base, args.join(", "));
+    }
+
+    // Handle $Trait&Trait generic params — emit as the generated Rust name
+    if aski_type.starts_with('$') {
+        let bounds = &aski_type[1..]; // strip $
+        return bounds.replace('&', "And");
+    }
+
     match aski_type {
         "U8" => "u8", "U16" => "u16", "U32" => "u32", "U64" => "u64",
         "I8" => "i8", "I16" => "i16", "I32" => "i32", "I64" => "i64",
@@ -468,5 +492,5 @@ fn rust_type(aski_type: &str) -> &str {
         "String" => "String", "Bool" => "bool",
         "" | "()" => "()",
         other => other,
-    }
+    }.to_string()
 }
