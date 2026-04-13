@@ -10,7 +10,7 @@ mod tests {
     use crate::engine::codegen::{CodegenContext, Codegen};
     use std::collections::HashMap;
 
-    fn make_world_from_source(source: &str) -> AskiWorld {
+    fn make_world_from_source(_source: &str) -> AskiWorld {
         let synth_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../aski-core/source");
         let dialects = if synth_dir.exists() {
