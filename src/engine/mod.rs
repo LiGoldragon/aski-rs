@@ -11,3 +11,4 @@ pub mod raise;
 pub mod codegen;
 pub mod parse_expr;
 pub mod compiler;
+mod sema_tests;

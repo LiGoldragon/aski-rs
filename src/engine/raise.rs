@@ -187,15 +187,15 @@ fn raise_stmt(world: &mut AskiWorld, arena: &ExprArena, parent_id: i64, stmt_ref
             raise_expr(world, arena, parent_id, expr_ref, names);
         }
         SemaStatement::Allocation { name, .. } => {
-            let id = world.make_node("Alloc", arena.binding(name), 0, 0);
+            let id = world.make_node("Alloc", names.binding_name(name), 0, 0);
             world.add_child(parent_id, id);
         }
         SemaStatement::MutAllocation { name, .. } => {
-            let id = world.make_node("MutAlloc", arena.binding(name), 0, 0);
+            let id = world.make_node("MutAlloc", names.binding_name(name), 0, 0);
             world.add_child(parent_id, id);
         }
         SemaStatement::Mutation { target, method, .. } => {
-            let id = world.make_node("MutCall", arena.binding(target), 0, 0);
+            let id = world.make_node("MutCall", names.binding_name(target), 0, 0);
             let mid = world.make_node("MethodName", names.method_name(method), 0, 0);
             world.add_child(id, mid);
             world.add_child(parent_id, id);
@@ -218,11 +218,11 @@ fn raise_expr(world: &mut AskiWorld, arena: &ExprArena, parent_id: i64, expr_ref
         SemaExpr::FloatLit(f) => world.make_node("FloatLit", &f.to_string(), 0, 0),
         SemaExpr::StringLit(s) => world.make_node("StringLit", names.literal_string(s), 0, 0),
         SemaExpr::SelfRef => world.make_node("InstanceRef", "Self", 0, 0),
-        SemaExpr::InstanceRef(b) => world.make_node("InstanceRef", arena.binding(b), 0, 0),
+        SemaExpr::InstanceRef(b) => world.make_node("InstanceRef", names.binding_name(b), 0, 0),
         SemaExpr::QualifiedVariant { variant, .. } => {
             world.make_node("QualifiedVariant", names.variant_name(variant), 0, 0)
         }
-        SemaExpr::BareName(b) => world.make_node("BareName", arena.binding(b), 0, 0),
+        SemaExpr::BareName(b) => world.make_node("BareName", names.binding_name(b), 0, 0),
         SemaExpr::TypePath { typ, member } => {
             world.make_node("TypePath", &format!("{}:{}", names.type_name(typ), names.method_name(member)), 0, 0)
         }

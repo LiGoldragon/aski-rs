@@ -300,7 +300,7 @@ impl LowerExpr for AskiWorld {
                 if key == "Self" {
                     SemaExpr::SelfRef
                 } else {
-                    SemaExpr::InstanceRef(arena.intern_binding(&key))
+                    SemaExpr::InstanceRef(names.intern_binding(&key))
                 }
             }
             "QualifiedVariant" => {
@@ -309,7 +309,7 @@ impl LowerExpr for AskiWorld {
                 let variant = names.intern_variant(&key);
                 SemaExpr::QualifiedVariant { domain, variant }
             }
-            "BareName" => SemaExpr::BareName(arena.intern_binding(&key)),
+            "BareName" => SemaExpr::BareName(names.intern_binding(&key)),
             "TypePath" => {
                 // key is "Type:member"
                 let parts: Vec<&str> = key.splitn(2, ':').collect();
@@ -319,7 +319,7 @@ impl LowerExpr for AskiWorld {
                         member: names.intern_method(parts[1]),
                     }
                 } else {
-                    SemaExpr::BareName(arena.intern_binding(&key))
+                    SemaExpr::BareName(names.intern_binding(&key))
                 }
             }
             "BinOp" => {
@@ -397,7 +397,7 @@ impl LowerExpr for AskiWorld {
                     .collect();
                 SemaExpr::MatchExpr { target, arms }
             }
-            _ => SemaExpr::BareName(arena.intern_binding(&key)),
+            _ => SemaExpr::BareName(names.intern_binding(&key)),
         };
         arena.alloc_expr(expr)
     }
@@ -455,7 +455,7 @@ impl LowerExpr for AskiWorld {
                 SemaStatement::Expr(ret)
             }
             "Alloc" => {
-                let binding = arena.intern_binding(&node.key);
+                let binding = names.intern_binding(&node.key);
                 let typ = children.iter()
                     .find(|c| c.constructor == "TypeRef")
                     .map(|c| names.intern_type(&c.key));
@@ -465,7 +465,7 @@ impl LowerExpr for AskiWorld {
                 SemaStatement::Allocation { name: binding, typ, init }
             }
             "MutAlloc" => {
-                let binding = arena.intern_binding(&node.key);
+                let binding = names.intern_binding(&node.key);
                 let typ = children.iter()
                     .find(|c| c.constructor == "TypeRef")
                     .map(|c| names.intern_type(&c.key));
@@ -475,7 +475,7 @@ impl LowerExpr for AskiWorld {
                 SemaStatement::MutAllocation { name: binding, typ, init }
             }
             "MutCall" => {
-                let binding = arena.intern_binding(&node.key);
+                let binding = names.intern_binding(&node.key);
                 let method = children.iter()
                     .find(|c| c.constructor == "MethodName")
                     .map(|c| names.intern_method(&c.key))

@@ -268,7 +268,7 @@ impl<'a> CodegenContext<'a> {
                 out.push('\n');
             }
             SemaStatement::Allocation { name, typ, init } => {
-                out.push_str(&format!("{}let {}", pad, snake(self.sema.arena.binding(name))));
+                out.push_str(&format!("{}let {}", pad, snake(self.names.binding_name(name))));
                 if let Some(t) = typ {
                     out.push_str(&format!(": {}", rust_type(self.names.type_name(t))));
                 }
@@ -279,7 +279,7 @@ impl<'a> CodegenContext<'a> {
                 out.push_str(";\n");
             }
             SemaStatement::MutAllocation { name, typ, init } => {
-                out.push_str(&format!("{}let mut {}", pad, snake(self.sema.arena.binding(name))));
+                out.push_str(&format!("{}let mut {}", pad, snake(self.names.binding_name(name))));
                 if let Some(t) = typ {
                     out.push_str(&format!(": {}", rust_type(self.names.type_name(t))));
                 }
@@ -290,7 +290,7 @@ impl<'a> CodegenContext<'a> {
                 out.push_str(";\n");
             }
             SemaStatement::Mutation { target, method, args } => {
-                out.push_str(&format!("{}{}.{}(", pad, snake(self.sema.arena.binding(target)), snake(self.names.method_name(method))));
+                out.push_str(&format!("{}{}.{}(", pad, snake(self.names.binding_name(target)), snake(self.names.method_name(method))));
                 for (i, arg_ref) in args.iter().enumerate() {
                     if i > 0 { out.push_str(", "); }
                     self.emit_expr(out, *arg_ref);
@@ -351,11 +351,11 @@ impl<'a> CodegenContext<'a> {
             SemaExpr::FloatLit(f) => out.push_str(&format!("{}", f)),
             SemaExpr::StringLit(s) => out.push_str(&format!("\"{}\"", self.names.literal_string(s))),
             SemaExpr::SelfRef => out.push_str("self"),
-            SemaExpr::InstanceRef(b) => out.push_str(&snake(self.sema.arena.binding(b))),
+            SemaExpr::InstanceRef(b) => out.push_str(&snake(self.names.binding_name(b))),
             SemaExpr::QualifiedVariant { domain, variant } => {
                 out.push_str(&format!("{}::{}", self.names.type_name(domain), self.names.variant_name(variant)));
             }
-            SemaExpr::BareName(b) => out.push_str(self.sema.arena.binding(b)),
+            SemaExpr::BareName(b) => out.push_str(self.names.binding_name(b)),
             SemaExpr::TypePath { typ, member } => {
                 out.push_str(&format!("{}::{}", self.names.type_name(typ), self.names.method_name(member)));
             }

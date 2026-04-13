@@ -171,14 +171,13 @@ ordinal_type!(StmtRef);
 ordinal_type!(BodyRef);
 ordinal_type!(BindingName);  // local binding names interned per-method
 
-/// Flat expression arena. Lives in Sema.
+/// Flat expression arena. Lives in Sema. No strings.
 #[derive(Archive, Serialize, Deserialize, Debug, Default, Clone)]
 pub struct ExprArena {
     pub exprs: Vec<SemaExpr>,
     pub stmts: Vec<SemaStatement>,
     pub bodies: Vec<SemaBody>,
     pub match_arms: Vec<SemaMatchArm>,
-    pub binding_names: Vec<String>,  // local names — transitional strings
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
@@ -272,21 +271,10 @@ impl ExprArena {
         idx
     }
 
-    pub fn intern_binding(&mut self, name: &str) -> BindingName {
-        if let Some(i) = self.binding_names.iter().position(|n| n == name) {
-            BindingName(i as u32)
-        } else {
-            let i = self.binding_names.len() as u32;
-            self.binding_names.push(name.into());
-            BindingName(i)
-        }
-    }
-
     pub fn expr(&self, r: ExprRef) -> &SemaExpr { &self.exprs[r.index()] }
     pub fn stmt(&self, r: StmtRef) -> &SemaStatement { &self.stmts[r.index()] }
     pub fn body(&self, r: BodyRef) -> &SemaBody { &self.bodies[r.index()] }
     pub fn match_arm(&self, idx: u32) -> &SemaMatchArm { &self.match_arms[idx as usize] }
-    pub fn binding(&self, id: BindingName) -> &str { &self.binding_names[id.index()] }
 }
 
 // ── Name resolution ──────────────────────────────────────────────
@@ -301,6 +289,8 @@ pub trait ResolveName {
     fn method_name(&self, id: MethodName) -> &str;
     fn module_name(&self, id: ModuleName) -> &str;
     fn literal_string(&self, id: StringLiteral) -> &str;
+
+    fn binding_name(&self, id: BindingName) -> &str;
 
     fn type_count(&self) -> usize;
     fn variant_count(&self) -> usize;
@@ -321,6 +311,7 @@ pub struct NameInterner {
     pub method_names: Vec<String>,
     pub module_names: Vec<String>,
     pub literal_strings: Vec<String>,
+    pub binding_names: Vec<String>,
 }
 
 impl Default for NameInterner {
@@ -333,6 +324,7 @@ impl Default for NameInterner {
             method_names: Vec::new(),
             module_names: Vec::new(),
             literal_strings: Vec::new(),
+            binding_names: Vec::new(),
         }
     }
 }
@@ -359,6 +351,9 @@ impl NameInterner {
     intern_method!(intern_method, method_names, MethodName);
     intern_method!(intern_module, module_names, ModuleName);
     intern_method!(intern_string, literal_strings, StringLiteral);
+    intern_method!(intern_binding, binding_names, BindingName);
+
+    pub fn binding(&self, id: BindingName) -> &str { &self.binding_names[id.index()] }
 }
 
 impl ResolveName for NameInterner {
@@ -369,6 +364,7 @@ impl ResolveName for NameInterner {
     fn method_name(&self, id: MethodName) -> &str { &self.method_names[id.index()] }
     fn module_name(&self, id: ModuleName) -> &str { &self.module_names[id.index()] }
     fn literal_string(&self, id: StringLiteral) -> &str { &self.literal_strings[id.index()] }
+    fn binding_name(&self, id: BindingName) -> &str { &self.binding_names[id.index()] }
 
     fn type_count(&self) -> usize { self.type_names.len() }
     fn variant_count(&self) -> usize { self.variant_names.len() }
@@ -388,5 +384,13 @@ impl SemaSerialize for Sema {
         rkyv::to_bytes::<rkyv::rancor::Error>(self)
             .expect("sema serialization failed")
             .to_vec()
+    }
+}
+
+impl Sema {
+    pub fn from_sema_bytes(bytes: &[u8]) -> Result<Sema, String> {
+        let archived = unsafe { rkyv::access_unchecked::<ArchivedSema>(bytes) };
+        rkyv::deserialize::<Sema, rkyv::rancor::Error>(archived)
+            .map_err(|e| format!("sema deserialization failed: {}", e))
     }
 }
