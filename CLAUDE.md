@@ -1,57 +1,50 @@
-# aski-rs — Rust Backend
+# aski-rs-bootstrap — Stage1 Bootstrap Compiler
 
-Reads aski source, emits Rust code. Sole codegen is codegen_v3.
-Bootstrap pipeline green at v0.4.0.4.
+Synth-driven compiler. Reads .aski source, produces .sema (pure binary)
++ .aski-table.sema (name projection). Codegen emits Rust from .sema files.
 
-## Current State (2026-04-05)
+## Branch
 
-- 86 tests pass (82 unit + 4 integration)
-- Only v0.9 spec exists — all pre-v0.8 removed
-- Multi-file compilation via `compile_directory` API
-- Variant construction `PascalName(expr)` in match arms
-- DataCarrying pattern binding `Parsed(@Toks)` extracts inner values
-- Auto-deref primitive named params in arithmetic
-- `PartialEq`/`Eq` derived on all structs
-- camelCase traits → PascalCase Rust conversion
-- BindType (PascalCase-only binding for type references)
-- Grammar rules are live — injected during parsing, module-scoped via topo-sort
-- No serde_json — JSON eliminated, World relations are canonical
+**`askic-bootstrap`** — not main. Main has old v0.4 code.
+
+## Current State (2026-04-13)
+
+- 5256 lines, 26 tests, 3 nix checks
+- Sema is the artifact: .sema (zero strings) + .aski-table.sema (names)
+- Typed ordinals: TypeName(u32), VariantName(u32), etc. — no i64, no strings
+- Flat ExprArena: ExprRef/StmtRef/BodyRef — no Box recursion
+- rkyv portable: little_endian, pointer_width_32, alloc
+- Name enums generated: TypeName, VariantName, FieldName, etc. with Display
+
+## Pipeline
+
+```
+.aski → askic compile → .sema + .aski-table.sema
+                              ↓
+        askic rust .sema → .rs (from binary, not memory)
+```
+
+## CLI
+
+- `askic compile file.aski --synth-dir path` → .sema + .aski-table.sema
+- `askic rust file.sema` → Rust (auto-discovers .aski-table.sema)
+- `askic rust file.aski --synth-dir path` → shorthand: compile + rust
+- `askic deparse file.sema` → aski text from sema
+- `askic roundtrip file.aski` → aski → sema binary → aski
 
 ## Architecture
 
 ```
-.aski → Lexer (logos) → Grammar Rules (PEG interpreter) → AST → IR → Codegen v3 → Rust
+.aski → Lexer (logos) → Synth-driven parser (dialect tables)
+      → AskiWorld (parse nodes) → Lower → Sema + NameInterner
+      → rkyv serialize → .sema + .aski-table.sema
+      → rkyv deserialize → Codegen → Rust with name enums
 ```
-
-## v0.9 Language Features
-
-- PascalCase = nouns (domains, fields), camelCase = verbs (traits, methods)
-- No closures, no guards, no loops, no comprehension, no contracts
-- Iteration via collection traits (map, filter, each) + tail recursion
-- `#` = yield, `>` = greater-than only
-- `{}` destructure arms in matching bodies
-- Module headers: `()` identity+exports, `[]` imports, `{}` constraints
-- `&` trait combination replaces where clauses
-- Actor model: observe borrows (`:@Self`), transform moves (`@Self`)
-
-## Module headers in Kernel
-
-Module headers `() [] {}` are preserved in Kernel Aski. Identical codegen
-produces identical Rust, which means identical library fingerprints. Cargo
-can reuse compiled artifacts when only dependents change, not the library.
-
-## usize in generated code
-
-Aski's type system is fixed-size: U8, U16, U32, U64, I64, F64.
-No platform-dependent types. `usize` appears only as an ephemeral
-runtime detail in generated Rust for Vec operations (`.get(x as usize)`,
-`.len() as u32`). Never stored, never serialized, never visible to aski.
-See src/codegen_v3.rs module doc.
 
 ## VCS
 
-Jujutsu (`jj`) mandatory. Git is storage backend only.
+Jujutsu (`jj`) mandatory. Branch: `askic-bootstrap`. Push after every change.
 
 ## Language Policy
 
-Rust only for application logic. Nix only for builds.
+Rust only. Nix only for builds. Object/trait style — no free functions.
