@@ -17,17 +17,22 @@ impl<'a> Codegen for CodegenContext<'a> {
     fn codegen(&self) -> String {
         let mut out = String::new();
 
-        // 1. Name enums
-        self.emit_name_enum(&mut out, "TypeName", self.names.type_count(), |i| self.names.type_name(TypeName(i as u32)));
-        self.emit_name_enum(&mut out, "VariantName", self.names.variant_count(), |i| self.names.variant_name(VariantName(i as u32)));
-        if self.names.field_count() > 0 {
-            self.emit_name_enum(&mut out, "FieldName", self.names.field_count(), |i| self.names.field_name(FieldName(i as u32)));
-        }
-        if self.names.trait_count() > 0 {
-            self.emit_name_enum(&mut out, "TraitName", self.names.trait_count(), |i| self.names.trait_name(TraitName(i as u32)));
-        }
-        if self.names.method_count() > 0 {
-            self.emit_name_enum(&mut out, "MethodName", self.names.method_count(), |i| self.names.method_name(MethodName(i as u32)));
+        // 1. Name enums (in a `names` module to avoid collision with actual types)
+        let has_name_enums = self.names.type_count() > 0;
+        if has_name_enums {
+            out.push_str("pub mod names {\n");
+            self.emit_name_enum(&mut out, "TypeName", self.names.type_count(), |i| self.names.type_name(TypeName(i as u32)));
+            self.emit_name_enum(&mut out, "VariantName", self.names.variant_count(), |i| self.names.variant_name(VariantName(i as u32)));
+            if self.names.field_count() > 0 {
+                self.emit_name_enum(&mut out, "FieldName", self.names.field_count(), |i| self.names.field_name(FieldName(i as u32)));
+            }
+            if self.names.trait_count() > 0 {
+                self.emit_name_enum(&mut out, "TraitName", self.names.trait_count(), |i| self.names.trait_name(TraitName(i as u32)));
+            }
+            if self.names.method_count() > 0 {
+                self.emit_name_enum(&mut out, "MethodName", self.names.method_count(), |i| self.names.method_name(MethodName(i as u32)));
+            }
+            out.push_str("}\n\n");
         }
 
         // 2. Types
@@ -152,7 +157,16 @@ impl<'a> CodegenContext<'a> {
             .filter(|f| f.type_id == sema_type.name)
             .collect();
 
-        out.push_str("#[derive(Debug, Clone, PartialEq, Eq)]\n");
+        let has_float = fields.iter().any(|f| {
+            let ft = self.names.type_name(f.field_type);
+            ft == "F32" || ft == "F64" || ft.contains("SemaExpr") || ft.contains("ExprArena")
+                || ft.contains("SemaStatement") || ft.contains("SemaBody")
+        });
+        if has_float {
+            out.push_str("#[derive(Debug, Clone, PartialEq)]\n");
+        } else {
+            out.push_str("#[derive(Debug, Clone, PartialEq, Eq)]\n");
+        }
         out.push_str(&format!("pub struct {} {{\n", name));
         for field in &fields {
             let field_name = self.names.field_name(field.name);
