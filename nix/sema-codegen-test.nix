@@ -2,10 +2,10 @@
 # Generates Rust from .sema files ONLY — no .aski source available.
 # Proves the sema artifact is self-contained for codegen.
 
-{ pkgs, askic, aski-core-src, example-sema, rustc }:
+{ pkgs, askic, example-sema, rustc, ... }:
 
 pkgs.runCommand "aski-sema-codegen-test" {
-  nativeBuildInputs = [ askic rustc ];
+  nativeBuildInputs = [ askic rustc pkgs.binutils ];
 } ''
   set -euo pipefail
   mkdir -p $out

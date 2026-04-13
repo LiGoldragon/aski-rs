@@ -16,9 +16,9 @@ pkgs.runCommand "askic-roundtrip-test" {
   echo "=== Compile .aski → .sema → .rs ==="
   for aski in ${examples-dir}/*.aski; do
     name=$(basename "$aski" .aski)
-
-    # Compile via sema shorthand (writes .sema then reads it back)
-    askic rust "$aski" --synth-dir ${synth-dir} > "$out/$name.rs"
+    work=$(mktemp -d)
+    cp "$aski" "$work/$name.aski"
+    askic rust "$work/$name.aski" --synth-dir ${synth-dir} > "$out/$name.rs"
     rustc "$out/$name.rs" --crate-type lib -o "$out/lib$name.rlib"
     echo "  ✓ $name"
   done
@@ -27,7 +27,9 @@ pkgs.runCommand "askic-roundtrip-test" {
   echo "=== Roundtrip .aski → .sema → .aski ==="
   for aski in ${examples-dir}/*.aski; do
     name=$(basename "$aski" .aski)
-    askic roundtrip "$aski" --synth-dir ${synth-dir} > "$out/$name-roundtripped.aski"
+    work=$(mktemp -d)
+    cp "$aski" "$work/$name.aski"
+    askic roundtrip "$work/$name.aski" --synth-dir ${synth-dir} > "$out/$name-roundtripped.aski"
     echo "  ✓ $name roundtrip"
   done
 
