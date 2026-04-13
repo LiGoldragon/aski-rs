@@ -1,5 +1,6 @@
 pub mod aski_world;
-pub mod sema_world;
+pub mod sema;
+pub mod sema_world; // old — being replaced by sema.rs
 pub mod tokens;
 pub mod register;
 pub mod parse;

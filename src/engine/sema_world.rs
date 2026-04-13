@@ -1,11 +1,10 @@
-//! SemaWorld — the fully specified binary world.
+//! SemaWorld — legacy in-memory format.
 //!
-//! All typed relations. Name domains as ordinal tables.
-//! This is what gets rkyv-serialized to Sema binary,
-//! and what Rust codegen reads.
+//! Being replaced by sema.rs (pure ordinals, no strings, rkyv).
+//! Kept temporarily while lower/codegen/raise migrate.
 
-/// The fully specified world. No ambiguity. Ready for rkyv or codegen.
-#[derive(Debug, Default)]
+/// Legacy in-memory format with string tables.
+#[derive(Debug, Default, Clone)]
 pub struct SemaWorld {
     pub types: Vec<SemaType>,
     pub variants: Vec<SemaVariant>,
@@ -111,7 +110,8 @@ pub struct SemaConst {
 
 // ── Expression tree ──────────────────────────────────────────────
 // Fully-lowered expressions. Codegen reads only these — no parse
-// tree references. SemaWorld is self-contained.
+// tree references. SemaWorld is self-contained. rkyv handles
+// Box<T> via ArchivedBox and Vec<T> via ArchivedVec.
 
 #[derive(Debug, Clone)]
 pub enum SemaExpr {
@@ -190,6 +190,15 @@ pub enum SemaDeclarationRef {
     Const(usize),
     Ffi(usize),
 }
+
+// ── Serialization ────────────────────────────────────────────────
+// SemaWorld → Sema binary (rkyv) and back.
+
+
+
+
+
+// ── Name interning ───────────────────────────────────────────────
 
 impl SemaWorld {
     pub fn new() -> Self { Self::default() }
