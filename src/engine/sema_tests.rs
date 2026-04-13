@@ -92,6 +92,48 @@ mod tests {
     }
 
     #[test]
+    fn aski_sema_aski_roundtrip() {
+        let source = concat!(
+            "{test/ Element describe} ",
+            "(Element/ Fire Earth Air Water) ",
+            "(describe/ [(describe/ :@Self Quality)]) ",
+            "[describe/ Element [(describe/ :@Self Quality (| ",
+            "(Fire) Passionate (Earth) Grounded (Air) Intellectual (Water) Intuitive ",
+            "|))]]",
+        );
+
+        // Parse original → lower → sema
+        let mut world1 = make_world_from_source("");
+        world1.parse_file("test.aski", source).unwrap();
+        let result1 = world1.lower();
+
+        // Raise → deparse → aski text
+        use crate::engine::raise::Raise;
+        use crate::engine::deparse::Deparse;
+        let raised = AskiWorld::raise(&result1.sema, &result1.names, &result1.exports, world1.dialects.clone());
+        let roundtripped = raised.deparse();
+
+        // Parse roundtripped text → lower → sema
+        let mut world2 = make_world_from_source("");
+        world2.parse_file("test.aski", &roundtripped).unwrap();
+        let result2 = world2.lower();
+
+        // Verify sema structure matches
+        assert_eq!(result1.sema.types.len(), result2.sema.types.len(),
+            "type count mismatch: {} vs {}", result1.sema.types.len(), result2.sema.types.len());
+        assert_eq!(result1.sema.variants.len(), result2.sema.variants.len(),
+            "variant count mismatch");
+        assert_eq!(result1.sema.trait_decls.len(), result2.sema.trait_decls.len(),
+            "trait_decl count mismatch");
+        assert_eq!(result1.sema.trait_impls.len(), result2.sema.trait_impls.len(),
+            "trait_impl count mismatch");
+
+        // Verify names match
+        assert_eq!(result1.names.type_names, result2.names.type_names, "type names differ");
+        assert_eq!(result1.names.variant_names, result2.names.variant_names, "variant names differ");
+    }
+
+    #[test]
     fn sema_codegen_roundtrip() {
         let mut world = make_world_from_source("");
         world.parse_file("test.aski", concat!(

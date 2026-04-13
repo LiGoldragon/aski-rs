@@ -8,19 +8,23 @@ use super::aski_world::AskiWorld;
 use super::sema::*;
 
 pub trait Raise {
-    fn raise(sema: &Sema, names: &dyn ResolveName, dialects: HashMap<String, Dialect>) -> AskiWorld;
+    fn raise(sema: &Sema, names: &dyn ResolveName, exports: &[String], dialects: HashMap<String, Dialect>) -> AskiWorld;
 }
 
 impl Raise for AskiWorld {
-    fn raise(sema: &Sema, names: &dyn ResolveName, dialects: HashMap<String, Dialect>) -> AskiWorld {
+    fn raise(sema: &Sema, names: &dyn ResolveName, exports: &[String], dialects: HashMap<String, Dialect>) -> AskiWorld {
         let mut world = AskiWorld::new(dialects);
         let root = world.root_id();
 
-        // Rebuild module header
+        // Rebuild module header with exports
         for module in &sema.modules {
             let mod_name = names.module_name(module.name);
             let node_id = world.make_node("{", mod_name, 0, 0);
             world.add_child(root, node_id);
+            for export in exports {
+                let exp_id = world.make_node("Export", export, 0, 0);
+                world.add_child(node_id, exp_id);
+            }
         }
 
         // Rebuild types

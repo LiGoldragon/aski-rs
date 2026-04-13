@@ -10,6 +10,7 @@ use super::sema::*;
 pub struct LowerResult {
     pub sema: Sema,
     pub names: NameInterner,
+    pub exports: Vec<String>,  // aski-level: module export names
 }
 
 pub trait Lower {
@@ -68,7 +69,17 @@ impl Lower for AskiWorld {
             });
         }
 
-        LowerResult { sema, names }
+        // Capture exports from module header children
+        let exports: Vec<String> = if let Some(header) = module_header {
+            self.children_of(header.id).iter()
+                .map(|c| c.key.clone())
+                .filter(|k| !k.is_empty())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        LowerResult { sema, names, exports }
     }
 }
 

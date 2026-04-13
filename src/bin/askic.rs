@@ -18,6 +18,7 @@ use aski_rs::engine::parse::Parse;
 use aski_rs::engine::deparse::Deparse;
 use aski_rs::engine::lower::Lower;
 use aski_rs::engine::sema::SemaSerialize;
+use aski_rs::engine::raise::Raise;
 use aski_rs::engine::compiler::{AskiCompiler, Compiler, ResolveImports};
 
 fn main() {
@@ -73,13 +74,9 @@ fn main() {
             match mode.as_str() {
                 "deparse" => print!("{}", world.deparse()),
                 "roundtrip" => {
-                    // TODO: update raise for new sema types
                     let result = world.lower();
-                    eprintln!("roundtrip: {} types, {} variants, {} fields",
-                        result.names.type_names.len(),
-                        result.names.variant_names.len(),
-                        result.names.field_names.len());
-                    // Raise needs migration — for now just show stats
+                    let raised = AskiWorld::raise(&result.sema, &result.names, &result.exports, dialects);
+                    print!("{}", raised.deparse());
                 }
                 other => {
                     eprintln!("askic: unknown mode '{}'. Use rust, sema, deparse, or roundtrip.", other);
