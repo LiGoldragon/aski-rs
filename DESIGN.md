@@ -1,237 +1,157 @@
-# Stage1 Bootstrap — Completion Design
+# Stage1 Bootstrap — Design
 
-## Design Intents
+## Sema Is the Artifact
 
-### 1. Codegen Reads Only SemaWorld
+The compiler's primary output is `.sema` — a pure binary file with zero
+strings. Domain ordinals ARE the bytes. All typed relations, expression
+trees, and module structures are stored as ordinals into name tables
+that live in a separate file.
 
-Currently `codegen.rs` takes `&AskiWorld` alongside `&SemaWorld` because
-method bodies are stored as parse-node references (`body_node_id: i64`).
-This cross-world reference is wrong — **SemaWorld must be self-contained**.
+Two files per module:
+```
+module.sema              — code sema (pure ordinals, rkyv binary)
+module.aski-table.sema   — aski name table (ordinal → name, rkyv binary)
+```
 
-Codegen must work from SemaWorld alone. This means expressions, statements,
-match bodies, and block bodies must be fully lowered into typed SemaWorld
-structures. The parse tree is transient; SemaWorld is the artifact.
+The code sema is language-agnostic structure. The aski-table is one
+possible name projection. Other tables could exist for different targets
+(rust-table, display-table, etc.).
 
-### 2. Filesystem-Regenerative Module System
+## Pipeline
 
-SemaWorld must store everything needed to **completely regenerate the
-filesystem from which the data came**. This means:
+```
+.aski source
+  ↓ askic compile
+.sema + .aski-table.sema        ← THE ARTIFACT (two files)
+  ↓ askic rust .sema
+.rs source                       ← one possible projection
+  ↓ rustc
+binary executable
+```
 
-- Which files exist, their paths, their module names
-- Which declarations belong to which file
-- Export lists per module
-- Import lists per module (module name + imported names)
-- Declaration ordering within each file
+Every step is independently verifiable:
+- `askic compile` — aski → sema (parsing + lowering)
+- `askic rust` — sema → Rust (codegen from binary, not from memory)
+- `askic deparse` — sema → aski (raise + deparse, proves losslessness)
+- `askic roundtrip` — aski → sema → aski (full cycle)
 
-If you serialize SemaWorld and deserialize it on an empty disk, you must
-be able to reconstruct every `.aski` and `.main` file exactly.
+## Typed Ordinals
 
-### 3. Complete Stage1 Before Stage2
-
-Stage2 (self-hosting compiler in aski) will use features that stage1
-must handle: multi-param methods, allocation, mutation, match expressions
-with targets, iteration. All of these must work in stage1 first.
-
-## SemaExpr — Expression Tree
-
-Replace `body_node_id: i64` with a fully-lowered expression tree.
+Every name domain has its own newtype. Can't mix a TypeName with a
+VariantName — the compiler catches it at compile time.
 
 ```rust
-pub enum SemaExpr {
-    IntLit(i64),
-    FloatLit(String),
-    StringLit(String),
-    SelfRef,                    // @Self → self
-    InstanceRef(String),        // @name → local binding
-    QualifiedVariant {          // Fire → Element::Fire
-        domain: i64,            //   ordinal into type_names
-        variant: i64,           //   ordinal into variant_names
-    },
-    BareName(String),           // unresolved name
-    TypePath(String),           // Type/Variant → Type::Variant
-    BinOp {
-        op: String,
-        lhs: Box<SemaExpr>,
-        rhs: Box<SemaExpr>,
-    },
-    FieldAccess {
-        object: Box<SemaExpr>,
-        field: String,
-    },
-    MethodCall {
-        object: Box<SemaExpr>,
-        method: String,
-        args: Vec<SemaExpr>,
-    },
-    Group(Box<SemaExpr>),       // (expr) — parenthesized
-    Return(Box<SemaExpr>),      // ^expr
-    InlineEval(Vec<SemaStatement>), // [stmts]
-    MatchExpr {                 // (| target/ arms |)
-        target: Option<Box<SemaExpr>>,
-        arms: Vec<SemaMatchArm>,
-    },
-    StructConstruct {           // (Type/ (Field/ val) ...)
-        type_name: String,
-        fields: Vec<(String, SemaExpr)>,
-    },
-}
+TypeName(u32)       — domain/struct/alias names
+VariantName(u32)    — enum variant names
+FieldName(u32)      — struct field names
+TraitName(u32)      — trait names
+MethodName(u32)     — method/param names
+ModuleName(u32)     — module names
+StringLiteral(u32)  — interned string literals
+BindingName(u32)    — local binding names (method-scoped)
+ExprRef(u32)        — index into expression arena
+StmtRef(u32)        — index into statement arena
+BodyRef(u32)        — index into body arena
+```
 
-pub enum SemaStatement {
-    Expr(SemaExpr),
-    Allocation {                // @name (Type/ args) or @name :Type
-        name: String,
-        typ: Option<String>,
-        init: Option<SemaExpr>,
-    },
-    MutAllocation {             // ~@name (Type/ args)
-        name: String,
-        typ: Option<String>,
-        init: Option<SemaExpr>,
-    },
-    Mutation {                  // ~@name.set [expr]
-        target: String,
-        method: String,
-        args: Vec<SemaExpr>,
-    },
-    Iteration {                 // #source [body]
-        source: SemaExpr,
-        body: Vec<SemaStatement>,
-    },
-}
+## No Strings in Sema
 
-pub enum SemaBody {
-    Block(Vec<SemaStatement>),
-    MatchBody {
-        target: Option<SemaExpr>,
-        arms: Vec<SemaMatchArm>,
-    },
-}
+The `.sema` binary contains zero strings. The `sema_binary_contains_no_strings`
+test greps the binary for all known names and asserts none appear.
 
-pub struct SemaMatchArm {
-    pub patterns: Vec<SemaPattern>,
-    pub result: SemaExpr,
-}
+Names live in `.aski-table.sema` (the aski projection). When codegen
+needs "Element", it reads from the name table via `ResolveName` trait.
 
-pub enum SemaPattern {
-    Variant(i64),               // variant name ordinal
-    Or(Vec<SemaPattern>),       // (Fire | Air) → Or([Fire, Air])
+The `Operator` enum is a fixed domain with 12 variants — no strings needed.
+
+## Expression Arena
+
+No Box, no recursion. All expressions stored in a flat arena, referenced
+by `ExprRef(u32)`. Same for statements (`StmtRef`) and bodies (`BodyRef`).
+
+This eliminates rkyv recursive type issues and is more sema-like:
+everything is ordinals and indices.
+
+```rust
+struct ExprArena {
+    exprs: Vec<SemaExpr>,      // indexed by ExprRef
+    stmts: Vec<SemaStatement>, // indexed by StmtRef
+    bodies: Vec<SemaBody>,     // indexed by BodyRef
+    match_arms: Vec<SemaMatchArm>,
 }
 ```
 
-SemaMethod changes:
+## Name Enums in Generated Code
+
+Codegen emits name enums with Display impls:
 ```rust
-pub struct SemaMethod {
-    pub name: i64,
-    pub params: Vec<SemaParam>,
-    pub return_type: String,
-    pub body: SemaBody,         // was: body_node_id: i64
-}
+pub enum TypeName { Element, Quality }
+pub enum VariantName { Fire, Earth, Air, Water, Passionate, ... }
+pub enum FieldName { Left, Right }
+pub enum TraitName { Describe, Compute }
+pub enum MethodName { Describe, Add }
 ```
 
-SemaConst changes:
-```rust
-pub struct SemaConst {
-    pub name: String,
-    pub typ: String,
-    pub value: SemaExpr,        // was: value_node_id: i64
-}
-```
+These are generated from the NameInterner tables during compilation.
+The enum variants carry their own names via Display — no separate
+name table needed at runtime.
 
 ## Module System
 
-```rust
-pub struct SemaModule {
-    pub name: i64,              // ordinal into module_names
-    pub file_path: String,      // original filesystem path
-    pub is_main: bool,          // .main vs .aski
-    pub exports: Vec<i64>,      // ordinals into type/trait/method names
-    pub imports: Vec<SemaImport>,
-    pub declarations: Vec<i64>, // ordered list of declaration indices
-}
-
-pub struct SemaImport {
-    pub module_name: i64,       // ordinal into module_names
-    pub names: Vec<i64>,        // ordinals of imported names
-}
+Module header uses `{}` with camelCase key:
+```aski
+{elements/ Element Quality describe}
 ```
 
-SemaWorld additions:
-```rust
-pub struct SemaWorld {
-    // ... existing ...
-    pub modules: Vec<SemaModule>,
-    pub module_names: Vec<String>,
-}
+Disambiguated from structs (PascalCase) by casing. `!` cardinality
+in synth means exactly one per file.
+
+SemaModule stores: name ordinal, is_main flag, declaration order.
+Exports live in `.aski-table.sema` (aski-level data, not sema).
+
+## Synth Cardinality on Ordered Choice
+
+Each `//` alternative has explicit cardinality:
+```
+// !{@module/ <module>}     — exactly one
+// *(@Domain/ <domain>)     — zero or more
+// ?[|<process>|]           — at most one
 ```
 
-Each declaration (SemaType, SemaTraitDecl, SemaTraitImpl, SemaConst, SemaFfi)
-gets a `module_id: i64` field linking it to its source module.
+The engine tracks match counts per alternative and enforces limits.
 
-## Param Extraction
+## Type:path Qualified Names
 
-Currently `params: Vec::new()` everywhere. Lower must extract:
+`:` separates qualified paths in expressions:
+```aski
+Element:Fire    → Element::Fire in Rust
+Type:new        → Type::new() in Rust
+```
 
-- `BorrowParam("Self")` → `SemaParam { name: "self", typ: "Self", borrow: Immutable }`
-- `MutBorrowParam("Self")` → `SemaParam { name: "self", typ: "Self", borrow: Mutable }`
-- `NamedParam("factor")` + child `TypeRef("U32")` → `SemaParam { name: "factor", typ: "U32", borrow: Owned }`
-- `OwnedParam("self")` → `SemaParam { name: "self", typ: "Self", borrow: Owned }`
+`/` is reserved for key separator inside delimiters only.
 
-## Data-Carrying Variants
+## File Structure (5256 lines, 26 tests)
 
-domain.synth already has rules for `*(@Variant/ :Type)` and
-`*{@Variant/ <struct>}`. Lower must handle:
-
-- `(@Variant/ :Type)` → `SemaVariant { wraps: type_id }` (tuple variant)
-- `{@Variant/ <struct>}` → separate SemaType(Struct) + SemaVariant that wraps it
-
-Codegen emits:
-- `Variant(InnerType)` for tuple variants
-- `Variant { fields }` for struct variants
-
-## Statement Parsing
-
-parse_statement currently falls through to parse_expr for everything.
-Must handle:
-
-1. `@name :Type` → Allocation (sub-type declaration)
-2. `@name (Type/ args)` → Allocation with constructor
-3. `~@name :Type` → MutAllocation
-4. `~@name.set [expr]` → Mutation via set
-5. `~@name.method (args)` → Mutation via method
-6. `^expr` → Return (already works)
-7. `#source [body]` → Iteration
-
-## Match Enhancements
-
-1. **Or-patterns**: `(Fire | Air)` → check for `|` in pattern parsing
-2. **Target expression**: `(| @Idx == 0/ arms |)` → parse expr until `/`
-
-## Implementation Order
-
-1. SemaExpr types in sema_world.rs
-2. Expression lowering in lower.rs (walk parse nodes → SemaExpr)
-3. Update codegen.rs to read SemaExpr only (drop &AskiWorld param)
-4. Param extraction in lower.rs
-5. Statement parsing in parse_expr.rs
-6. Statement lowering into SemaStatement
-7. Match enhancements (or-patterns, target)
-8. Constants + FFI completion
-9. Data-carrying variants
-10. Module system (SemaModule, file tracking, imports)
-11. Update raise.rs for SemaExpr
-12. Nix tests for each feature
-
-## Test Strategy
-
-Each feature gets a nix test that:
-1. Compiles `.aski` source to Rust via askic
-2. Compiles the generated Rust with rustc
-3. Verifies output (sema dump or roundtrip)
-
-Test files (in addition to existing elements.aski, math.aski):
-- `variants.aski` — data-carrying variants
-- `params.aski` — multi-param methods, mutable self
-- `statements.aski` — allocation, mutation, iteration
-- `matching.aski` — or-patterns, match-with-target
-- `constants.aski` — constants + FFI
-- `modules.aski` — multi-file with imports/exports
+```
+src/
+  lexer.rs              419  Logos tokenizer
+  synth/
+    types.rs            120  Dialect, Rule, ChoiceAlternative, Item
+    loader.rs           495  hardcoded synth parser, @value, ! cardinality
+  engine/
+    aski_world.rs       285  AskiWorld: dialect stack, names, parse nodes
+    sema.rs             461  Sema + typed ordinals + ExprArena + AskiNameTable
+    tokens.rs           176  TokenReader cursor
+    register.rs          37  Register trait
+    parse.rs            169  Parse trait (entry points + 7 tests)
+    parse_item.rs       277  ParseItem trait (delimiter dispatch + @value)
+    parse_dialect.rs    199  ParseDialect trait (cardinality tracking)
+    parse_expr.rs       486  ParseExpr (Pratt + statements + match)
+    lower.rs            594  Lower + LowerExpr (AskiWorld → Sema)
+    deparse.rs          289  Deparse (AskiWorld → aski text, full sigils)
+    raise.rs            317  Raise (Sema → AskiWorld, full roundtrip)
+    codegen.rs          472  Codegen (Sema → Rust, name enums, from file)
+    compiler.rs         101  Compiler (multi-file, import resolution)
+    sema_tests.rs       160  4 sema tests (no-strings, binary/codegen/aski roundtrip)
+  bin/askic.rs          199  CLI: compile, rust, deparse, roundtrip
+```
