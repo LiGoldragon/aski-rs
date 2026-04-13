@@ -292,7 +292,7 @@ impl Emit for SemaWorld {
                 out.push_str(&format!("{}::{}", d, v));
             }
             SemaExpr::BareName(name) => out.push_str(name),
-            SemaExpr::TypePath(path) => out.push_str(&path.replace('/', "::")),
+            SemaExpr::TypePath(path) => out.push_str(&path.replace(':', "::")),
             SemaExpr::BinOp { op, lhs, rhs } => {
                 self.emit_expr(out, lhs);
                 out.push_str(&format!(" {} ", op));

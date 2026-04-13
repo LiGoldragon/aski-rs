@@ -4,7 +4,7 @@ let
   synth-dir = "${aski-core-src}/source";
 
   elements = pkgs.writeText "elements.aski" ''
-    (Elements/ Element Quality describe)
+    {elements/ Element Quality describe}
     (Element/ Fire Earth Air Water)
     (Quality/ Passionate Grounded Intellectual Intuitive)
     (describe/ [(describe/ :@Self Quality)])
@@ -19,7 +19,7 @@ let
   '';
 
   math = pkgs.writeText "math.aski" ''
-    (Math/ Addition compute)
+    {math/ Addition compute}
     {Addition/ Left U32 Right U32}
     (compute/ [(add/ :@Self U32)])
     [compute/ Addition [
@@ -30,7 +30,7 @@ let
   '';
 
   params = pkgs.writeText "params.aski" ''
-    (Params/ Addition multiply)
+    {params/ Addition multiply}
     {Addition/ Left U32 Right U32}
     (multiply/ [(multiply/ :@Self @Factor U32 U32)])
     [multiply/ Addition [
@@ -41,7 +41,7 @@ let
   '';
 
   matching = pkgs.writeText "matching.aski" ''
-    (Matching/ Element Polarity categorize)
+    {matching/ Element Polarity categorize}
     (Element/ Fire Earth Air Water)
     (Polarity/ Active Receptive)
     (categorize/ [(polarity/ :@Self Polarity)])
@@ -54,7 +54,7 @@ let
   '';
 
   constants = pkgs.writeText "constants.aski" ''
-    (Constants/ MaxSigns Pi)
+    {constants/ MaxSigns Pi}
     {|MaxSigns/ U32 12|}
     {|Pi/ F64 3.14159265358979|}
   '';

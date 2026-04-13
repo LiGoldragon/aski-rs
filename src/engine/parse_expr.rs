@@ -113,11 +113,11 @@ impl ParseExpr for AskiWorld {
         match tok.clone() {
             Token::PascalIdent(name) => {
                 reader.pos += 1;
-                // Check for Type/Variant path
-                if reader.peek() == Some(&Token::Slash) {
+                // Check for Type:Variant qualified path
+                if reader.peek() == Some(&Token::Colon) {
                     reader.pos += 1;
                     let variant = reader.read_name()?;
-                    let id = self.make_node("TypePath", &format!("{}/{}", name, variant), start, reader.span_end());
+                    let id = self.make_node("TypePath", &format!("{}:{}", name, variant), start, reader.span_end());
                     Ok(id)
                 } else if self.is_variant(&name) {
                     let _parent_domain = self.variant_of(&name).unwrap_or("").to_string();
