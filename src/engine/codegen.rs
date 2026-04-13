@@ -54,7 +54,10 @@ impl<'a> Codegen for CodegenContext<'a> {
             self.emit_const(&mut out, constant);
         }
 
-        // 6. Process body (fn main)
+        // 6. FFI declarations
+        self.emit_ffi_blocks(&mut out);
+
+        // 7. Process body (fn main)
         if let Some(body_ref) = &self.sema.process_body {
             out.push_str("fn main() {\n");
             self.emit_body(&mut out, *body_ref, 1);
@@ -195,6 +198,83 @@ impl<'a> CodegenContext<'a> {
         out.push_str(&format!("pub const {}: {} = ", screaming_snake(name), rust_type(typ)));
         self.emit_expr(out, constant.value);
         out.push_str(";\n\n");
+    }
+
+    // ── FFI blocks ───────────────────────────────────────────────
+    // Each FFI library becomes a Rust module that delegates to askic_ffi.
+    // (|Logos/ (lex/ @source String Vec<Token>) |) →
+    //   pub mod logos {
+    //       pub fn lex(source: String) -> Vec<Token> { askic_ffi::logos::lex(source) }
+    //   }
+
+    fn emit_ffi_blocks(&self, out: &mut String) {
+        if self.sema.ffi_entries.is_empty() { return; }
+
+        // Group entries by library
+        let mut libraries: Vec<(TypeName, Vec<&SemaFfi>)> = Vec::new();
+        for entry in &self.sema.ffi_entries {
+            if let Some(lib) = libraries.iter_mut().find(|(name, _)| *name == entry.library) {
+                lib.1.push(entry);
+            } else {
+                libraries.push((entry.library, vec![entry]));
+            }
+        }
+
+        for (lib_name, entries) in &libraries {
+            let lib_str = snake(self.names.type_name(*lib_name));
+            out.push_str(&format!("pub mod {} {{\n", lib_str));
+            out.push_str("    use super::*;\n\n");
+
+            for entry in entries {
+                let fn_name = snake(self.names.method_name(entry.name));
+                let ret_str = match entry.return_type {
+                    Some(t) => rust_type(self.names.type_name(t)),
+                    None => "()".into(),
+                };
+
+                // Signature
+                out.push_str(&format!("    pub fn {}(", fn_name));
+                let mut first = true;
+                for param in &entry.params {
+                    if !first { out.push_str(", "); }
+                    first = false;
+                    let pname = self.names.method_name(param.name);
+                    if pname == "self" {
+                        match param.borrow {
+                            ParamBorrow::Immutable => out.push_str("&self"),
+                            ParamBorrow::Mutable => out.push_str("&mut self"),
+                            ParamBorrow::Owned => out.push_str("self"),
+                        }
+                    } else {
+                        let typ = param.typ.map(|t| self.names.type_name(t)).unwrap_or("Self");
+                        match param.borrow {
+                            ParamBorrow::Immutable => out.push_str(&format!("{}: &{}", snake(pname), rust_type(typ))),
+                            ParamBorrow::Mutable => out.push_str(&format!("{}: &mut {}", snake(pname), rust_type(typ))),
+                            ParamBorrow::Owned => out.push_str(&format!("{}: {}", snake(pname), rust_type(typ))),
+                        }
+                    }
+                }
+                out.push_str(&format!(") -> {} {{\n", ret_str));
+
+                // Body: delegate to askic_ffi
+                out.push_str(&format!("        askic_ffi::{}::{}(", lib_str, fn_name));
+                let mut first = true;
+                for param in &entry.params {
+                    if !first { out.push_str(", "); }
+                    first = false;
+                    let pname = self.names.method_name(param.name);
+                    if pname == "self" {
+                        out.push_str("self");
+                    } else {
+                        out.push_str(&snake(pname));
+                    }
+                }
+                out.push_str(")\n");
+                out.push_str("    }\n\n");
+            }
+
+            out.push_str("}\n\n");
+        }
     }
 
     // ── Method signature ─────────────────────────────────────────

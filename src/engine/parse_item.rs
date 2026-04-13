@@ -215,7 +215,7 @@ impl AskiWorld {
             }).unwrap_or("");
 
             match key_kind {
-                "method" | "signature" => {
+                "method" | "signature" | "foreignFunction" => {
                     use super::parse_expr::ParseExpr;
                     self.parse_method_content(reader, node_id)?;
                 }
