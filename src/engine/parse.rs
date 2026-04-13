@@ -25,15 +25,24 @@ impl Parse for AskiWorld {
     }
 
     fn parse_main(&mut self, file_path: &str, source: &str) -> Result<(), String> {
+        use super::parse_expr::ParseExpr;
         let tokens = lexer::lex(source).map_err(|errs| {
             errs.iter().map(|e| format!("{}: {}", e.span.start, e.text)).collect::<Vec<_>>().join(", ")
         })?;
         self.current_file = file_path.to_string();
-        self.push_dialect("main");
         let root = self.root_id();
         let mut reader = TokenReader::new(&tokens);
+
+        // Parse imports via main dialect
+        self.push_dialect("main");
         self.parse_dialect_looping(&mut reader, root)?;
         self.pop_dialect();
+
+        // Parse process body — remaining tokens are statements
+        let body_id = self.make_node("ProcessBody", "", 0, 0);
+        self.add_child(root, body_id);
+        self.parse_body(&mut reader, body_id)?;
+
         Ok(())
     }
 }

@@ -32,6 +32,12 @@ impl Codegen for SemaWorld {
             self.emit_const(&mut out, constant);
         }
 
+        if let Some(body) = &self.process_body {
+            out.push_str("fn main() {\n");
+            self.emit_body(&mut out, body, 1);
+            out.push_str("}\n");
+        }
+
         out
     }
 }

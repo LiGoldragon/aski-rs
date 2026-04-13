@@ -16,6 +16,9 @@ pub struct SemaWorld {
     pub ffi_entries: Vec<SemaFfi>,
     pub constants: Vec<SemaConst>,
 
+    // Process body — for .main files (fn main)
+    pub process_body: Option<SemaBody>,
+
     // Module system — filesystem-regenerative
     pub modules: Vec<SemaModule>,
 

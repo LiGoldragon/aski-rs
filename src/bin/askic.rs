@@ -41,7 +41,13 @@ fn main() {
     let dialects = load_dialects(synth_dir);
     let mut world = AskiWorld::new(dialects.clone());
 
-    world.parse_file(file, &source).unwrap_or_else(|e| {
+    let is_main = file.ends_with(".main");
+    let parse_result = if is_main {
+        world.parse_main(file, &source)
+    } else {
+        world.parse_file(file, &source)
+    };
+    parse_result.unwrap_or_else(|e| {
         eprintln!("askic: parse error: {}", e);
         std::process::exit(1);
     });

@@ -37,6 +37,7 @@ impl Lower for AskiWorld {
                 "{|" => self.lower_brace_pipe(&mut sema, node.id, &key, &mut declaration_order),
                 "(|" => self.lower_paren_pipe(&mut sema, node.id, &key, &mut declaration_order),
                 "[|" => self.lower_bracket_pipe(&mut sema, node.id, &key, &mut declaration_order),
+                "ProcessBody" => self.lower_process_body(&mut sema, node.id),
                 _ => {}
             }
         }
@@ -270,8 +271,16 @@ impl AskiWorld {
     }
 
     fn lower_bracket_pipe(&self, _sema: &mut SemaWorld, _node_id: i64, _key: &str, _decl_order: &mut Vec<SemaDeclarationRef>) {
-        // Process block — lowered as main entry
+        // Process block [| |] — inline executable in .aski files
         // TODO: lower statements into SemaBody
+    }
+
+    fn lower_process_body(&self, sema: &mut SemaWorld, node_id: i64) {
+        let children = self.children_of(node_id);
+        let stmts: Vec<SemaStatement> = children.iter()
+            .map(|c| self.lower_statement(c.id))
+            .collect();
+        sema.process_body = Some(SemaBody::Block(stmts));
     }
 
     fn lower_struct_fields(&self, sema: &mut SemaWorld, node_id: i64, type_id: i64) {
