@@ -301,6 +301,12 @@ pub trait ResolveName {
     fn method_name(&self, id: MethodName) -> &str;
     fn module_name(&self, id: ModuleName) -> &str;
     fn literal_string(&self, id: StringLiteral) -> &str;
+
+    fn type_count(&self) -> usize;
+    fn variant_count(&self) -> usize;
+    fn field_count(&self) -> usize;
+    fn trait_count(&self) -> usize;
+    fn method_count(&self) -> usize;
 }
 
 // ── Interning ────────────────────────────────────────────────────
@@ -363,6 +369,12 @@ impl ResolveName for NameInterner {
     fn method_name(&self, id: MethodName) -> &str { &self.method_names[id.index()] }
     fn module_name(&self, id: ModuleName) -> &str { &self.module_names[id.index()] }
     fn literal_string(&self, id: StringLiteral) -> &str { &self.literal_strings[id.index()] }
+
+    fn type_count(&self) -> usize { self.type_names.len() }
+    fn variant_count(&self) -> usize { self.variant_names.len() }
+    fn field_count(&self) -> usize { self.field_names.len() }
+    fn trait_count(&self) -> usize { self.trait_names.len() }
+    fn method_count(&self) -> usize { self.method_names.len() }
 }
 
 // ── Serialization ────────────────────────────────────────────────

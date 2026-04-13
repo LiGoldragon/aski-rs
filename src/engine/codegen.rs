@@ -1,18 +1,37 @@
-//! Codegen — SemaWorld → Rust source.
-//! Reads only typed relations and expression trees from SemaWorld.
-//! No parse tree references — SemaWorld is self-contained.
+//! Codegen — Sema → Rust source.
+//! Reads typed ordinals from Sema, resolves names via ResolveName trait.
+//! Emits name enums (TypeName, VariantName, etc.) + domain types + traits.
 
-use super::sema_world::*;
+use super::sema::*;
+
+pub struct CodegenContext<'a> {
+    pub sema: &'a Sema,
+    pub names: &'a dyn ResolveName,
+}
 
 pub trait Codegen {
     fn codegen(&self) -> String;
 }
 
-impl Codegen for SemaWorld {
+impl<'a> Codegen for CodegenContext<'a> {
     fn codegen(&self) -> String {
         let mut out = String::new();
 
-        for sema_type in &self.types {
+        // 1. Name enums
+        self.emit_name_enum(&mut out, "TypeName", self.names.type_count(), |i| self.names.type_name(TypeName(i as u32)));
+        self.emit_name_enum(&mut out, "VariantName", self.names.variant_count(), |i| self.names.variant_name(VariantName(i as u32)));
+        if self.names.field_count() > 0 {
+            self.emit_name_enum(&mut out, "FieldName", self.names.field_count(), |i| self.names.field_name(FieldName(i as u32)));
+        }
+        if self.names.trait_count() > 0 {
+            self.emit_name_enum(&mut out, "TraitName", self.names.trait_count(), |i| self.names.trait_name(TraitName(i as u32)));
+        }
+        if self.names.method_count() > 0 {
+            self.emit_name_enum(&mut out, "MethodName", self.names.method_count(), |i| self.names.method_name(MethodName(i as u32)));
+        }
+
+        // 2. Types
+        for sema_type in &self.sema.types {
             match sema_type.form {
                 SemaTypeForm::Domain => self.emit_domain(&mut out, sema_type),
                 SemaTypeForm::Struct => self.emit_struct(&mut out, sema_type),
@@ -20,21 +39,25 @@ impl Codegen for SemaWorld {
             }
         }
 
-        for decl in &self.trait_decls {
+        // 3. Trait declarations
+        for decl in &self.sema.trait_decls {
             self.emit_trait_decl(&mut out, decl);
         }
 
-        for imp in &self.trait_impls {
+        // 4. Trait implementations
+        for imp in &self.sema.trait_impls {
             self.emit_trait_impl(&mut out, imp);
         }
 
-        for constant in &self.constants {
+        // 5. Constants
+        for constant in &self.sema.constants {
             self.emit_const(&mut out, constant);
         }
 
-        if let Some(body) = &self.process_body {
+        // 6. Process body (fn main)
+        if let Some(body_ref) = &self.sema.process_body {
             out.push_str("fn main() {\n");
-            self.emit_body(&mut out, body, 1);
+            self.emit_body(&mut out, *body_ref, 1);
             out.push_str("}\n");
         }
 
@@ -42,41 +65,51 @@ impl Codegen for SemaWorld {
     }
 }
 
-/// Emit trait — all code generation methods on SemaWorld.
-trait Emit {
-    fn emit_domain(&self, out: &mut String, sema_type: &SemaType);
-    fn emit_struct(&self, out: &mut String, sema_type: &SemaType);
-    fn emit_trait_decl(&self, out: &mut String, decl: &SemaTraitDecl);
-    fn emit_trait_impl(&self, out: &mut String, imp: &SemaTraitImpl);
-    fn emit_const(&self, out: &mut String, constant: &SemaConst);
-    fn emit_method_sig(&self, out: &mut String, method_name: &str, params: &[SemaParam], ret: &str, indent: usize);
-    fn emit_body(&self, out: &mut String, body: &SemaBody, indent: usize);
-    fn emit_stmts(&self, out: &mut String, stmts: &[SemaStatement], indent: usize);
-    fn emit_stmt(&self, out: &mut String, stmt: &SemaStatement, indent: usize);
-    fn emit_match_body(&self, out: &mut String, target: &Option<SemaExpr>, arms: &[SemaMatchArm], indent: usize);
-    fn emit_match_arm(&self, out: &mut String, arm: &SemaMatchArm, indent: usize);
-    fn emit_expr(&self, out: &mut String, expr: &SemaExpr);
-}
+impl<'a> CodegenContext<'a> {
+    // ── Name enum emission ───────────────────────────────────────
 
-impl Emit for SemaWorld {
+    fn emit_name_enum(&self, out: &mut String, enum_name: &str, count: usize, resolve: impl Fn(usize) -> &'a str) {
+        // Skip Rust keywords and primitive types
+        let skip = |name: &str| matches!(name, "Self" | "self" | "u8" | "u16" | "u32" | "u64" | "i8" | "i16" | "i32" | "i64" | "f32" | "f64" | "bool" | "String");
+
+        let names: Vec<&str> = (0..count).map(|i| resolve(i)).filter(|n| !skip(n)).collect();
+        if names.is_empty() { return; }
+
+        out.push_str("#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\n");
+        out.push_str(&format!("pub enum {} {{\n", enum_name));
+        for name in &names {
+            out.push_str(&format!("    {},\n", pascal(name)));
+        }
+        out.push_str("}\n\n");
+
+        out.push_str(&format!("impl std::fmt::Display for {} {{\n", enum_name));
+        out.push_str("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n");
+        out.push_str("        match self {\n");
+        for name in &names {
+            out.push_str(&format!("            Self::{} => write!(f, \"{}\"),\n", pascal(name), name));
+        }
+        out.push_str("        }\n");
+        out.push_str("    }\n");
+        out.push_str("}\n\n");
+    }
+
+    // ── Domain (enum) ────────────────────────────────────────────
+
     fn emit_domain(&self, out: &mut String, sema_type: &SemaType) {
-        let name = &self.type_names[sema_type.name as usize];
-        let variants: Vec<_> = self.variants.iter()
+        let name = self.names.type_name(sema_type.name);
+        let variants: Vec<_> = self.sema.variants.iter()
             .filter(|v| v.type_id == sema_type.name)
             .collect();
 
-        let has_data = variants.iter().any(|v| v.wraps >= 0);
+        let has_data = variants.iter().any(|v| v.wraps.is_some());
         let has_float = variants.iter().any(|v| {
-            if v.wraps >= 0 {
-                let inner = &self.type_names[v.wraps as usize];
-                matches!(inner.as_str(), "F32" | "F64")
-            } else {
-                false
-            }
+            v.wraps.map(|w| {
+                let inner = self.names.type_name(w);
+                matches!(inner, "F32" | "F64")
+            }).unwrap_or(false)
         });
-        let first_is_unit = variants.first().map(|v| v.wraps < 0).unwrap_or(true);
+        let first_is_unit = variants.first().map(|v| v.wraps.is_none()).unwrap_or(true);
 
-        // Derive traits based on contained types
         let mut derives = vec!["Debug", "Clone"];
         if !has_data { derives.push("Copy"); }
         if !has_float { derives.push("PartialEq"); derives.push("Eq"); }
@@ -86,11 +119,11 @@ impl Emit for SemaWorld {
 
         out.push_str(&format!("pub enum {} {{\n", name));
         for (i, var) in variants.iter().enumerate() {
-            let var_name = &self.variant_names[var.name as usize];
+            let var_name = self.names.variant_name(var.name);
             if i == 0 && first_is_unit { out.push_str("    #[default]\n"); }
-            if var.wraps >= 0 {
-                let inner = &self.type_names[var.wraps as usize];
-                out.push_str(&format!("    {}({}),\n", var_name, self.rust_type(inner)));
+            if let Some(wraps) = var.wraps {
+                let inner = self.names.type_name(wraps);
+                out.push_str(&format!("    {}({}),\n", var_name, rust_type(inner)));
             } else {
                 out.push_str(&format!("    {},\n", var_name));
             }
@@ -104,145 +137,163 @@ impl Emit for SemaWorld {
         out.push_str("}\n\n");
     }
 
+    // ── Struct ───────────────────────────────────────────────────
+
     fn emit_struct(&self, out: &mut String, sema_type: &SemaType) {
-        let name = &self.type_names[sema_type.name as usize];
-        let fields: Vec<_> = self.fields.iter()
+        let name = self.names.type_name(sema_type.name);
+        let fields: Vec<_> = self.sema.fields.iter()
             .filter(|f| f.type_id == sema_type.name)
             .collect();
 
         out.push_str("#[derive(Debug, Clone, PartialEq, Eq)]\n");
         out.push_str(&format!("pub struct {} {{\n", name));
         for field in &fields {
-            let field_name = &self.field_names[field.name as usize];
-            let field_type = self.rust_type(&field.field_type);
-            out.push_str(&format!("    pub {}: {},\n", self.snake(field_name), field_type));
+            let field_name = self.names.field_name(field.name);
+            let field_type = self.names.type_name(field.field_type);
+            out.push_str(&format!("    pub {}: {},\n", snake(field_name), rust_type(field_type)));
         }
         out.push_str("}\n\n");
     }
 
+    // ── Trait declaration ────────────────────────────────────────
+
     fn emit_trait_decl(&self, out: &mut String, decl: &SemaTraitDecl) {
-        let name = &self.trait_names[decl.name as usize];
-        let trait_name = self.pascal(name);
-        out.push_str(&format!("pub trait {} {{\n", trait_name));
+        let name = pascal(self.names.trait_name(decl.name));
+        out.push_str(&format!("pub trait {} {{\n", name));
         for sig in &decl.method_sigs {
-            let method_name = &self.method_names[sig.name as usize];
-            self.emit_method_sig(out, method_name, &sig.params, &sig.return_type, 1);
+            self.emit_method_sig(out, sig.name, &sig.params, sig.return_type, 1);
             out.push_str(";\n");
         }
         out.push_str("}\n\n");
     }
 
-    fn emit_trait_impl(&self, out: &mut String, imp: &SemaTraitImpl) {
-        let trait_name = &self.trait_names[imp.trait_id as usize];
-        let type_name = &self.type_names[imp.type_id as usize];
-        let trait_pascal = self.pascal(trait_name);
+    // ── Trait implementation ─────────────────────────────────────
 
-        out.push_str(&format!("impl {} for {} {{\n", trait_pascal, type_name));
+    fn emit_trait_impl(&self, out: &mut String, imp: &SemaTraitImpl) {
+        let trait_name = pascal(self.names.trait_name(imp.trait_id));
+        let type_name = self.names.type_name(imp.type_id);
+
+        out.push_str(&format!("impl {} for {} {{\n", trait_name, type_name));
         for method in &imp.methods {
-            let method_name = &self.method_names[method.name as usize];
-            self.emit_method_sig(out, method_name, &method.params, &method.return_type, 1);
+            self.emit_method_sig(out, method.name, &method.params, method.return_type, 1);
             out.push_str(" {\n");
-            self.emit_body(out, &method.body, 2);
+            self.emit_body(out, method.body, 2);
             out.push_str("    }\n");
         }
         out.push_str("}\n\n");
     }
 
+    // ── Constant ─────────────────────────────────────────────────
+
     fn emit_const(&self, out: &mut String, constant: &SemaConst) {
-        let typ = self.rust_type(&constant.typ);
-        out.push_str(&format!("pub const {}: {} = ", self.screaming_snake(&constant.name), typ));
-        self.emit_expr(out, &constant.value);
+        let name = self.names.type_name(constant.name);
+        let typ = self.names.type_name(constant.typ);
+        out.push_str(&format!("pub const {}: {} = ", screaming_snake(name), rust_type(typ)));
+        self.emit_expr(out, constant.value);
         out.push_str(";\n\n");
     }
 
-    fn emit_method_sig(&self, out: &mut String, method_name: &str, params: &[SemaParam], ret: &str, indent: usize) {
+    // ── Method signature ─────────────────────────────────────────
+
+    fn emit_method_sig(&self, out: &mut String, method: MethodName, params: &[SemaParam], ret: Option<TypeName>, indent: usize) {
         let pad = "    ".repeat(indent);
-        let ret_type = if ret.is_empty() { "()" } else { &self.rust_type(ret) };
+        let method_str = snake(self.names.method_name(method));
+        let ret_str = match ret {
+            Some(t) => rust_type(self.names.type_name(t)).to_string(),
+            None => "()".into(),
+        };
 
-        out.push_str(&format!("{}fn {}(", pad, self.snake(method_name)));
-
+        out.push_str(&format!("{}fn {}(", pad, method_str));
         let mut first = true;
         for param in params {
             if !first { out.push_str(", "); }
             first = false;
-            match (&param.borrow, param.name.as_str()) {
+            let param_name = self.names.method_name(param.name);
+            match (&param.borrow, param_name) {
                 (ParamBorrow::Immutable, "self") => out.push_str("&self"),
                 (ParamBorrow::Mutable, "self") => out.push_str("&mut self"),
                 (ParamBorrow::Owned, "self") => out.push_str("self"),
-                (ParamBorrow::Immutable, name) => {
-                    let typ = if param.typ.is_empty() { "Self" } else { &param.typ };
-                    out.push_str(&format!("{}: &{}", self.snake(name), self.rust_type(typ)));
-                }
-                (ParamBorrow::Mutable, name) => {
-                    let typ = if param.typ.is_empty() { "Self" } else { &param.typ };
-                    out.push_str(&format!("{}: &mut {}", self.snake(name), self.rust_type(typ)));
-                }
-                (ParamBorrow::Owned, name) => {
-                    let typ = if param.typ.is_empty() { "Self" } else { &param.typ };
-                    out.push_str(&format!("{}: {}", self.snake(name), self.rust_type(typ)));
+                (borrow, name) => {
+                    let typ = param.typ.map(|t| self.names.type_name(t)).unwrap_or("Self");
+                    match borrow {
+                        ParamBorrow::Immutable => out.push_str(&format!("{}: &{}", snake(name), rust_type(typ))),
+                        ParamBorrow::Mutable => out.push_str(&format!("{}: &mut {}", snake(name), rust_type(typ))),
+                        ParamBorrow::Owned => out.push_str(&format!("{}: {}", snake(name), rust_type(typ))),
+                    }
                 }
             }
         }
-
-        out.push_str(&format!(") -> {}", self.rust_type(ret_type)));
+        out.push_str(&format!(") -> {}", ret_str));
     }
 
-    fn emit_body(&self, out: &mut String, body: &SemaBody, indent: usize) {
-        match body {
+    // ── Body ─────────────────────────────────────────────────────
+
+    fn emit_body(&self, out: &mut String, body_ref: BodyRef, indent: usize) {
+        let body = self.sema.arena.body(body_ref);
+        match body.clone() {
             SemaBody::Empty => {
-                let pad = "    ".repeat(indent);
-                out.push_str(&format!("{}todo!()\n", pad));
+                out.push_str(&format!("{}todo!()\n", "    ".repeat(indent)));
             }
             SemaBody::Block(stmts) => {
-                self.emit_stmts(out, stmts, indent);
+                for stmt_ref in &stmts {
+                    self.emit_stmt(out, *stmt_ref, indent);
+                }
             }
             SemaBody::MatchBody { target, arms } => {
-                self.emit_match_body(out, target, arms, indent);
+                let pad = "    ".repeat(indent);
+                out.push_str(&format!("{}match ", pad));
+                if let Some(target_ref) = target {
+                    self.emit_expr(out, target_ref);
+                } else {
+                    out.push_str("self");
+                }
+                out.push_str(" {\n");
+                for arm_idx in &arms {
+                    self.emit_match_arm(out, *arm_idx, indent + 1);
+                }
+                out.push_str(&format!("{}}}\n", pad));
             }
         }
     }
 
-    fn emit_stmts(&self, out: &mut String, stmts: &[SemaStatement], indent: usize) {
-        for stmt in stmts {
-            self.emit_stmt(out, stmt, indent);
-        }
-    }
+    // ── Statement ────────────────────────────────────────────────
 
-    fn emit_stmt(&self, out: &mut String, stmt: &SemaStatement, indent: usize) {
+    fn emit_stmt(&self, out: &mut String, stmt_ref: StmtRef, indent: usize) {
         let pad = "    ".repeat(indent);
+        let stmt = self.sema.arena.stmt(stmt_ref).clone();
         match stmt {
-            SemaStatement::Expr(expr) => {
+            SemaStatement::Expr(expr_ref) => {
                 out.push_str(&pad);
-                self.emit_expr(out, expr);
+                self.emit_expr(out, expr_ref);
                 out.push('\n');
             }
             SemaStatement::Allocation { name, typ, init } => {
-                out.push_str(&format!("{}let {}", pad, self.snake(name)));
+                out.push_str(&format!("{}let {}", pad, snake(self.sema.arena.binding(name))));
                 if let Some(t) = typ {
-                    out.push_str(&format!(": {}", self.rust_type(t)));
+                    out.push_str(&format!(": {}", rust_type(self.names.type_name(t))));
                 }
-                if let Some(init_expr) = init {
+                if let Some(init_ref) = init {
                     out.push_str(" = ");
-                    self.emit_expr(out, init_expr);
+                    self.emit_expr(out, init_ref);
                 }
                 out.push_str(";\n");
             }
             SemaStatement::MutAllocation { name, typ, init } => {
-                out.push_str(&format!("{}let mut {}", pad, self.snake(name)));
+                out.push_str(&format!("{}let mut {}", pad, snake(self.sema.arena.binding(name))));
                 if let Some(t) = typ {
-                    out.push_str(&format!(": {}", self.rust_type(t)));
+                    out.push_str(&format!(": {}", rust_type(self.names.type_name(t))));
                 }
-                if let Some(init_expr) = init {
+                if let Some(init_ref) = init {
                     out.push_str(" = ");
-                    self.emit_expr(out, init_expr);
+                    self.emit_expr(out, init_ref);
                 }
                 out.push_str(";\n");
             }
             SemaStatement::Mutation { target, method, args } => {
-                out.push_str(&format!("{}{}.{}(", pad, self.snake(target), self.snake(method)));
-                for (i, arg) in args.iter().enumerate() {
+                out.push_str(&format!("{}{}.{}(", pad, snake(self.sema.arena.binding(target)), snake(self.names.method_name(method))));
+                for (i, arg_ref) in args.iter().enumerate() {
                     if i > 0 { out.push_str(", "); }
-                    self.emit_expr(out, arg);
+                    self.emit_expr(out, *arg_ref);
                 }
                 out.push_str(");\n");
             }
@@ -250,29 +301,19 @@ impl Emit for SemaWorld {
                 out.push_str(&format!("{}for item in ", pad));
                 self.emit_expr(out, source);
                 out.push_str(" {\n");
-                self.emit_stmts(out, body, indent + 1);
+                for stmt_ref in &body {
+                    self.emit_stmt(out, *stmt_ref, indent + 1);
+                }
                 out.push_str(&format!("{}}}\n", pad));
             }
         }
     }
 
-    fn emit_match_body(&self, out: &mut String, target: &Option<SemaExpr>, arms: &[SemaMatchArm], indent: usize) {
-        let pad = "    ".repeat(indent);
-        out.push_str(&format!("{}match ", pad));
-        if let Some(target_expr) = target {
-            self.emit_expr(out, target_expr);
-        } else {
-            out.push_str("self");
-        }
-        out.push_str(" {\n");
-        for arm in arms {
-            self.emit_match_arm(out, arm, indent + 1);
-        }
-        out.push_str(&format!("{}}}\n", pad));
-    }
+    // ── Match arm ────────────────────────────────────────────────
 
-    fn emit_match_arm(&self, out: &mut String, arm: &SemaMatchArm, indent: usize) {
+    fn emit_match_arm(&self, out: &mut String, arm_idx: u32, indent: usize) {
         let pad = "    ".repeat(indent);
+        let arm = self.sema.arena.match_arm(arm_idx).clone();
         out.push_str(&pad);
 
         for (i, pat) in arm.patterns.iter().enumerate() {
@@ -281,42 +322,61 @@ impl Emit for SemaWorld {
         }
 
         out.push_str(" => ");
-        self.emit_expr(out, &arm.result);
+        self.emit_expr(out, arm.result);
         out.push_str(",\n");
     }
 
-    fn emit_expr(&self, out: &mut String, expr: &SemaExpr) {
+    // ── Pattern ──────────────────────────────────────────────────
+
+    fn emit_pattern(&self, out: &mut String, pat: &SemaPattern) {
+        match pat {
+            SemaPattern::Variant(v) => {
+                out.push_str(&format!("Self::{}", self.names.variant_name(*v)));
+            }
+            SemaPattern::Or(variants) => {
+                for (i, v) in variants.iter().enumerate() {
+                    if i > 0 { out.push_str(" | "); }
+                    out.push_str(&format!("Self::{}", self.names.variant_name(*v)));
+                }
+            }
+        }
+    }
+
+    // ── Expression ───────────────────────────────────────────────
+
+    fn emit_expr(&self, out: &mut String, expr_ref: ExprRef) {
+        let expr = self.sema.arena.expr(expr_ref).clone();
         match expr {
             SemaExpr::IntLit(n) => out.push_str(&n.to_string()),
-            SemaExpr::FloatLit(s) => out.push_str(s),
-            SemaExpr::StringLit(s) => out.push_str(&format!("\"{}\"", s)),
+            SemaExpr::FloatLit(f) => out.push_str(&format!("{}", f)),
+            SemaExpr::StringLit(s) => out.push_str(&format!("\"{}\"", self.names.literal_string(s))),
             SemaExpr::SelfRef => out.push_str("self"),
-            SemaExpr::InstanceRef(name) => out.push_str(&self.snake(name)),
+            SemaExpr::InstanceRef(b) => out.push_str(&snake(self.sema.arena.binding(b))),
             SemaExpr::QualifiedVariant { domain, variant } => {
-                let d = self.type_names.get(*domain as usize).map(|s| s.as_str()).unwrap_or("?");
-                let v = self.variant_names.get(*variant as usize).map(|s| s.as_str()).unwrap_or("?");
-                out.push_str(&format!("{}::{}", d, v));
+                out.push_str(&format!("{}::{}", self.names.type_name(domain), self.names.variant_name(variant)));
             }
-            SemaExpr::BareName(name) => out.push_str(name),
-            SemaExpr::TypePath(path) => out.push_str(&path.replace(':', "::")),
+            SemaExpr::BareName(b) => out.push_str(self.sema.arena.binding(b)),
+            SemaExpr::TypePath { typ, member } => {
+                out.push_str(&format!("{}::{}", self.names.type_name(typ), self.names.method_name(member)));
+            }
             SemaExpr::BinOp { op, lhs, rhs } => {
                 self.emit_expr(out, lhs);
-                out.push_str(&format!(" {} ", op));
+                out.push_str(&format!(" {} ", op.as_rust()));
                 self.emit_expr(out, rhs);
             }
             SemaExpr::FieldAccess { object, field } => {
                 self.emit_expr(out, object);
                 out.push('.');
-                out.push_str(&self.snake(field));
+                out.push_str(&snake(self.names.field_name(field)));
             }
             SemaExpr::MethodCall { object, method, args } => {
                 self.emit_expr(out, object);
                 out.push('.');
-                out.push_str(&self.snake(method));
+                out.push_str(&snake(self.names.method_name(method)));
                 out.push('(');
-                for (i, arg) in args.iter().enumerate() {
+                for (i, arg_ref) in args.iter().enumerate() {
                     if i > 0 { out.push_str(", "); }
-                    self.emit_expr(out, arg);
+                    self.emit_expr(out, *arg_ref);
                 }
                 out.push(')');
             }
@@ -326,27 +386,39 @@ impl Emit for SemaWorld {
                 out.push(')');
             }
             SemaExpr::Return(inner) => {
-                // Unwrap redundant Group inside Return: ^(expr) → expr
-                match inner.as_ref() {
-                    SemaExpr::Group(g) => self.emit_expr(out, g),
+                // Unwrap redundant Group inside Return
+                let inner_expr = self.sema.arena.expr(inner);
+                match inner_expr {
+                    SemaExpr::Group(g) => self.emit_expr(out, *g),
                     _ => self.emit_expr(out, inner),
                 }
             }
             SemaExpr::InlineEval(stmts) => {
                 out.push_str("{\n");
-                self.emit_stmts(out, stmts, 0);
+                for stmt_ref in &stmts {
+                    self.emit_stmt(out, *stmt_ref, 0);
+                }
                 out.push('}');
             }
             SemaExpr::MatchExpr { target, arms } => {
-                let target_ref = target.as_ref().map(|t| t.as_ref().clone());
-                self.emit_match_body(out, &target_ref, arms, 0);
+                out.push_str("match ");
+                if let Some(t) = target {
+                    self.emit_expr(out, t);
+                } else {
+                    out.push_str("self");
+                }
+                out.push_str(" {\n");
+                for arm_idx in &arms {
+                    self.emit_match_arm(out, *arm_idx, 0);
+                }
+                out.push('}');
             }
             SemaExpr::StructConstruct { type_name, fields } => {
-                out.push_str(&format!("{} {{ ", type_name));
-                for (i, (name, val)) in fields.iter().enumerate() {
+                out.push_str(&format!("{} {{ ", self.names.type_name(type_name)));
+                for (i, (field, val)) in fields.iter().enumerate() {
                     if i > 0 { out.push_str(", "); }
-                    out.push_str(&format!("{}: ", self.snake(name)));
-                    self.emit_expr(out, val);
+                    out.push_str(&format!("{}: ", snake(self.names.field_name(*field))));
+                    self.emit_expr(out, *val);
                 }
                 out.push_str(" }");
             }
@@ -354,79 +426,47 @@ impl Emit for SemaWorld {
     }
 }
 
-/// PatternEmit — separated because Emit trait can't be extended with more methods.
-trait PatternEmit {
-    fn emit_pattern(&self, out: &mut String, pat: &SemaPattern);
+// ── Free helper functions (name transforms) ──────────────────────
+
+fn snake(name: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_uppercase() && i > 0 { result.push('_'); }
+        result.push(c.to_lowercase().next().unwrap_or(c));
+    }
+    result
 }
 
-impl PatternEmit for SemaWorld {
-    fn emit_pattern(&self, out: &mut String, pat: &SemaPattern) {
-        match pat {
-            SemaPattern::Variant(idx) => {
-                let name = self.variant_names.get(*idx as usize).map(|s| s.as_str()).unwrap_or("_");
-                out.push_str(&format!("Self::{}", name));
-            }
-            SemaPattern::Or(pats) => {
-                for (i, p) in pats.iter().enumerate() {
-                    if i > 0 { out.push_str(" | "); }
-                    self.emit_pattern(out, p);
-                }
-            }
-        }
-    }
-}
-
-/// Helpers on SemaWorld — name transformations.
-trait NameTransform {
-    fn snake(&self, name: &str) -> String;
-    fn pascal(&self, name: &str) -> String;
-    fn screaming_snake(&self, name: &str) -> String;
-    fn rust_type(&self, aski_type: &str) -> String;
-}
-
-impl NameTransform for SemaWorld {
-    fn snake(&self, name: &str) -> String {
-        let mut result = String::new();
-        for (i, c) in name.chars().enumerate() {
-            if c.is_uppercase() && i > 0 { result.push('_'); }
-            result.push(c.to_lowercase().next().unwrap_or(c));
-        }
-        result
-    }
-
-    fn pascal(&self, name: &str) -> String {
-        let mut result = String::new();
-        let mut capitalize = true;
-        for c in name.chars() {
-            if capitalize {
-                result.push(c.to_uppercase().next().unwrap_or(c));
-                capitalize = false;
-            } else {
-                result.push(c);
-            }
-        }
-        result
-    }
-
-    fn screaming_snake(&self, name: &str) -> String {
-        let mut result = String::new();
-        for (i, c) in name.chars().enumerate() {
-            if c.is_uppercase() && i > 0 { result.push('_'); }
+fn pascal(name: &str) -> String {
+    let mut result = String::new();
+    let mut capitalize = true;
+    for c in name.chars() {
+        if capitalize {
             result.push(c.to_uppercase().next().unwrap_or(c));
+            capitalize = false;
+        } else {
+            result.push(c);
         }
-        result
     }
+    result
+}
 
-    fn rust_type(&self, aski_type: &str) -> String {
-        match aski_type {
-            "U8" => "u8".into(), "U16" => "u16".into(),
-            "U32" => "u32".into(), "U64" => "u64".into(),
-            "I8" => "i8".into(), "I16" => "i16".into(),
-            "I32" => "i32".into(), "I64" => "i64".into(),
-            "F32" => "f32".into(), "F64" => "f64".into(),
-            "String" => "String".into(), "Bool" => "bool".into(),
-            "" | "()" => "()".into(),
-            other => other.to_string(),
-        }
+fn screaming_snake(name: &str) -> String {
+    let mut result = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if c.is_uppercase() && i > 0 { result.push('_'); }
+        result.push(c.to_uppercase().next().unwrap_or(c));
+    }
+    result
+}
+
+fn rust_type(aski_type: &str) -> &str {
+    match aski_type {
+        "U8" => "u8", "U16" => "u16", "U32" => "u32", "U64" => "u64",
+        "I8" => "i8", "I16" => "i16", "I32" => "i32", "I64" => "i64",
+        "F32" => "f32", "F64" => "f64",
+        "String" => "String", "Bool" => "bool",
+        "" | "()" => "()",
+        other => other,
     }
 }
