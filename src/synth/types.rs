@@ -24,7 +24,7 @@ pub enum Rule {
 /// looping engine tracks: `*` = zero or more, `?` = at most one, etc.
 #[derive(Debug, Clone)]
 pub struct ChoiceAlternative {
-    pub items: Vec<Item>,
+    pub items: Vec<SpacedItem>,
     pub cardinality: Card,
 }
 
@@ -68,10 +68,20 @@ pub enum Item {
     Or(Vec<Item>),
 
     /// A sequence of items that parse together (for cardinality grouping).
-    Sequence(Vec<Item>),
+    /// Uses SpacedItem to preserve adjacency within the group.
+    Sequence(Vec<SpacedItem>),
 
     /// A literal token that must appear (e.g. `.set` `.new` `/new`).
     Literal(String),
+}
+
+/// An Item with adjacency info from the synth file.
+/// `adjacent` = true means this item had no whitespace before it
+/// in the synth source, so the corresponding aski tokens must be adjacent.
+#[derive(Debug, Clone)]
+pub struct SpacedItem {
+    pub item: Item,
+    pub adjacent: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

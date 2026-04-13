@@ -160,9 +160,12 @@ impl ParseDialect for AskiWorld {
 }
 
 impl AskiWorld {
-    fn try_parse_items(&mut self, reader: &mut TokenReader, parent_id: i64, items: &[Item]) -> Result<(), String> {
-        for item in items {
-            self.parse_item(reader, parent_id, item)?;
+    fn try_parse_items(&mut self, reader: &mut TokenReader, parent_id: i64, items: &[SpacedItem]) -> Result<(), String> {
+        for si in items {
+            if si.adjacent && !reader.is_adjacent() {
+                return Err("expected adjacent token".into());
+            }
+            self.parse_item(reader, parent_id, &si.item)?;
         }
         Ok(())
     }

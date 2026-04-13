@@ -18,6 +18,14 @@ impl<'a> TokenReader<'a> {
         self.pos >= self.tokens.len()
     }
 
+    /// Check if current token is adjacent to the previous one (no whitespace gap).
+    pub fn is_adjacent(&self) -> bool {
+        if self.pos == 0 || self.pos >= self.tokens.len() { return false; }
+        let prev_end = self.tokens[self.pos - 1].span.end;
+        let curr_start = self.tokens[self.pos].span.start;
+        curr_start == prev_end
+    }
+
     pub fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos).map(|t| &t.token)
     }

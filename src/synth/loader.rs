@@ -49,7 +49,7 @@ pub fn load_dialect(name: &str, source: &str) -> Result<Dialect, String> {
                 Some('!') => (Card::One, content[1..].trim()),
                 _ => (Card::ZeroOrMore, content), // default: zero or more
             };
-            let items = parse_items(items_str)?;
+            let items = parse_spaced_items(items_str)?;
             choice_alts.push(ChoiceAlternative { items, cardinality });
         } else {
             // Flush pending ordered choice
@@ -71,15 +71,26 @@ pub fn load_dialect(name: &str, source: &str) -> Result<Dialect, String> {
     Ok(Dialect { name: name.to_string(), rules })
 }
 
-/// Parse a line of synth items.
+/// Parse a line of synth items (without adjacency info).
 fn parse_items(input: &str) -> Result<Vec<Item>, String> {
-    let mut items = Vec::new();
+    Ok(parse_spaced_items(input)?.into_iter().map(|si| si.item).collect())
+}
+
+/// Parse a line of synth items WITH adjacency tracking.
+fn parse_spaced_items(input: &str) -> Result<Vec<SpacedItem>, String> {
+    let mut items: Vec<SpacedItem> = Vec::new();
     let mut chars = input.chars().peekable();
+    let mut saw_space = true; // first item is never "adjacent"
 
     while let Some(&c) = chars.peek() {
         match c {
-            ' ' | '\t' => { chars.next(); }
+            ' ' | '\t' => { chars.next(); saw_space = true; continue; }
+            _ => {}
+        }
+        let adjacent = !saw_space && !items.is_empty();
+        saw_space = false;
 
+        match c {
             // Cardinality prefix
             '+' | '*' | '?' => {
                 let kind = match c {
@@ -90,15 +101,15 @@ fn parse_items(input: &str) -> Result<Vec<Item>, String> {
                 };
                 chars.next();
                 let rest: String = chars.collect();
-                let mut inner_items = parse_items(&rest)?;
-                let inner = if inner_items.len() == 1 {
-                    inner_items.remove(0)
+                let spaced = parse_spaced_items(&rest)?;
+                let inner = if spaced.len() == 1 {
+                    spaced.into_iter().next().unwrap().item
+                } else if spaced.len() > 1 {
+                    Item::Sequence(spaced)
                 } else {
-                    // Multiple items after cardinality → group as Sequence
-                    // +@Field :Type → repeat (@Field, :Type) together
-                    Item::Sequence(inner_items)
+                    return Ok(items);
                 };
-                items.push(Item::Cardinality { kind, inner: Box::new(inner) });
+                items.push(SpacedItem { item: Item::Cardinality { kind, inner: Box::new(inner) }, adjacent });
                 return Ok(items);
             }
 
@@ -106,7 +117,7 @@ fn parse_items(input: &str) -> Result<Vec<Item>, String> {
             '<' => {
                 chars.next();
                 let name: String = chars.by_ref().take_while(|&c| c != '>').collect();
-                items.push(Item::DialectRef(name));
+                items.push(SpacedItem { item: Item::DialectRef(name), adjacent });
             }
 
             // Literal escape: _..._  — content between _ is literal aski tokens
@@ -114,18 +125,16 @@ fn parse_items(input: &str) -> Result<Vec<Item>, String> {
                 chars.next();
                 let literal: String = chars.by_ref().take_while(|&c| c != '_').collect();
                 if !literal.is_empty() {
-                    // Parse everything after closing _ as synth
                     let rest: String = chars.collect();
                     if rest.trim().is_empty() {
-                        // Just a literal, nothing after
-                        items.push(Item::Literal(literal));
+                        items.push(SpacedItem { item: Item::Literal(literal), adjacent });
                     } else {
                         let inner_items = parse_items(rest.trim())?;
                         if let Some(inner) = inner_items.into_iter().next() {
-                            items.push(Item::LiteralEscape {
+                            items.push(SpacedItem { item: Item::LiteralEscape {
                                 literal,
                                 inner: Box::new(inner),
-                            });
+                            }, adjacent });
                         }
                     }
                     return Ok(items);
@@ -136,46 +145,42 @@ fn parse_items(input: &str) -> Result<Vec<Item>, String> {
             '@' => {
                 chars.next();
                 let name = read_name(&mut chars);
-                // @value is special — matches literal values (int, float, string)
                 if name == "value" {
-                    items.push(Item::Value);
+                    items.push(SpacedItem { item: Item::Value, adjacent });
                 } else {
                     let casing = if name.starts_with(|c: char| c.is_uppercase()) {
                         Casing::Pascal
                     } else {
                         Casing::Camel
                     };
-                    // Check for inline or: @name//@Name
                     if chars.peek() == Some(&'/') {
                         let mut peek_chars = chars.clone();
                         peek_chars.next();
                         if peek_chars.peek() == Some(&'/') {
-                            chars.next(); // skip first /
-                            chars.next(); // skip second /
+                            chars.next();
+                            chars.next();
                             let left = Item::Declare { casing, kind: name };
                             let rest: String = chars.collect();
                             let right_items = parse_items(&rest)?;
                             if let Some(right) = right_items.into_iter().next() {
-                                items.push(Item::Or(vec![left, right]));
+                                items.push(SpacedItem { item: Item::Or(vec![left, right]), adjacent });
                             }
                             return Ok(items);
                         }
                     }
-                    items.push(Item::Declare { casing, kind: name });
+                    items.push(SpacedItem { item: Item::Declare { casing, kind: name }, adjacent });
                 }
             }
 
             // Reference placeholder: :Name or :name
             ':' => {
                 chars.next();
-                // Old :_ escape removed — use _..._ instead
                 let name = read_name(&mut chars);
                 let casing = if name.starts_with(|c: char| c.is_uppercase()) {
                     Casing::Pascal
                 } else {
                     Casing::Camel
                 };
-                // Check for inline or
                 if chars.peek() == Some(&'/') {
                     let mut peek_chars = chars.clone();
                     peek_chars.next();
@@ -186,70 +191,52 @@ fn parse_items(input: &str) -> Result<Vec<Item>, String> {
                         let rest: String = chars.collect();
                         let right_items = parse_items(&rest)?;
                         if let Some(right) = right_items.into_iter().next() {
-                            items.push(Item::Or(vec![left, right]));
+                            items.push(SpacedItem { item: Item::Or(vec![left, right]), adjacent });
                         }
                         return Ok(items);
                     }
                 }
-                items.push(Item::Reference { casing, kind: name });
+                items.push(SpacedItem { item: Item::Reference { casing, kind: name }, adjacent });
             }
 
-            // Bare sigil literals (old ~_ ^_ #_ escapes removed — use _..._ instead)
+            // Bare sigil literals
             '~' | '^' | '#' => {
                 chars.next();
-                items.push(Item::Literal(c.to_string()));
+                items.push(SpacedItem { item: Item::Literal(c.to_string()), adjacent });
             }
 
             // Delimiter rules
             '(' => {
                 chars.next();
                 if chars.peek() == Some(&'|') {
-                    chars.next(); // (|
+                    chars.next();
                     let (key, body) = parse_delimiter_body(&mut chars, "|)")?;
-                    items.push(Item::DelimiterRule {
-                        delimiter: Delimiter::ParenPipe,
-                        key, body,
-                    });
+                    items.push(SpacedItem { item: Item::DelimiterRule { delimiter: Delimiter::ParenPipe, key, body }, adjacent });
                 } else {
                     let (key, body) = parse_delimiter_body(&mut chars, ")")?;
-                    items.push(Item::DelimiterRule {
-                        delimiter: Delimiter::Paren,
-                        key, body,
-                    });
+                    items.push(SpacedItem { item: Item::DelimiterRule { delimiter: Delimiter::Paren, key, body }, adjacent });
                 }
             }
             '[' => {
                 chars.next();
                 if chars.peek() == Some(&'|') {
-                    chars.next(); // [|
+                    chars.next();
                     let (key, body) = parse_delimiter_body(&mut chars, "|]")?;
-                    items.push(Item::DelimiterRule {
-                        delimiter: Delimiter::BracketPipe,
-                        key, body,
-                    });
+                    items.push(SpacedItem { item: Item::DelimiterRule { delimiter: Delimiter::BracketPipe, key, body }, adjacent });
                 } else {
                     let (key, body) = parse_delimiter_body(&mut chars, "]")?;
-                    items.push(Item::DelimiterRule {
-                        delimiter: Delimiter::Bracket,
-                        key, body,
-                    });
+                    items.push(SpacedItem { item: Item::DelimiterRule { delimiter: Delimiter::Bracket, key, body }, adjacent });
                 }
             }
             '{' => {
                 chars.next();
                 if chars.peek() == Some(&'|') {
-                    chars.next(); // {|
+                    chars.next();
                     let (key, body) = parse_delimiter_body(&mut chars, "|}") ?;
-                    items.push(Item::DelimiterRule {
-                        delimiter: Delimiter::BracePipe,
-                        key, body,
-                    });
+                    items.push(SpacedItem { item: Item::DelimiterRule { delimiter: Delimiter::BracePipe, key, body }, adjacent });
                 } else {
                     let (key, body) = parse_delimiter_body(&mut chars, "}")?;
-                    items.push(Item::DelimiterRule {
-                        delimiter: Delimiter::Brace,
-                        key, body,
-                    });
+                    items.push(SpacedItem { item: Item::DelimiterRule { delimiter: Delimiter::Brace, key, body }, adjacent });
                 }
             }
 
@@ -257,37 +244,28 @@ fn parse_items(input: &str) -> Result<Vec<Item>, String> {
             '.' => {
                 chars.next();
                 let name = read_name(&mut chars);
-                items.push(Item::Literal(format!(".{}", name)));
+                items.push(SpacedItem { item: Item::Literal(format!(".{}", name)), adjacent });
             }
 
             // Literal slash-prefixed: /new
             '/' => {
                 chars.next();
-                if chars.peek() == Some(&'/') {
-                    // This shouldn't happen mid-line (// is line-leading)
-                    break;
-                }
-                // Key separator or literal /name
+                if chars.peek() == Some(&'/') { break; }
                 let name = read_name(&mut chars);
                 if name.is_empty() {
-                    // bare / — key separator (inside delimiter rules)
-                    items.push(Item::Literal("/".to_string()));
+                    items.push(SpacedItem { item: Item::Literal("/".to_string()), adjacent });
                 } else {
-                    items.push(Item::Literal(format!("/{}", name)));
+                    items.push(SpacedItem { item: Item::Literal(format!("/{}", name)), adjacent });
                 }
             }
 
             // Bare word — literal or keyword
             _ if c.is_alphanumeric() || c == '_' => {
                 let name = read_name(&mut chars);
-                if name == "___" {
-                    items.push(Item::Literal("___".to_string()));
-                } else {
-                    items.push(Item::Literal(name));
-                }
+                items.push(SpacedItem { item: Item::Literal(name), adjacent });
             }
 
-            _ => { chars.next(); } // skip unknown
+            _ => { chars.next(); }
         }
     }
 
@@ -479,9 +457,9 @@ mod tests {
             Rule::OrderedChoice(alts) => {
                 assert_eq!(alts.len(), 7);
                 // First alt: _:@_Self — literal ":@" then literal "Self"
-                match &alts[0].items[0] {
+                match &alts[0].items[0].item {
                     Item::LiteralEscape { literal, .. } => assert_eq!(literal, ":@"),
-                    other => panic!("expected LiteralEscape, got {:?}", other),
+                    ref other => panic!("expected LiteralEscape, got {:?}", other),
                 }
             }
             _ => panic!("expected OrderedChoice"),

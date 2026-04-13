@@ -272,10 +272,13 @@ impl AskiWorld {
         while i < children.len() {
             if children[i].constructor == "Field" {
                 let field_id = names.intern_field(&children[i].key);
-                let field_type = if i + 1 < children.len() {
+                // Check if next child is a Type (explicit) or another Field/end (self-typed)
+                let has_type = i + 1 < children.len() && children[i + 1].constructor != "Field";
+                let field_type = if has_type {
                     names.intern_type(&children[i + 1].key)
                 } else {
-                    TypeName(0)
+                    // Self-typed: field name IS the type name
+                    names.intern_type(&children[i].key)
                 };
                 sema.fields.push(SemaField {
                     type_id,
@@ -284,7 +287,7 @@ impl AskiWorld {
                     ordinal,
                 });
                 ordinal += 1;
-                i += 2;
+                if has_type { i += 2; } else { i += 1; }
             } else {
                 i += 1;
             }

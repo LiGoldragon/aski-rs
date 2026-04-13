@@ -89,9 +89,12 @@ impl ParseItem for AskiWorld {
                 Err(format!("no or-alternative matched at pos {}", reader.pos))
             }
 
-            Item::Sequence(items) => {
-                for sub_item in items {
-                    self.parse_item(reader, parent_id, sub_item)?;
+            Item::Sequence(spaced_items) => {
+                for si in spaced_items {
+                    if si.adjacent && !reader.is_adjacent() {
+                        return Err("expected adjacent token".into());
+                    }
+                    self.parse_item(reader, parent_id, &si.item)?;
                 }
                 Ok(())
             }
