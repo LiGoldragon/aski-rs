@@ -264,6 +264,22 @@ impl DeparseNode for AskiWorld {
                     out.push(' ');
                 }
             }
+            "Loop" => {
+                out.push_str("#[");
+                let pad = "    ".repeat(indent + 1);
+                for child in &children {
+                    if child.constructor == "Block" {
+                        for bc in &self.children_of(child.id) {
+                            out.push('\n');
+                            out.push_str(&pad);
+                            self.deparse_node(out, bc.id, indent + 1);
+                        }
+                    }
+                }
+                out.push('\n');
+                out.push_str(&"    ".repeat(indent));
+                out.push(']');
+            }
             "ProcessBody" => {
                 for child in &children {
                     self.deparse_node(out, child.id, indent);

@@ -212,6 +212,13 @@ fn raise_stmt(world: &mut AskiWorld, arena: &ExprArena, parent_id: i64, stmt_ref
             world.add_child(id, body_id);
             world.add_child(parent_id, id);
         }
+        SemaStatement::Loop(body) => {
+            let id = world.make_node("Loop", "", 0, 0);
+            let body_id = world.make_node("Block", "", 0, 0);
+            for s in &body { raise_stmt(world, arena, body_id, *s, names); }
+            world.add_child(id, body_id);
+            world.add_child(parent_id, id);
+        }
     }
 }
 
@@ -318,6 +325,20 @@ fn raise_pattern(world: &mut AskiWorld, parent_id: i64, pat: &SemaPattern, names
                 let id = world.make_node("QualifiedVariant", names.variant_name(*v), 0, 0);
                 world.add_child(parent_id, id);
             }
+        }
+        SemaPattern::StringLit(s) => {
+            let id = world.make_node("StringLit", names.literal_string(*s), 0, 0);
+            world.add_child(parent_id, id);
+        }
+        SemaPattern::VariantBind(v, b) => {
+            let id = world.make_node("QualifiedVariant", names.variant_name(*v), 0, 0);
+            let bind_id = world.make_node("PatternBind", names.binding_name(*b), 0, 0);
+            world.add_child(id, bind_id);
+            world.add_child(parent_id, id);
+        }
+        SemaPattern::Wildcard => {
+            let id = world.make_node("BareName", "_", 0, 0);
+            world.add_child(parent_id, id);
         }
     }
 }

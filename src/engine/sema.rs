@@ -208,6 +208,7 @@ pub enum SemaStatement {
     MutAllocation { name: BindingName, typ: Option<TypeName>, init: Option<ExprRef> },
     Mutation { target: BindingName, method: MethodName, args: Vec<ExprRef> },
     Iteration { source: ExprRef, body: Vec<StmtRef> },
+    Loop(Vec<StmtRef>),  // #[body] — loop until ^ break
 }
 
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
@@ -226,7 +227,10 @@ pub struct SemaMatchArm {
 #[derive(Archive, Serialize, Deserialize, Debug, Clone)]
 pub enum SemaPattern {
     Variant(VariantName),
-    Or(Vec<VariantName>),  // flattened — or-patterns are always variant lists
+    Or(Vec<VariantName>),
+    StringLit(StringLiteral),
+    VariantBind(VariantName, BindingName), // (PascalIdent @name) — destructure + bind
+    Wildcard,                              // _ or default
 }
 
 // ── Module system ────────────────────────────────────────────────

@@ -252,20 +252,32 @@ impl AskiWorld {
                 Ok(())
             }
             Some(Token::Hash) => {
-                // Iteration: #source [body]
                 reader.pos += 1;
-                let source_id = self.parse_expr(reader, parent_id)?;
-                let iter_id = self.make_node("Iteration", "", start, 0);
-                self.add_child(iter_id, source_id);
                 reader.skip_newlines();
                 if reader.peek() == Some(&Token::LBracket) {
+                    // Bare loop: #[body] — loop until ^ break
                     reader.pos += 1;
+                    let loop_id = self.make_node("Loop", "", start, 0);
                     let body_id = self.make_node("Block", "", 0, 0);
-                    self.add_child(iter_id, body_id);
+                    self.add_child(loop_id, body_id);
                     self.parse_body(reader, body_id)?;
                     reader.expect_close(crate::synth::types::Delimiter::Bracket)?;
+                    self.add_child(parent_id, loop_id);
+                } else {
+                    // Iteration: #source [body]
+                    let source_id = self.parse_expr(reader, parent_id)?;
+                    let iter_id = self.make_node("Iteration", "", start, 0);
+                    self.add_child(iter_id, source_id);
+                    reader.skip_newlines();
+                    if reader.peek() == Some(&Token::LBracket) {
+                        reader.pos += 1;
+                        let body_id = self.make_node("Block", "", 0, 0);
+                        self.add_child(iter_id, body_id);
+                        self.parse_body(reader, body_id)?;
+                        reader.expect_close(crate::synth::types::Delimiter::Bracket)?;
+                    }
+                    self.add_child(parent_id, iter_id);
                 }
-                self.add_child(parent_id, iter_id);
                 Ok(())
             }
             Some(Token::Tilde) => {
@@ -470,16 +482,24 @@ impl AskiWorld {
                 let arm_id = self.make_node("CommitArm", "", 0, 0);
                 let pattern_id = self.make_node("Pattern", "", 0, 0);
                 self.add_child(arm_id, pattern_id);
-                // Parse patterns until ) — handle | for or-patterns
+                // Parse patterns until ) — handle |, string literals, @binding
                 loop {
                     reader.skip_newlines();
                     if reader.peek() == Some(&Token::RParen) { reader.pos += 1; break; }
                     if reader.at_end() { break; }
                     if reader.peek() == Some(&Token::Pipe) {
-                        reader.pos += 1; // skip | between or-patterns
+                        reader.pos += 1;
                         continue;
                     }
                     let pat = self.parse_atom(reader, pattern_id)?;
+                    // Check for @binding after variant: (PascalIdent @name)
+                    reader.skip_newlines();
+                    if reader.peek() == Some(&Token::At) {
+                        reader.pos += 1;
+                        let bind_name = reader.read_name()?;
+                        let bind_id = self.make_node("PatternBind", &bind_name, 0, 0);
+                        self.add_child(pat, bind_id);
+                    }
                     self.add_child(pattern_id, pat);
                 }
                 // Parse result expression

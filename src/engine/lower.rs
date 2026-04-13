@@ -24,6 +24,7 @@ trait LowerExpr {
     fn lower_statement(&self, arena: &mut ExprArena, names: &mut NameInterner, node_id: i64) -> StmtRef;
     fn lower_match_arm(&self, arena: &mut ExprArena, names: &mut NameInterner, arm_id: i64) -> u32;
     fn lower_params(&self, arena: &mut ExprArena, names: &mut NameInterner, parent_id: i64) -> Vec<SemaParam>;
+    fn lower_single_pattern(&self, patterns: &mut Vec<SemaPattern>, arena: &mut ExprArena, names: &mut NameInterner, pat_id: i64);
 }
 
 impl Lower for AskiWorld {
@@ -518,6 +519,14 @@ impl LowerExpr for AskiWorld {
                     .collect();
                 SemaStatement::Iteration { source, body: body_stmts }
             }
+            "Loop" => {
+                let body_stmts: Vec<StmtRef> = children.iter()
+                    .filter(|c| c.constructor == "Block")
+                    .flat_map(|c| self.children_of(c.id))
+                    .map(|c| self.lower_statement(arena, names, c.id))
+                    .collect();
+                SemaStatement::Loop(body_stmts)
+            }
             _ => {
                 let expr = self.lower_expr(arena, names, node_id);
                 SemaStatement::Expr(expr)
@@ -535,12 +544,20 @@ impl LowerExpr for AskiWorld {
         if !children.is_empty() && children[0].constructor == "Pattern" {
             let pattern_children = self.children_of(children[0].id);
             if pattern_children.len() > 1 {
-                let or_pats: Vec<VariantName> = pattern_children.iter()
-                    .map(|p| names.intern_variant(&p.key))
-                    .collect();
-                patterns.push(SemaPattern::Or(or_pats));
+                // Check if all are variants (or-pattern) vs mixed
+                let all_variants = pattern_children.iter().all(|p| p.constructor == "QualifiedVariant" || p.constructor == "BareName");
+                if all_variants {
+                    let or_pats: Vec<VariantName> = pattern_children.iter()
+                        .map(|p| names.intern_variant(&p.key))
+                        .collect();
+                    patterns.push(SemaPattern::Or(or_pats));
+                } else {
+                    for pat in pattern_children {
+                        self.lower_single_pattern(&mut patterns, arena, names, pat.id);
+                    }
+                }
             } else if let Some(pat) = pattern_children.first() {
-                patterns.push(SemaPattern::Variant(names.intern_variant(&pat.key)));
+                self.lower_single_pattern(&mut patterns, arena, names, pat.id);
             }
         }
 
@@ -549,6 +566,32 @@ impl LowerExpr for AskiWorld {
         }
 
         arena.alloc_match_arm(SemaMatchArm { patterns, result })
+    }
+
+    fn lower_single_pattern(&self, patterns: &mut Vec<SemaPattern>, _arena: &mut ExprArena, names: &mut NameInterner, pat_id: i64) {
+        let pat = match self.find_node(pat_id) {
+            Some(n) => n,
+            None => return,
+        };
+        match pat.constructor.as_str() {
+            "StringLit" => {
+                patterns.push(SemaPattern::StringLit(names.intern_string(&pat.key)));
+            }
+            "QualifiedVariant" | "BareName" => {
+                // Check for @binding child (PatternBind)
+                let bind_children = self.children_of(pat_id);
+                if let Some(bind) = bind_children.iter().find(|c| c.constructor == "PatternBind") {
+                    let var = names.intern_variant(&pat.key);
+                    let binding = names.intern_binding(&bind.key);
+                    patterns.push(SemaPattern::VariantBind(var, binding));
+                } else {
+                    patterns.push(SemaPattern::Variant(names.intern_variant(&pat.key)));
+                }
+            }
+            _ => {
+                patterns.push(SemaPattern::Variant(names.intern_variant(&pat.key)));
+            }
+        }
     }
 
     fn lower_params(&self, _arena: &mut ExprArena, names: &mut NameInterner, parent_id: i64) -> Vec<SemaParam> {

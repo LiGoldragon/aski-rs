@@ -404,6 +404,13 @@ impl<'a> CodegenContext<'a> {
                 }
                 out.push_str(&format!("{}}}\n", pad));
             }
+            SemaStatement::Loop(body) => {
+                out.push_str(&format!("{}loop {{\n", pad));
+                for stmt_ref in &body {
+                    self.emit_stmt(out, *stmt_ref, indent + 1);
+                }
+                out.push_str(&format!("{}}}\n", pad));
+            }
         }
     }
 
@@ -436,6 +443,15 @@ impl<'a> CodegenContext<'a> {
                     if i > 0 { out.push_str(" | "); }
                     out.push_str(&format!("Self::{}", self.names.variant_name(*v)));
                 }
+            }
+            SemaPattern::StringLit(s) => {
+                out.push_str(&format!("\"{}\"", self.names.literal_string(*s)));
+            }
+            SemaPattern::VariantBind(v, b) => {
+                out.push_str(&format!("Self::{}({})", self.names.variant_name(*v), self.names.binding_name(*b)));
+            }
+            SemaPattern::Wildcard => {
+                out.push_str("_");
             }
         }
     }
