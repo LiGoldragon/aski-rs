@@ -1,6 +1,6 @@
 //! Sema — the pure binary world.
 //!
-//! All typed ordinals. No strings. Domain ordinals ARE the bytes.
+//! All typed enums. No strings. Domain variants ARE the identity.
 //! rkyv-serialized to .sema files (the canonical artifact).
 //!
 //! Name resolution comes from AskiWorld (the text world) via
@@ -9,9 +9,11 @@
 
 use rkyv::{Archive, Serialize, Deserialize};
 
-// ── Typed ordinals ───────────────────────────────────────────────
-// Each name domain gets its own newtype. Can't mix them up.
-// The inner u32 is the ordinal — index into AskiWorld's registry.
+// ── Name enums ───────────────────────────────────────────────────
+// Each name domain is a generated enum. The variants carry identity.
+// u32 is the machine storage — the ENUM is the concept.
+// In generated Rust: `enum TypeName { Element, Quality, Point }`
+// In sema binary: the discriminant (u32) represents the variant.
 
 macro_rules! ordinal_type {
     ($name:ident) => {
@@ -163,13 +165,13 @@ pub struct SemaConst {
 
 // ── Expression arena ─────────────────────────────────────────────
 // Flat storage — no Box, no recursion. All sub-expressions referenced
-// by ExprRef (ordinal into the arena). Trivially rkyv-serializable.
+// by ExprRef (arena index). Trivially rkyv-serializable.
 // This IS the sema way: everything is ordinals.
 
 ordinal_type!(ExprRef);
 ordinal_type!(StmtRef);
 ordinal_type!(BodyRef);
-ordinal_type!(BindingName);  // local binding names interned per-method
+ordinal_type!(BindingName);  // local binding names — method-scoped enum
 
 /// Flat expression arena. Lives in Sema. No strings.
 #[derive(Archive, Serialize, Deserialize, Debug, Default, Clone)]

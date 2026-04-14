@@ -2,15 +2,15 @@
 
 ## Sema Is the Artifact
 
-The compiler's primary output is `.sema` — a pure binary file with zero
-strings. Domain ordinals ARE the bytes. All typed relations, expression
-trees, and module structures are stored as ordinals into name tables
-that live in a separate file.
+The compiler's primary output is `.sema` — pure binary, zero strings.
+Domain variants ARE the identity. The enum discriminant is the byte
+representation, but the CONCEPT is the variant — `TypeName::Element`,
+not `TypeName(0)`.
 
 Two files per module:
 ```
-module.sema              — code sema (pure ordinals, rkyv binary)
-module.aski-table.sema   — aski name table (ordinal → name, rkyv binary)
+module.sema              — code sema (enum discriminants, rkyv binary)
+module.aski-table.sema   — aski name table (variant → name, rkyv binary)
 ```
 
 The code sema is language-agnostic structure. The aski-table is one
@@ -35,34 +35,45 @@ Every step is independently verifiable:
 - `askic deparse` — sema → aski (raise + deparse, proves losslessness)
 - `askic roundtrip` — aski → sema → aski (full cycle)
 
-## Typed Ordinals
+## Name Enums
 
-Every name domain has its own newtype. Can't mix a TypeName with a
-VariantName — the compiler catches it at compile time.
+Every name domain is a generated enum. The variants carry identity.
+Can't mix a TypeName with a VariantName — they're different types.
 
 ```rust
-TypeName(u32)       — domain/struct/alias names
-VariantName(u32)    — enum variant names
-FieldName(u32)      — struct field names
-TraitName(u32)      — trait names
-MethodName(u32)     — method/param names
-ModuleName(u32)     — module names
-StringLiteral(u32)  — interned string literals
-BindingName(u32)    — local binding names (method-scoped)
-ExprRef(u32)        — index into expression arena
-StmtRef(u32)        — index into statement arena
-BodyRef(u32)        — index into body arena
+// In generated Rust output:
+enum TypeName { Element, Quality, Point }
+enum VariantName { Fire, Earth, Air, Water, Passionate, ... }
+enum FieldName { Left, Right, Horizontal, Vertical }
+enum TraitName { Describe, Compute }
+enum MethodName { Describe, Add, Multiply }
+
+// In the bootstrap (u32 storage, resolved via NameInterner):
+struct TypeName(u32);      // discriminant of the generated enum
+struct VariantName(u32);
+struct FieldName(u32);
+// etc.
+
+// Arena indices (not enums — these are positions, not identities):
+struct ExprRef(u32);
+struct StmtRef(u32);
+struct BodyRef(u32);
 ```
+
+The bootstrap uses `u32` as the machine representation of enum
+discriminants. The generated Rust code has actual enums with Display.
+The sema binary stores the discriminant. All three represent the
+same thing: the variant IS the identity.
 
 ## No Strings in Sema
 
-The `.sema` binary contains zero strings. The `sema_binary_contains_no_strings`
-test greps the binary for all known names and asserts none appear.
+The `.sema` binary contains zero strings. Verified by test.
 
-Names live in `.aski-table.sema` (the aski projection). When codegen
-needs "Element", it reads from the name table via `ResolveName` trait.
+Names live in `.aski-table.sema` (the aski name projection). When
+codegen needs the string "Element", it resolves the `TypeName::Element`
+variant through the name table via `ResolveName` trait.
 
-The `Operator` enum is a fixed domain with 12 variants — no strings needed.
+`Operator` is a fixed enum — `Add`, `Sub`, `Mul`, etc. — no strings.
 
 ## Expression Arena
 

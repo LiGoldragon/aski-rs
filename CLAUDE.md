@@ -12,7 +12,7 @@ Synth-driven compiler. Reads .aski source, produces .sema (pure binary)
 - v0.16 syntax (no / separator, positional dialects)
 - ~5500 lines, 26 tests, 3 nix checks
 - Sema is the artifact: .sema (zero strings) + .aski-table.sema (names)
-- Typed ordinals: TypeName(u32), VariantName(u32), etc. — no i64, no strings
+- Name enums: TypeName, VariantName, etc. — generated enums, not integers
 - Flat ExprArena: ExprRef/StmtRef/BodyRef — no Box recursion
 - rkyv portable: little_endian, pointer_width_32, alloc
 - Name enums generated: TypeName, VariantName, FieldName, etc. with Display
