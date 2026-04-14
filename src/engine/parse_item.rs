@@ -176,14 +176,11 @@ impl AskiWorld {
         let start = reader.span_start();
 
         let key_text = if let Some(key_item) = key {
-            // Check casing matches the synth rule
-            let text = match key_item {
+            match key_item {
                 Item::Declare { casing: Casing::Pascal, .. } => reader.read_pascal()?,
                 Item::Declare { casing: Casing::Camel, .. } => reader.read_camel()?,
-                _ => reader.read_key()?,
-            };
-            reader.expect_slash()?;
-            text
+                _ => reader.read_name()?,
+            }
         } else {
             String::new()
         };
@@ -236,6 +233,17 @@ impl AskiWorld {
 
     fn parse_declare(&mut self, reader: &mut TokenReader, parent_id: i64, casing: Casing, kind: &str) -> Result<(), String> {
         reader.skip_newlines();
+
+        // Operator capture: @+ @- @* @% @= @< @> @. @? @!
+        if kind.len() == 1 && "+-*%=<>.?!&|".contains(kind) {
+            let start = reader.span_start();
+            reader.expect_literal(kind)?;
+            let end = reader.span_end();
+            let node_id = self.make_node(kind, kind, start, end);
+            self.add_child(parent_id, node_id);
+            return Ok(());
+        }
+
         let name = match casing {
             Casing::Pascal => reader.read_pascal()?,
             Casing::Camel => reader.read_camel()?,
@@ -245,7 +253,6 @@ impl AskiWorld {
         let node_id = self.make_node(kind, &name, start, end);
         self.add_child(parent_id, node_id);
 
-        // Register the declared name based on its kind
         self.register_declared_name(kind, &name);
 
         Ok(())

@@ -88,13 +88,6 @@ impl<'a> TokenReader<'a> {
         }).unwrap_or(false)
     }
 
-    pub fn expect_slash(&mut self) -> Result<(), String> {
-        self.skip_newlines();
-        let tok = self.tokens.get(self.pos).ok_or("expected /, got EOF")?;
-        if matches!(tok.token, Token::Slash) { self.pos += 1; Ok(()) }
-        else { Err(format!("expected /, got {:?}", tok.token)) }
-    }
-
     pub fn expect_literal(&mut self, expected: &str) -> Result<(), String> {
         self.skip_newlines();
         let tok = self.tokens.get(self.pos)
@@ -113,27 +106,6 @@ impl<'a> TokenReader<'a> {
         };
         if ok { self.pos += 1; Ok(()) }
         else { Err(format!("expected '{}', got {:?}", expected, tok.token)) }
-    }
-
-    pub fn read_key(&mut self) -> Result<String, String> {
-        self.skip_newlines();
-        let mut parts = Vec::new();
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos].token {
-                Token::Slash => break,
-                Token::PascalIdent(s) | Token::CamelIdent(s) => {
-                    parts.push(s.clone());
-                    self.pos += 1;
-                }
-                Token::Newline => { self.pos += 1; }
-                _ => break,
-            }
-        }
-        if parts.is_empty() {
-            Err("expected key before /, got nothing".into())
-        } else {
-            Ok(parts.join(" "))
-        }
     }
 
     pub fn read_pascal(&mut self) -> Result<String, String> {

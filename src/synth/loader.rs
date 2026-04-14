@@ -144,31 +144,42 @@ fn parse_spaced_items(input: &str) -> Result<Vec<SpacedItem>, String> {
             // Declare placeholder: @Name or @name
             '@' => {
                 chars.next();
-                let name = read_name(&mut chars);
-                if name == "value" {
-                    items.push(SpacedItem { item: Item::Value, adjacent });
-                } else {
-                    let casing = if name.starts_with(|c: char| c.is_uppercase()) {
-                        Casing::Pascal
-                    } else {
-                        Casing::Camel
-                    };
-                    if chars.peek() == Some(&'/') {
-                        let mut peek_chars = chars.clone();
-                        peek_chars.next();
-                        if peek_chars.peek() == Some(&'/') {
-                            chars.next();
-                            chars.next();
-                            let left = Item::Declare { casing, kind: name };
-                            let rest: String = chars.collect();
-                            let right_items = parse_items(&rest)?;
-                            if let Some(right) = right_items.into_iter().next() {
-                                items.push(SpacedItem { item: Item::Or(vec![left, right]), adjacent });
+                // Check for operator capture: @+ @- @* @% @= @< @> @. @? @!
+                match chars.peek() {
+                    Some(&c) if "+-*%=<>.?!&|".contains(c) => {
+                        let op = c.to_string();
+                        chars.next();
+                        items.push(SpacedItem { item: Item::Declare { casing: Casing::Camel, kind: op }, adjacent });
+                    }
+                    _ => {
+                        let name = read_name(&mut chars);
+                        if name == "value" {
+                            items.push(SpacedItem { item: Item::Value, adjacent });
+                        } else {
+                            let casing = if name.starts_with(|c: char| c.is_uppercase()) {
+                                Casing::Pascal
+                            } else {
+                                Casing::Camel
+                            };
+                            // Check for inline or: @name//@Name
+                            if chars.peek() == Some(&'/') {
+                                let mut peek_chars = chars.clone();
+                                peek_chars.next();
+                                if peek_chars.peek() == Some(&'/') {
+                                    chars.next();
+                                    chars.next();
+                                    let left = Item::Declare { casing, kind: name };
+                                    let rest: String = chars.collect();
+                                    let right_items = parse_items(&rest)?;
+                                    if let Some(right) = right_items.into_iter().next() {
+                                        items.push(SpacedItem { item: Item::Or(vec![left, right]), adjacent });
+                                    }
+                                    return Ok(items);
+                                }
                             }
-                            return Ok(items);
+                            items.push(SpacedItem { item: Item::Declare { casing, kind: name }, adjacent });
                         }
                     }
-                    items.push(SpacedItem { item: Item::Declare { casing, kind: name }, adjacent });
                 }
             }
 
@@ -316,46 +327,24 @@ fn parse_delimiter_body(
         chars.next();
     }
 
-    // Split on / to get key and body — only at depth 0 (skip / inside nested delimiters)
+    // v0.16: position defines meaning. First @Declare is the key, rest is body.
     let content = content.trim();
-    let slash_pos = {
-        let mut depth = 0;
-        let mut found = None;
-        for (i, ch) in content.chars().enumerate() {
-            match ch {
-                '(' | '[' | '{' => depth += 1,
-                ')' | ']' | '}' => depth -= 1,
-                '/' if depth == 0 => { found = Some(i); break; }
-                _ => {}
-            }
+
+    if content.starts_with('@') {
+        // First item is @Declare (the key), rest is body
+        let all_items = parse_items(content)?;
+        if all_items.is_empty() {
+            Ok((None, Vec::new()))
+        } else {
+            let mut iter = all_items.into_iter();
+            let key = iter.next().map(Box::new);
+            let body: Vec<Item> = iter.collect();
+            Ok((key, body))
         }
-        found
-    };
-    if let Some(slash_pos) = slash_pos {
-        let key_str = content[..slash_pos].trim();
-        let body_str = content[slash_pos + 1..].trim();
-
-        let key = if key_str.is_empty() {
-            None
-        } else {
-            let key_items = parse_items(key_str)?;
-            key_items.into_iter().next().map(Box::new)
-        };
-
-        let body = if body_str.is_empty() {
-            Vec::new()
-        } else {
-            parse_items(body_str)?
-        };
-
-        Ok((key, body))
     } else {
-        // No / — bare content, no key
-        let body = if content.is_empty() {
-            Vec::new()
-        } else {
-            parse_items(content)?
-        };
+        // No @key — bare content, no key
+        let body = if content.is_empty() { Vec::new() }
+            else { parse_items(content)? };
         Ok((None, body))
     }
 }
@@ -382,13 +371,13 @@ mod tests {
     fn load_aski_synth() {
         let source = r#"
 ;; aski.synth
-// !{@module/ <module>}
-// *(@Domain/ <domain>)
-// *(@trait/ <trait-decl>)
-// *[@trait/ <trait-impl>]
-// *{@Struct/ <struct>}
-// *{|@Const/ :Type @value|}
-// *(|@Ffi/ <ffi>|)
+// !{@module <module>}
+// *(@Domain <domain>)
+// *(@trait <trait-decl>)
+// *[@trait <trait-impl>]
+// *{@Struct <struct>}
+// *{|@Const :Type @value|}
+// *(|@Ffi <ffi>|)
 // ?[|<process>|]
 "#;
         let dialect = load_dialect("aski", source).unwrap();
@@ -398,8 +387,8 @@ mod tests {
         match &dialect.rules[0] {
             Rule::OrderedChoice(alts) => {
                 assert_eq!(alts.len(), 8);
-                assert_eq!(alts[0].cardinality, Card::One);        // !{@module/}
-                assert_eq!(alts[1].cardinality, Card::ZeroOrMore); // *(@Domain/)
+                assert_eq!(alts[0].cardinality, Card::One);        // !{@module}
+                assert_eq!(alts[1].cardinality, Card::ZeroOrMore); // *(@Domain)
                 assert_eq!(alts[7].cardinality, Card::Optional);   // ?[|<process>|]
             }
             _ => panic!("expected OrderedChoice"),
@@ -411,8 +400,8 @@ mod tests {
         let source = r#"
 ;; domain.synth
 // *@Variant
-// *(@Variant/ :Type)
-// *{@Variant/ <struct>}
+// *(@Variant :Type)
+// *{@Variant <struct>}
 "#;
         let dialect = load_dialect("domain", source).unwrap();
         assert_eq!(dialect.rules.len(), 1);
@@ -470,7 +459,7 @@ mod tests {
     fn load_module_synth() {
         let source = r#"
 +@export//@Export
-*[:Module/ +:import//:Import]
+*[:Module +:import//:Import]
 "#;
         let dialect = load_dialect("module", source).unwrap();
         assert_eq!(dialect.rules.len(), 2);

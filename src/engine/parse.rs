@@ -56,13 +56,13 @@ mod tests {
     fn make_world() -> AskiWorld {
         let mut dialects = HashMap::new();
         dialects.insert("aski".into(), loader::load_dialect("aski", r#"
-            // !{@module/ <module>}
-            // *(@Domain/ <domain>)
-            // *(@trait/ <trait-decl>)
-            // *[@trait/ <trait-impl>]
-            // *{@Struct/ <struct>}
-            // *{|@Const/ :Type @value|}
-            // *(|@Ffi/ <ffi>|)
+            // !{@module <module>}
+            // *(@Domain <domain>)
+            // *(@trait <trait-decl>)
+            // *[@trait <trait-impl>]
+            // *{@Struct <struct>}
+            // *{|@Const :Type @value|}
+            // *(|@Ffi <ffi>|)
         "#).unwrap());
         dialects.insert("module".into(), loader::load_dialect("module", r#"
             +@export//@Export
@@ -74,16 +74,16 @@ mod tests {
             +@Field :Type
         "#).unwrap());
         dialects.insert("trait-decl".into(), loader::load_dialect("trait-decl", r#"
-            [+(@signature/)]
+            [+(@signature)]
         "#).unwrap());
         dialects.insert("trait-impl".into(), loader::load_dialect("trait-impl", r#"
             :Type [<type-impl>]
         "#).unwrap());
         dialects.insert("type-impl".into(), loader::load_dialect("type-impl", r#"
-            +(@method/)
+            +(@method)
         "#).unwrap());
         dialects.insert("ffi".into(), loader::load_dialect("ffi", r#"
-            +(@foreignFunction/)
+            +(@foreignFunction)
         "#).unwrap());
         AskiWorld::new(dialects)
     }
@@ -91,7 +91,7 @@ mod tests {
     #[test]
     fn parse_domain() {
         let mut world = make_world();
-        world.parse_file("test.aski", "{test/ describe} (Element/ Fire Earth Air Water)").unwrap();
+        world.parse_file("test.aski", "{test describe} (Element Fire Earth Air Water)").unwrap();
         assert!(world.is_domain("Element"));
         assert!(world.is_variant("Fire"));
         assert!(world.is_variant("Water"));
@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn parse_struct() {
         let mut world = make_world();
-        world.parse_file("test.aski", "{test/ compute} {Point/ Horizontal F64 Vertical F64}").unwrap();
+        world.parse_file("test.aski", "{test compute} {Point Horizontal F64 Vertical F64}").unwrap();
         assert!(world.is_struct("Point"));
         let children = world.children_of(world.root_id());
         assert_eq!(children.len(), 2);
@@ -112,7 +112,7 @@ mod tests {
     fn parse_multiple() {
         let mut world = make_world();
         world.parse_file("test.aski",
-            "{test/ describe compute} (Element/ Fire Earth) {Point/ X F64 Y F64} (Quality/ High Low)"
+            "{test describe compute} (Element Fire Earth) {Point X F64 Y F64} (Quality High Low)"
         ).unwrap();
         assert!(world.is_domain("Element"));
         assert!(world.is_domain("Quality"));
@@ -125,7 +125,7 @@ mod tests {
     fn parse_trait_decl() {
         let mut world = make_world();
         world.parse_file("test.aski",
-            "{test/ describe} (describe/ [(describe/ :@Self Quality)])"
+            "{test describe} (describe [(describe :@Self Quality)])"
         ).unwrap();
         assert!(world.is_trait("describe"));
         let children = world.children_of(world.root_id());
@@ -136,10 +136,10 @@ mod tests {
     fn parse_trait_impl() {
         let mut world = make_world();
         world.parse_file("test.aski", concat!(
-            "{test/ Element describe} ",
-            "(Element/ Fire Earth) ",
-            "(describe/ [(describe/ :@Self Quality)]) ",
-            "[describe/ Element [(describe/ :@Self Quality [^Fire])]]",
+            "{test Element describe} ",
+            "(Element Fire Earth) ",
+            "(describe [(describe :@Self Quality)]) ",
+            "[describe Element [(describe :@Self Quality [^Fire])]]",
         )).unwrap();
         assert!(world.is_trait("describe"));
         assert!(world.is_domain("Element"));
@@ -151,7 +151,7 @@ mod tests {
     fn parse_const() {
         let mut world = make_world();
         world.parse_file("test.aski",
-            "{test/ Pi} {|Pi/ F64 3.14|}"
+            "{test Pi} {|Pi F64 3.14|}"
         ).unwrap();
         let children = world.children_of(world.root_id());
         assert_eq!(children.len(), 2); // module + const
@@ -161,7 +161,7 @@ mod tests {
     fn parse_ffi() {
         let mut world = make_world();
         world.parse_file("test.aski",
-            "{test/ Cast} (|Cast/ (toF32/ @Self F32)|)"
+            "{test Cast} (|Cast (toF32 @Self F32)|)"
         ).unwrap();
         let children = world.children_of(world.root_id());
         assert_eq!(children.len(), 2); // module + ffi

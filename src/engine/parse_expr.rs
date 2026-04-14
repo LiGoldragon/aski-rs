@@ -456,19 +456,14 @@ impl AskiWorld {
     }
 
     fn parse_match_body(&mut self, reader: &mut TokenReader, parent_id: i64) -> Result<(), String> {
-        // Check for target expression: (| target/ arms |)
-        // If the first token is NOT '(' (pattern start), parse as target expr until '/'
+        // v0.16: target is everything before the first (pattern) arm.
+        // If first token is NOT '(', parse target expression.
         reader.skip_newlines();
         if reader.peek() != Some(&Token::LParen) && reader.peek() != Some(&Token::RPipeParen) {
-            // Parse target expression
             let target = self.parse_expr(reader, parent_id)?;
-            reader.skip_newlines();
-            if reader.peek() == Some(&Token::Slash) {
-                reader.pos += 1; // consume /
-                let target_id = self.make_node("MatchTarget", "", 0, 0);
-                self.add_child(target_id, target);
-                self.add_child(parent_id, target_id);
-            }
+            let target_id = self.make_node("MatchTarget", "", 0, 0);
+            self.add_child(target_id, target);
+            self.add_child(parent_id, target_id);
         }
 
         // Parse arms: (pattern) result

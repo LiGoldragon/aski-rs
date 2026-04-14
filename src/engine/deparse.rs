@@ -51,7 +51,6 @@ impl DeparseNode for AskiWorld {
                 out.push_str(open);
                 if !key.is_empty() {
                     out.push_str(&key);
-                    out.push('/');
                     if !children.is_empty() { out.push(' '); }
                 }
                 self.deparse_children(out, node_id, indent);
@@ -123,7 +122,6 @@ impl DeparseNode for AskiWorld {
                             out.push_str(&pad);
                             self.deparse_node(out, tc.id, indent + 1);
                         }
-                        out.push('/');
                     } else {
                         out.push('\n');
                         out.push_str(&pad);

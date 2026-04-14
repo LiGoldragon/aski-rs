@@ -19,19 +19,19 @@ mod tests {
             // Inline minimal dialects for CI
             let mut d = HashMap::new();
             d.insert("aski".into(), loader::load_dialect("aski", r#"
-                // !{@module/ <module>}
-                // *(@Domain/ <domain>)
-                // *(@trait/ <trait-decl>)
-                // *[@trait/ <trait-impl>]
-                // *{@Struct/ <struct>}
-                // *{|@Const/ :Type @value|}
+                // !{@module <module>}
+                // *(@Domain <domain>)
+                // *(@trait <trait-decl>)
+                // *[@trait <trait-impl>]
+                // *{@Struct <struct>}
+                // *{|@Const :Type @value|}
             "#).unwrap());
             d.insert("module".into(), loader::load_dialect("module", "+@export//@Export").unwrap());
-            d.insert("domain".into(), loader::load_dialect("domain", "// *@Variant\n// *(@Variant/ :Type)").unwrap());
+            d.insert("domain".into(), loader::load_dialect("domain", "// *@Variant\n// *(@Variant :Type)").unwrap());
             d.insert("struct".into(), loader::load_dialect("struct", "+@Field :Type").unwrap());
-            d.insert("trait-decl".into(), loader::load_dialect("trait-decl", "[+(@signature/)]").unwrap());
+            d.insert("trait-decl".into(), loader::load_dialect("trait-decl", "[+(@signature)]").unwrap());
             d.insert("trait-impl".into(), loader::load_dialect("trait-impl", ":Type [<type-impl>]").unwrap());
-            d.insert("type-impl".into(), loader::load_dialect("type-impl", "+(@method/)").unwrap());
+            d.insert("type-impl".into(), loader::load_dialect("type-impl", "+(@method)").unwrap());
             d
         };
         AskiWorld::new(dialects)
@@ -41,9 +41,9 @@ mod tests {
     fn sema_binary_contains_no_strings() {
         let mut world = make_world_from_source("");
         world.parse_file("test.aski", concat!(
-            "{test/ Element describe} ",
-            "(Element/ Fire Earth Air Water) ",
-            "(describe/ [(describe/ :@Self Quality)])",
+            "{test Element describe} ",
+            "(Element Fire Earth Air Water) ",
+            "(describe [(describe :@Self Quality)])",
         )).unwrap();
 
         let result = world.lower();
@@ -65,8 +65,8 @@ mod tests {
     fn sema_binary_roundtrip() {
         let mut world = make_world_from_source("");
         world.parse_file("test.aski", concat!(
-            "{test/ Element describe} ",
-            "(Element/ Fire Earth Air Water) ",
+            "{test Element describe} ",
+            "(Element Fire Earth Air Water) ",
         )).unwrap();
 
         let result = world.lower();
@@ -94,10 +94,10 @@ mod tests {
     #[test]
     fn aski_sema_aski_roundtrip() {
         let source = concat!(
-            "{test/ Element describe} ",
-            "(Element/ Fire Earth Air Water) ",
-            "(describe/ [(describe/ :@Self Quality)]) ",
-            "[describe/ Element [(describe/ :@Self Quality (| ",
+            "{test Element describe} ",
+            "(Element Fire Earth Air Water) ",
+            "(describe [(describe :@Self Quality)]) ",
+            "[describe Element [(describe :@Self Quality (| ",
             "(Fire) Passionate (Earth) Grounded (Air) Intellectual (Water) Intuitive ",
             "|))]]",
         );
@@ -137,8 +137,8 @@ mod tests {
     fn sema_codegen_roundtrip() {
         let mut world = make_world_from_source("");
         world.parse_file("test.aski", concat!(
-            "{test/ Element describe} ",
-            "(Element/ Fire Earth Air Water) ",
+            "{test Element describe} ",
+            "(Element Fire Earth Air Water) ",
         )).unwrap();
 
         let result = world.lower();
