@@ -7,9 +7,10 @@ Synth-driven compiler. Reads .aski source, produces .sema (pure binary)
 
 **`askic-bootstrap`** — not main. Main has old v0.4 code.
 
-## Current State (2026-04-13)
+## Current State (2026-04-14)
 
-- 5256 lines, 26 tests, 3 nix checks
+- v0.16 syntax (no / separator, positional dialects)
+- ~5500 lines, 26 tests, 3 nix checks
 - Sema is the artifact: .sema (zero strings) + .aski-table.sema (names)
 - Typed ordinals: TypeName(u32), VariantName(u32), etc. — no i64, no strings
 - Flat ExprArena: ExprRef/StmtRef/BodyRef — no Box recursion
