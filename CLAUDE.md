@@ -1,51 +1,45 @@
 # aski-rs-bootstrap — Stage1 Bootstrap Compiler
 
-Synth-driven compiler. Reads .aski source, produces .sema (pure binary)
-+ .aski-table.sema (name projection). Codegen emits Rust from .sema files.
+## STATUS: FULL REWRITE IN PROGRESS
 
-## Branch
-
-**`askic-bootstrap`** — not main. Main has old v0.4 code.
-
-## Current State (2026-04-14)
-
-- v0.16 syntax (no / separator, positional dialects)
-- ~5500 lines, 26 tests, 3 nix checks
-- Sema is the artifact: .sema (zero strings) + .aski-table.sema (names)
-- Name enums: TypeName, VariantName, etc. — generated enums, not integers
-- Flat ExprArena: ExprRef/StmtRef/BodyRef — no Box recursion
-- rkyv portable: little_endian, pointer_width_32, alloc
-- Name enums generated: TypeName, VariantName, FieldName, etc. with Display
-
-## Pipeline
-
-```
-.aski → askic compile → .sema + .aski-table.sema
-                              ↓
-        askic rust .sema → .rs (from binary, not memory)
-```
-
-## CLI
-
-- `askic compile file.aski --synth-dir path` → .sema + .aski-table.sema
-- `askic rust file.sema` → Rust (auto-discovers .aski-table.sema)
-- `askic rust file.aski --synth-dir path` → shorthand: compile + rust
-- `askic deparse file.sema` → aski text from sema
-- `askic roundtrip file.aski` → aski → sema binary → aski
+The v0.15 engine code is archived in `src/v015_archive/`. Do NOT
+modify those files. The new v0.16 three-compiler pipeline is being
+implemented from scratch in the new directory structure.
 
 ## Architecture
 
+Three compilers, each producing typed rkyv-serializable data:
+
 ```
-.aski → Lexer (logos) → Synth-driven parser (dialect tables)
-      → AskiWorld (parse nodes) → Lower → Sema + NameInterner
-      → rkyv serialize → .sema + .aski-table.sema
-      → rkyv deserialize → Codegen → Rust with name enums
+src/
+  synth/              — synth loader (KEEP — hardcoded .synth parser)
+  lexer.rs            — Logos tokenizer (KEEP)
+  engine/tokens.rs    — TokenReader (KEEP)
+  synth_compiler/     — Stage 1: .synth + .aski headers → enums + scopes
+  aski_compiler/      — Stage 2: SynthOutput + .aski → typed data-tree
+  sema_compiler/      — Stage 3: DataTree → .sema + codegen
+  v015_archive/       — old v0.15 engine (reference only, do not use)
 ```
+
+## Design Spec
+
+Read: `~/git/Mentci/components/aski/encoder/design/v0.16/pipeline.md`
+(1885 lines — complete spec with concrete Rust types for every structure)
+
+## Key Principles
+
+- Synth IS the grammar — 28 dialect files define everything
+- Three stages, all typed, all rkyv-serializable
+- Enums not integers — variant IS identity
+- Data-tree with owned children — no flat arrays, no i64 IDs
+- Scope-enforced — every name resolves to a known enum variant
+- No strings in sema — enum discriminants ARE the bytes
+- Position defines meaning — no `/` separator
+
+## Branch
+
+`askic-bootstrap` — push after every change.
 
 ## VCS
 
-Jujutsu (`jj`) mandatory. Branch: `askic-bootstrap`. Push after every change.
-
-## Language Policy
-
-Rust only. Nix only for builds. Object/trait style — no free functions.
+Jujutsu (`jj`) mandatory. Object/trait Rust style. Small files.
