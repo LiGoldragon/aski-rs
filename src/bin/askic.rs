@@ -12,6 +12,6 @@
 
 fn main() {
     eprintln!("askic v0.16 — pipeline not yet implemented");
-    eprintln!("See: Mentci/components/aski/encoder/design/v0.16/pipeline.md");
+    eprintln!("See: ~/git/aski/spec/pipeline.md");
     std::process::exit(1);
 }

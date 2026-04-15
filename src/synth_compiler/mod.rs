@@ -2,4 +2,4 @@
 //!
 //! Reads .synth dialect files + .aski headers.
 //! Produces: NameRegistry, DialectTable, ScopeGraph.
-//! See: Mentci/components/aski/encoder/design/v0.16/pipeline.md
+//! See: ~/git/aski/spec/pipeline.md
