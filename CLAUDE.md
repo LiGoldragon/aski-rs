@@ -1,10 +1,9 @@
-# aski-rs-bootstrap — Stage1 Bootstrap Compiler
+# semac — Bootstrap Compiler (Rust)
 
 ## STATUS: FULL REWRITE IN PROGRESS
 
 The v0.15 engine code is archived in `src/v015_archive/`. Do NOT
-modify those files. The new v0.16 three-compiler pipeline is being
-implemented from scratch in the new directory structure.
+modify those files — they are reference for the rewrite.
 
 ## Architecture
 
@@ -15,30 +14,30 @@ src/
   synth/              — synth loader (KEEP — hardcoded .synth parser)
   lexer.rs            — Logos tokenizer (KEEP)
   engine/tokens.rs    — TokenReader (KEEP)
-  synth_compiler/     — Stage 1: .synth + .aski headers → enums + scopes
-  aski_compiler/      — Stage 2: SynthOutput + .aski → typed data-tree
-  sema_compiler/      — Stage 3: DataTree → .sema + codegen
-  v015_archive/       — old v0.15 engine (reference only, do not use)
+  synth_compiler/     — Stage 1: .synth + .aski → data-tree + derived enums
+  aski_compiler/      — Stage 2: data-tree + .aski → typed parse tree
+  sema_compiler/      — Stage 3: parse tree → .sema binary + codegen
+  v015_archive/       — old v0.15 engine (reference only)
 ```
+
+## Repos
+
+- **synthc** (`~/git/synthc`) — 28 synth dialect files + examples
+- **askic** (`~/git/askic`) — compiler binary (empty until bootstrap works)
+- **semac** (`~/git/semac`) — this repo, the bootstrap compiler in Rust
+- **aski** (`~/git/aski`) — language spec (`spec/pipeline.md`)
 
 ## Design Spec
 
-Read: `~/git/Mentci/components/aski/encoder/design/v0.16/pipeline.md`
-(1885 lines — complete spec with concrete Rust types for every structure)
+Read: `~/git/aski/spec/pipeline.md`
 
 ## Key Principles
 
 - Synth IS the grammar — 28 dialect files define everything
+- Enums are derived from the data — not hand-written
 - Three stages, all typed, all rkyv-serializable
-- Enums not integers — variant IS identity
 - Data-tree with owned children — no flat arrays, no i64 IDs
-- Scope-enforced — every name resolves to a known enum variant
 - No strings in sema — enum discriminants ARE the bytes
-- Position defines meaning — no `/` separator
-
-## Branch
-
-`askic-bootstrap` — push after every change.
 
 ## VCS
 

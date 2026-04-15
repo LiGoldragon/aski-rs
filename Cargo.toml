@@ -1,8 +1,8 @@
 [package]
-name = "aski-rs"
-version = "0.1.0"
+name = "semac"
+version = "0.16.0"
 edition = "2021"
-description = "aski Rust backend — Kernel Aski parser, codegen, rustc integration"
+description = "semac — sema compiler, Stage 3 of the aski pipeline"
 
 [dependencies]
 logos = "0.14"
