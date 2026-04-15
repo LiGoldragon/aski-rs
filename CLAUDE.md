@@ -1,4 +1,4 @@
-# aski-rs-bootstrap — Stage1 Bootstrap Compiler
+# semac — Sema Compiler (Bootstrap)
 
 ## STATUS: FULL REWRITE IN PROGRESS
 
@@ -20,6 +20,12 @@ src/
   sema_compiler/      — Stage 3: DataTree → .sema + codegen
   v015_archive/       — old v0.15 engine (reference only, do not use)
 ```
+
+## Repos
+
+- **synthc** (`~/git/synthc`) — 28 synth dialect files + examples
+- **askic** (`~/git/askic`) — Stage 2 self-hosting compiler (14 .aski modules)
+- **semac** (`~/git/semac`) — this repo, Stage 3 bootstrap compiler
 
 ## Design Spec
 

@@ -1,9 +1,0 @@
-[package]
-name = "aski-core"
-version = "0.1.0"
-edition = "2021"
-description = "aski Kernel schema — World struct, queries, and derivation generated from kernel.aski"
-
-[dependencies]
-
-[build-dependencies]
