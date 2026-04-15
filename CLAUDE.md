@@ -1,20 +1,22 @@
 # semac — Sema Generator
 
-Takes askic's typed parse tree. Mechanical tree walk produces
-.sema binary (pure ordinals, no strings) + .aski-table.sema
-(name projection) + Rust codegen.
+The sema generation stage of the sema engine. Mechanical tree walk
+over askic's typed parse tree. Produces .sema binary (pure ordinals,
+no strings) + .aski-table.sema (name projection) + Rust codegen.
+
+Trusts askic completely — no re-validation.
 
 ## Current State
 
-Not yet implemented for v0.16. The v0.15 engine code is archived
+Not yet built for v0.16. The v0.15 engine code is archived
 in `v015_archive/` as reference for the rewrite.
 
-## Repos
+## The Sema Engine
 
-- **askicc** — bootstrap: .synth grammar + askic's .aski anatomy → data-tree
-- **askic** — compiler: data-tree + .aski bodies → typed parse tree
-- **semac** — sema generator: parse tree → .sema binary + codegen
-- **aski** — language spec (`spec/pipeline.md`)
+```
+aski-core  →  askicc  →  askic  →  semac
+(anatomy)    (bootstrap)  (compiler)  (sema gen)
+```
 
 ## VCS
 
