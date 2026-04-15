@@ -1,5 +1,5 @@
 {
-  description = "semac — Stage 3: sema binary compiler";
+  description = "semac — sema generator: typed parse tree → .sema binary + codegen";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";

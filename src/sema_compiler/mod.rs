@@ -1,5 +1,4 @@
-//! Sema Compiler (Stage 3)
+//! Sema Generator
 //!
-//! Takes DataTree, produces .sema binary + .aski-table.sema + codegen.
-//! Mechanical typed tree walk. No string matching.
-//! See: ~/git/aski/spec/pipeline.md
+//! Takes askic's typed parse tree, produces .sema binary +
+//! .aski-table.sema + codegen. Mechanical typed tree walk.

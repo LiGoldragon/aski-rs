@@ -2,7 +2,7 @@
 name = "semac"
 version = "0.16.0"
 edition = "2021"
-description = "semac — sema compiler, Stage 3 of the aski pipeline"
+description = "semac — sema generator: typed parse tree → .sema binary + codegen"
 
 [dependencies]
 logos = "0.14"
