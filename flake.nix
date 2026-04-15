@@ -24,8 +24,8 @@
       craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
       askic-bin = askic.packages.${system}.askic;
-      synthc-bin = askic.inputs.synthc.packages.${system}.synthc;
-      synth-dialect = askic.inputs.synthc.packages.${system}.synth-dialect;
+      askicc-bin = askic.inputs.askicc.packages.${system}.askicc;
+      synth-dialect = askic.inputs.askicc.packages.${system}.synth-dialect;
 
       src = pkgs.lib.cleanSourceWith {
         src = ./.;
@@ -39,7 +39,7 @@
         inherit src;
         pname = "semac";
         version = "0.16.0";
-        nativeBuildInputs = [ synthc-bin askic-bin ];
+        nativeBuildInputs = [ askicc-bin askic-bin ];
         SYNTH_DIR = "${synth-dialect}";
       };
 
@@ -63,7 +63,7 @@
       };
 
       devShells.${system}.default = craneLib.devShell {
-        packages = [ synthc-bin askic-bin pkgs.rust-analyzer ];
+        packages = [ askicc-bin askic-bin pkgs.rust-analyzer ];
         SYNTH_DIR = "${synth-dialect}";
       };
     };
