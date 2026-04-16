@@ -1,5 +1,5 @@
 {
-  description = "semac — sema generator: typed parse tree → .sema binary + codegen";
+  description = "semac — sema backend: rkyv parse tree → sema + Rust";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -8,63 +8,66 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     crane.url = "github:ipetkov/crane";
-    askic = {
-      url = "github:LiGoldragon/askic";
+    flake-utils.url = "github:numtide/flake-utils";
+    sema-core = {
+      url = "github:LiGoldragon/sema-core";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.fenix.follows = "fenix";
       inputs.crane.follows = "crane";
+      inputs.flake-utils.follows = "flake-utils";
     };
   };
 
-  outputs = { self, nixpkgs, fenix, crane, askic, ... }:
-    let
-      system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-      toolchain = fenix.packages.${system}.stable.toolchain;
-      craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
+  outputs = { self, nixpkgs, fenix, crane, flake-utils, sema-core, ... }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        toolchain = fenix.packages.${system}.stable.toolchain;
+        craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
-      askic-bin = askic.packages.${system}.askic;
-      askicc-bin = askic.inputs.askicc.packages.${system}.askicc;
-      synth-dialect = askic.inputs.askicc.packages.${system}.synth-dialect;
+        # sema-core source — the rkyv contract for parse trees
+        sema-core-source = sema-core.packages.${system}.source;
 
-      src = pkgs.lib.cleanSourceWith {
-        src = ./.;
-        filter = path: type:
-          (craneLib.filterCargoSources path type)
-          || (builtins.match ".*\\.aski$" path != null)
-          || (builtins.match ".*\\.synth$" path != null);
-      };
+        src = pkgs.lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            craneLib.filterCargoSources path type;
+        };
 
-      commonArgs = {
-        inherit src;
-        pname = "semac";
-        version = "0.16.0";
-        nativeBuildInputs = [ askicc-bin askic-bin ];
-        SYNTH_DIR = "${synth-dialect}";
-      };
+        commonArgs = {
+          inherit src;
+          pname = "semac";
+          version = "0.17.0";
+          # Populate flake-crates/ for Cargo path dep
+          postUnpack = ''
+            mkdir -p $sourceRoot/flake-crates
+            cp -r ${sema-core-source} $sourceRoot/flake-crates/sema-core
+            chmod -R +w $sourceRoot/flake-crates
+          '';
+        };
 
-      cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-      semac = craneLib.buildPackage (commonArgs // {
-        inherit cargoArtifacts;
-      });
-
-    in {
-      packages.${system} = {
-        default = semac;
-        inherit semac;
-      };
-
-      checks.${system} = {
-        build = semac;
-        cargo-tests = craneLib.cargoTest (commonArgs // {
+        semac = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
         });
-      };
 
-      devShells.${system}.default = craneLib.devShell {
-        packages = [ askicc-bin askic-bin pkgs.rust-analyzer ];
-        SYNTH_DIR = "${synth-dialect}";
-      };
-    };
+      in {
+        packages = {
+          default = semac;
+          inherit semac;
+        };
+
+        checks = {
+          build = semac;
+          tests = craneLib.cargoTest (commonArgs // {
+            inherit cargoArtifacts;
+          });
+        };
+
+        devShells.default = craneLib.devShell {
+          packages = [ pkgs.rust-analyzer ];
+        };
+      }
+    );
 }
