@@ -17,3 +17,4 @@ result
 
 # Databases (local)
 *.db
+target/
