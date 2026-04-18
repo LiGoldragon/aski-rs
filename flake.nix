@@ -9,8 +9,8 @@
     };
     crane.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
-    sema-core = {
-      url = "github:LiGoldragon/sema-core";
+    veri-core = {
+      url = "github:LiGoldragon/veri-core";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.fenix.follows = "fenix";
       inputs.crane.follows = "crane";
@@ -18,15 +18,15 @@
     };
   };
 
-  outputs = { self, nixpkgs, fenix, crane, flake-utils, sema-core, ... }:
+  outputs = { self, nixpkgs, fenix, crane, flake-utils, veri-core, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         toolchain = fenix.packages.${system}.stable.toolchain;
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
 
-        # sema-core source — the rkyv contract for parse trees
-        sema-core-source = sema-core.packages.${system}.source;
+        # veri-core source — the rkyv contract for parse trees
+        veri-core-source = veri-core.packages.${system}.source;
 
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
@@ -41,7 +41,7 @@
           # Populate flake-crates/ for Cargo path dep
           postUnpack = ''
             mkdir -p $sourceRoot/flake-crates
-            cp -r ${sema-core-source} $sourceRoot/flake-crates/sema-core
+            cp -r ${veri-core-source} $sourceRoot/flake-crates/veri-core
             chmod -R +w $sourceRoot/flake-crates
           '';
         };

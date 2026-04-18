@@ -25,7 +25,7 @@ produce rkyv parse trees. Other frontends may exist.
 corec       — .core → Rust with rkyv derives (bootstrap seed)
 synth-core  — grammar contract types (askicc↔askic)
 aski-core   — parse tree contract types (askic↔veric↔semac)
-sema-core   — veric output contract (Program, ResolutionTable)
+veri-core   — veric output contract (Program, ResolutionTable)
 askicc      — source/<surface>/*.synth → dsls.rkyv (dsl tree, all 4 DSLs)
 askic       — reads source + dsls.rkyv → per-module rkyv parse tree
 veric       — per-module rkyv → program.rkyv (verified, linked)
