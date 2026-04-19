@@ -39,10 +39,10 @@ Just typed binary in, sema + code out.
 
 ## Current State
 
-Not yet built for v0.18. The v0.15 engine code is archived
+Not yet built for v0.19. The v0.15 engine code is archived
 in `v015_archive/` as reference.
 
-Note: v015_archive uses "domain" to mean "enum only." In v0.18,
+Note: v015_archive uses "domain" to mean "enum only." In v0.19,
 domain means any data definition (enum + struct + newtype).
 See `v015_archive/TERMINOLOGY.md`.
 
