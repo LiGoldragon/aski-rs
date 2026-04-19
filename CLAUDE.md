@@ -37,14 +37,38 @@ rsc         — .sema + domain types → .rs (Rust projection)
 semac reads rkyv. No text parsing. No grammar processing.
 Just typed binary in, sema + code out.
 
-## Current State
+## ⚠️ STATUS: STALE / NOT BUILT FOR v0.20
 
-Not yet built for v0.19. The v0.15 engine code is archived
-in `v015_archive/` as reference.
+**Current state:** not implemented against v0.20. Repo holds
+only CLAUDE.md + the v0.15 archive (`v015_archive/`) as
+historical reference.
 
-Note: v015_archive uses "domain" to mean "enum only." In v0.19,
-domain means any data definition (enum + struct + newtype).
-See `v015_archive/TERMINOLOGY.md`.
+### Why it's stale
+
+1. `v015_archive/` is from aski v0.15 — **two major redesigns old**.
+   Uses "domain" to mean "enum only" (pre-v0.18 narrow sense).
+   Type names and shapes have nothing in common with aski-core v0.20.
+2. No working code against the current contracts.
+3. Waiting on veri-core's D6 redesign + veric's port — semac reads
+   program.rkyv, which doesn't exist in the current shape yet.
+
+### How semac will land (dependency chain)
+
+1. askic-assemble exists (v0.20)
+2. askic rewritten against askic-assemble
+3. veri-core D6 redesign — new program.core shape with EntityRef
+4. veric ported to v0.20 aski-core + v0.20 veri-core
+5. domainc implemented against veri-core
+6. **THEN semac can be implemented** — reads program.rkyv + domain
+   types, emits .sema (true binary) + .aski-table.sema + feeds rsc
+   for .rs emission
+
+### Note on terminology
+
+v015_archive uses "domain" to mean "enum only." In v0.19 / v0.20,
+**domain means any data definition** (enum + struct + newtype).
+See `v015_archive/TERMINOLOGY.md`. Do not carry the v0.15 narrow
+sense into new code.
 
 ## Rust Style
 
