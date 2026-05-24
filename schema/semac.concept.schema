@@ -1,0 +1,41 @@
+{}
+
+[]
+
+[]
+
+[
+  (Assert [Fact])
+  (Mutate [Record])
+  (Retract [Record])
+  (Match [Query])
+  (Subscribe [Stream])
+  (Validate [Plan])
+]
+
+{
+  Assert [(Fact Fact)]
+  Mutate [(Record Record)]
+  Retract [(Record Record)]
+  Match [(Query Query)]
+  Subscribe [(Stream Stream)]
+  Validate [(Plan Plan)]
+  SchemaVersion (u64)
+  TableName (String)
+  RecordKey (String)
+  Fact (Text)
+  Record (Text)
+  Query (Text)
+  Stream (Text)
+  Plan (Text)
+  Text (String)
+  Identifier (u64)
+  Name (String)
+  Path (String)
+  Status [Concept Active Retired]
+}
+
+[
+  (Version 0 1)
+  (Status Concept)
+]
