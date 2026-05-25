@@ -52,7 +52,7 @@ on veri-core's D6 redesign + veric's port.
 
 ## Macro-pattern integration
 
-**Status:** integrated into the brilliant macro library pattern per `reports/designer/326-v13-spirit-complete-schema-vision.md §3` (schemas as macro-pattern instance).
+**Status:** integrated into the `schema-rust` composer + `emit_schema!` proc-macro pattern per `reports/designer/340-schema-emission-no-legacy-signal-channel-2026-05-25.md` + `reports/operator/184-schema-macro-old-emitter-audit-2026-05-25.md` (schemas as `AssembledSchema` input to the `schema-rust` composer; emission top-down through `emit_schema!`). Supersedes `/326-v13`'s "brilliant macro library" framing which endorsed extending `signal-frame/macros/` — that direction is reversed per psyche record 639.
 
 **Role:** this crate is the sema-binary backend of the aski/sema pipeline. It is upstream of the workspace's current `signal-frame` / `sema-engine` substrate in conceptual terms (typed binary value language), but downstream of veric / domainc in the aski toolchain.
 
